@@ -15,3 +15,20 @@ pub struct Config {
     #[arg(long, default_value = "/mcp", env = "STELE_MCP_PATH")]
     pub mcp_path: String,
 }
+
+#[cfg(feature = "desktop")]
+impl Config {
+    /// Apply desktop-friendly defaults: move DB to ~/Library/Application Support/Stele/
+    /// if the user hasn't overridden it via CLI or env var.
+    pub fn with_desktop_defaults(mut self) -> Self {
+        if self.db == "./stele.db" {
+            if let Some(data_dir) = dirs::data_dir() {
+                let stele_dir = data_dir.join("Stele");
+                if std::fs::create_dir_all(&stele_dir).is_ok() {
+                    self.db = stele_dir.join("stele.db").to_string_lossy().into_owned();
+                }
+            }
+        }
+        self
+    }
+}

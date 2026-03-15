@@ -90,3 +90,19 @@ pub struct TagInfo {
     pub tag: String,
     pub count: i64,
 }
+
+#[derive(Debug, Clone)]
+pub struct Stats {
+    pub total_memories: i64,
+    pub total_scopes: i64,
+    pub total_tags: i64,
+    pub recent_memories: Vec<RecentMemorySummary>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecentMemorySummary {
+    pub id: String,
+    pub title: String,
+    pub scope: String,
+    pub updated_at: String,
+}

@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::models::{Memory, MemoryType, ScopeInfo, SearchResult, TagInfo};
+use crate::models::{Memory, MemoryType, RecentMemorySummary, ScopeInfo, SearchResult, Stats, TagInfo};
 use crate::query::SearchParams;
 
 pub type DbPool = Arc<Mutex<Connection>>;
@@ -425,6 +425,36 @@ pub fn list_tags(conn: &Connection, scope: Option<&str>) -> rusqlite::Result<Vec
     })?;
 
     rows.collect()
+}
+
+pub fn get_stats(conn: &Connection) -> rusqlite::Result<Stats> {
+    let total_memories: i64 =
+        conn.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
+    let total_scopes: i64 =
+        conn.query_row("SELECT COUNT(DISTINCT scope) FROM memories", [], |row| row.get(0))?;
+    let total_tags: i64 =
+        conn.query_row("SELECT COUNT(DISTINCT tag) FROM memory_tags", [], |row| row.get(0))?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, title, scope, updated_at FROM memories ORDER BY updated_at DESC LIMIT 5",
+    )?;
+    let recent = stmt
+        .query_map([], |row| {
+            Ok(RecentMemorySummary {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                scope: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    Ok(Stats {
+        total_memories,
+        total_scopes,
+        total_tags,
+        recent_memories: recent,
+    })
 }
 
 trait OptionalRow {

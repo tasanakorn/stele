@@ -5,8 +5,9 @@ RUN apt-get update && apt-get install -y pkg-config && rm -rf /var/lib/apt/lists
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
 COPY src/ src/
+COPY assets/ assets/
 
-RUN cargo build --release
+RUN cargo build --release --features headless --no-default-features
 
 FROM debian:bookworm-slim
 
