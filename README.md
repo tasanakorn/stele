@@ -22,7 +22,25 @@ cargo build --release --features headless --no-default-features
 ./target/release/stele
 ```
 
-Stele is now listening on `127.0.0.1:3100`. Connect Claude Code by adding to your `.mcp.json`:
+Stele is now listening on `127.0.0.1:3100`.
+
+### Connect Claude Code
+
+**Option A — CLI** (recommended):
+
+```bash
+# User scope (available in all projects)
+claude mcp add --scope user stele --transport http http://localhost:3100/mcp
+
+# Project scope (current project only)
+claude mcp add stele --transport http http://localhost:3100/mcp
+```
+
+Verify with `claude mcp list`.
+
+**Option B — Settings file:**
+
+Add to `~/.claude/settings.json` (user scope) or `.mcp.json` (project scope):
 
 ```json
 {
