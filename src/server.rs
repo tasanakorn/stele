@@ -8,6 +8,7 @@ use serde::Deserialize;
 use crate::db::{self, DbPool};
 use crate::models::{Memory, MemoryType};
 use crate::query::SearchParams;
+use crate::serde_helpers::{string_or_vec, string_or_vec_opt};
 use serde::Serialize;
 
 #[derive(Clone)]
@@ -33,8 +34,8 @@ pub struct StoreMemoryParams {
     pub content: String,
     /// Hierarchical scope (e.g. "team-a/frontend"). Used for prefix-matched filtering.
     pub scope: String,
-    /// Flat labels for multi-perspective categorization (e.g. ["vue", "auth"])
-    #[serde(default)]
+    /// JSON array of flat labels for multi-perspective categorization, e.g. ["vue", "auth"]
+    #[serde(default, deserialize_with = "string_or_vec")]
     pub tags: Vec<String>,
     /// Type of memory: knowledge, decision, convention, troubleshooting, reference, other
     pub memory_type: Option<String>,
@@ -48,7 +49,8 @@ pub struct RecallMemoriesParams {
     pub query: Option<String>,
     /// Scope prefix to filter by (e.g. "team-a" matches "team-a/frontend" too)
     pub scope: Option<String>,
-    /// Tags to filter by
+    /// JSON array of tags to filter by, e.g. ["vue", "auth"]
+    #[serde(default, deserialize_with = "string_or_vec_opt")]
     pub tags: Option<Vec<String>>,
     /// If true, memory must have ALL specified tags. Default: false (any match).
     #[serde(default)]
@@ -73,7 +75,8 @@ pub struct UpdateMemoryParams {
     pub content: Option<String>,
     /// New scope (optional)
     pub scope: Option<String>,
-    /// New tags - replaces all existing tags (optional)
+    /// JSON array of new tags — replaces all existing tags, e.g. ["vue", "auth"]
+    #[serde(default, deserialize_with = "string_or_vec_opt")]
     pub tags: Option<Vec<String>>,
     /// New memory type (optional)
     pub memory_type: Option<String>,
@@ -123,14 +126,15 @@ pub struct EntityInput {
     pub name: String,
     /// Type of entity (e.g. "person", "component", "service", "concept")
     pub entity_type: String,
-    /// Initial observations (atomic facts) about this entity
-    #[serde(default)]
+    /// JSON array of initial observations (atomic facts) about this entity, e.g. ["fact one", "fact two"]
+    #[serde(default, deserialize_with = "string_or_vec")]
     pub observations: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateEntitiesParams {
-    /// List of entities to create
+    /// JSON array of entities to create. Each element: {name, entity_type, observations?}
+    #[serde(deserialize_with = "string_or_vec")]
     pub entities: Vec<EntityInput>,
     /// Hierarchical scope for these entities
     pub scope: String,
@@ -148,7 +152,8 @@ pub struct RelationInput {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateRelationsParams {
-    /// List of relations to create
+    /// JSON array of relations to create. Each element: {from, to, relation_type}
+    #[serde(deserialize_with = "string_or_vec")]
     pub relations: Vec<RelationInput>,
     /// Scope where the entities exist
     pub scope: String,
@@ -160,13 +165,15 @@ pub struct AddObservationsParams {
     pub entity_name: String,
     /// Scope where the entity exists
     pub scope: String,
-    /// Observations (atomic facts) to add
+    /// JSON array of observations (atomic facts) to add, e.g. ["fact one", "fact two"]
+    #[serde(deserialize_with = "string_or_vec")]
     pub observations: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DeleteEntitiesParams {
-    /// Names of entities to delete (cascades observations and relations)
+    /// JSON array of entity names to delete (cascades observations and relations), e.g. ["EntityA", "EntityB"]
+    #[serde(deserialize_with = "string_or_vec")]
     pub entity_names: Vec<String>,
     /// Scope where the entities exist
     pub scope: String,
@@ -178,13 +185,15 @@ pub struct DeleteObservationsParams {
     pub entity_name: String,
     /// Scope where the entity exists
     pub scope: String,
-    /// Exact observation content strings to remove
+    /// JSON array of exact observation content strings to remove, e.g. ["fact one", "fact two"]
+    #[serde(deserialize_with = "string_or_vec")]
     pub observations: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DeleteRelationsParams {
-    /// List of relations to delete
+    /// JSON array of relations to delete. Each element: {from, to, relation_type}
+    #[serde(deserialize_with = "string_or_vec")]
     pub relations: Vec<RelationInput>,
     /// Scope where the entities exist
     pub scope: String,
@@ -208,7 +217,8 @@ pub struct SearchNodesParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct OpenNodesParams {
-    /// Entity names to open
+    /// JSON array of entity names to open, e.g. ["EntityA", "EntityB"]
+    #[serde(deserialize_with = "string_or_vec")]
     pub names: Vec<String>,
     /// Scope where the entities exist
     pub scope: String,

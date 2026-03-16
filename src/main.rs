@@ -3,6 +3,7 @@ mod config;
 mod db;
 mod models;
 mod query;
+mod serde_helpers;
 mod server;
 #[cfg(feature = "desktop")]
 mod tray;
