@@ -106,3 +106,47 @@ pub struct RecentMemorySummary {
     pub scope: String,
     pub updated_at: String,
 }
+
+// ── Knowledge Graph types ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Entity {
+    pub id: String,
+    pub name: String,
+    pub entity_type: String,
+    pub scope: String,
+    pub observations: Vec<Observation>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Observation {
+    pub id: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Relation {
+    pub id: String,
+    pub from_entity: String,
+    pub from_entity_id: String,
+    pub to_entity: String,
+    pub to_entity_id: String,
+    pub relation_type: String,
+    pub scope: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Graph {
+    pub entities: Vec<Entity>,
+    pub relations: Vec<Relation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntitySearchResult {
+    pub entity: Entity,
+    pub rank: Option<f64>,
+}

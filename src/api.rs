@@ -22,6 +22,19 @@ pub fn router(db: DbPool) -> Router {
         .route("/v1/scopes", get(list_scopes))
         .route("/v1/tags", get(list_tags))
         .route("/v1/stats", get(get_stats))
+        // Knowledge Graph routes
+        .route("/v1/graph", get(graph_read))
+        .route("/v1/graph/entities", get(graph_search_entities).post(graph_create_entities))
+        .route(
+            "/v1/graph/entities/{name}",
+            get(graph_get_entity).delete(graph_delete_entity),
+        )
+        .route(
+            "/v1/graph/entities/{name}/observations",
+            axum::routing::post(graph_add_observations).delete(graph_delete_observations),
+        )
+        .route("/v1/graph/relations", axum::routing::post(graph_create_relations).delete(graph_delete_relations))
+        .route("/v1/graph/open", get(graph_open_nodes))
         .layer(CorsLayer::permissive())
         .with_state(db)
 }
@@ -243,4 +256,245 @@ async fn get_stats(State(db): State<DbPool>) -> impl IntoResponse {
 
 fn error_response(status: StatusCode, message: &str) -> axum::response::Response {
     (status, Json(serde_json::to_value(&ErrorResponse { error: message.to_string() }).unwrap())).into_response()
+}
+
+// ── Knowledge Graph request types ──
+
+#[derive(Deserialize)]
+struct EntityInput {
+    name: String,
+    entity_type: String,
+    #[serde(default)]
+    observations: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct CreateEntitiesRequest {
+    entities: Vec<EntityInput>,
+    scope: String,
+}
+
+#[derive(Deserialize)]
+struct RelationInput {
+    from: String,
+    to: String,
+    relation_type: String,
+}
+
+#[derive(Deserialize)]
+struct CreateRelationsRequest {
+    relations: Vec<RelationInput>,
+    scope: String,
+}
+
+#[derive(Deserialize)]
+struct ObservationsRequest {
+    observations: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct DeleteRelationsRequest {
+    relations: Vec<RelationInput>,
+    scope: String,
+}
+
+#[derive(Deserialize)]
+struct GraphQuery {
+    scope: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct EntityQuery {
+    q: Option<String>,
+    scope: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct EntityScopeQuery {
+    scope: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OpenNodesQuery {
+    names: String,
+    scope: Option<String>,
+}
+
+// ── Knowledge Graph handlers ──
+
+async fn graph_create_entities(
+    State(db): State<DbPool>,
+    Json(req): Json<CreateEntitiesRequest>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    let mut results = Vec::new();
+
+    for input in &req.entities {
+        match db::insert_entity(&conn, &input.name, &input.entity_type, &req.scope, &input.observations) {
+            Ok((id, created)) => results.push(serde_json::json!({
+                "name": input.name,
+                "id": id,
+                "created": created,
+            })),
+            Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        }
+    }
+
+    (StatusCode::CREATED, Json(serde_json::to_value(&results).unwrap())).into_response()
+}
+
+async fn graph_search_entities(
+    State(db): State<DbPool>,
+    Query(q): Query<EntityQuery>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    let limit = q.limit.unwrap_or(20).min(100);
+
+    if let Some(query) = &q.q {
+        match db::search_entities(&conn, query, q.scope.as_deref(), limit) {
+            Ok(results) => Json(serde_json::to_value(&results).unwrap()).into_response(),
+            Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        }
+    } else {
+        // No query — return full graph for scope
+        let scope = q.scope.as_deref().unwrap_or("");
+        match db::read_graph(&conn, scope) {
+            Ok(graph) => Json(serde_json::to_value(&graph.entities).unwrap()).into_response(),
+            Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        }
+    }
+}
+
+async fn graph_get_entity(
+    State(db): State<DbPool>,
+    Path(name): Path<String>,
+    Query(q): Query<EntityScopeQuery>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    let scope = q.scope.as_deref().unwrap_or("");
+    match db::get_entity_by_name(&conn, &name, scope) {
+        Ok(Some(entity)) => Json(serde_json::to_value(&entity).unwrap()).into_response(),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, "Entity not found"),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+async fn graph_delete_entity(
+    State(db): State<DbPool>,
+    Path(name): Path<String>,
+    Query(q): Query<EntityScopeQuery>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    let scope = q.scope.as_deref().unwrap_or("");
+    match db::delete_entity(&conn, &name, scope) {
+        Ok(true) => Json(serde_json::to_value(&DeleteResponse { deleted: true, id: name }).unwrap()).into_response(),
+        Ok(false) => error_response(StatusCode::NOT_FOUND, "Entity not found"),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+async fn graph_add_observations(
+    State(db): State<DbPool>,
+    Path(name): Path<String>,
+    Query(q): Query<EntityScopeQuery>,
+    Json(req): Json<ObservationsRequest>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    let scope = q.scope.as_deref().unwrap_or("");
+    match db::insert_observations(&conn, &name, scope, &req.observations) {
+        Ok(Some(entity)) => Json(serde_json::to_value(&entity).unwrap()).into_response(),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, "Entity not found"),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+async fn graph_delete_observations(
+    State(db): State<DbPool>,
+    Path(name): Path<String>,
+    Query(q): Query<EntityScopeQuery>,
+    Json(req): Json<ObservationsRequest>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    let scope = q.scope.as_deref().unwrap_or("");
+    match db::delete_observations(&conn, &name, scope, &req.observations) {
+        Ok(Some(entity)) => Json(serde_json::to_value(&entity).unwrap()).into_response(),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, "Entity not found"),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+async fn graph_create_relations(
+    State(db): State<DbPool>,
+    Json(req): Json<CreateRelationsRequest>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    let mut results = Vec::new();
+
+    for input in &req.relations {
+        match db::insert_relation(&conn, &input.from, &input.to, &input.relation_type, &req.scope) {
+            Ok(Some((id, created))) => results.push(serde_json::json!({
+                "from": input.from,
+                "to": input.to,
+                "relation_type": input.relation_type,
+                "id": id,
+                "created": created,
+            })),
+            Ok(None) => return error_response(
+                StatusCode::NOT_FOUND,
+                &format!("Entity '{}' or '{}' not found in scope '{}'", input.from, input.to, req.scope),
+            ),
+            Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        }
+    }
+
+    (StatusCode::CREATED, Json(serde_json::to_value(&results).unwrap())).into_response()
+}
+
+async fn graph_delete_relations(
+    State(db): State<DbPool>,
+    Json(req): Json<DeleteRelationsRequest>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    let mut deleted = Vec::new();
+    let mut not_found = Vec::new();
+
+    for input in &req.relations {
+        match db::delete_relation(&conn, &input.from, &input.to, &input.relation_type, &req.scope) {
+            Ok(true) => deleted.push(format!("{} --[{}]--> {}", input.from, input.relation_type, input.to)),
+            Ok(false) => not_found.push(format!("{} --[{}]--> {}", input.from, input.relation_type, input.to)),
+            Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        }
+    }
+
+    Json(serde_json::to_value(serde_json::json!({
+        "deleted": deleted,
+        "not_found": not_found,
+    })).unwrap()).into_response()
+}
+
+async fn graph_read(
+    State(db): State<DbPool>,
+    Query(q): Query<GraphQuery>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    let scope = q.scope.as_deref().unwrap_or("");
+    match db::read_graph(&conn, scope) {
+        Ok(graph) => Json(serde_json::to_value(&graph).unwrap()).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+async fn graph_open_nodes(
+    State(db): State<DbPool>,
+    Query(q): Query<OpenNodesQuery>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    let scope = q.scope.as_deref().unwrap_or("");
+    let names: Vec<String> = q.names.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+
+    match db::open_entities(&conn, &names, scope) {
+        Ok(graph) => Json(serde_json::to_value(&graph).unwrap()).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
 }

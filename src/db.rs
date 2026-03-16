@@ -2,7 +2,10 @@ use rusqlite::{params, Connection};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::models::{Memory, MemoryType, RecentMemorySummary, ScopeInfo, SearchResult, Stats, TagInfo};
+use crate::models::{
+    Entity, EntitySearchResult, Graph, Memory, MemoryType, Observation, RecentMemorySummary,
+    Relation, ScopeInfo, SearchResult, Stats, TagInfo,
+};
 use crate::query::SearchParams;
 
 pub type DbPool = Arc<Mutex<Connection>>;
@@ -58,6 +61,77 @@ pub fn init_db(path: &str) -> rusqlite::Result<DbPool> {
             VALUES ('delete', old.rowid, old.title, old.content);
             INSERT INTO memories_fts(rowid, title, content)
             VALUES (new.rowid, new.title, new.content);
+        END;
+
+        -- Knowledge Graph tables
+        CREATE TABLE IF NOT EXISTS entities (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            scope       TEXT NOT NULL DEFAULT '',
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL,
+            UNIQUE(name, scope)
+        );
+        CREATE INDEX IF NOT EXISTS idx_entities_scope ON entities(scope);
+        CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+
+        CREATE TABLE IF NOT EXISTS observations (
+            id         TEXT PRIMARY KEY,
+            entity_id  TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            content    TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
+
+        CREATE TABLE IF NOT EXISTS relations (
+            id            TEXT PRIMARY KEY,
+            from_entity   TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            to_entity     TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            relation_type TEXT NOT NULL,
+            scope         TEXT NOT NULL DEFAULT '',
+            created_at    TEXT NOT NULL,
+            UNIQUE(from_entity, to_entity, relation_type)
+        );
+        CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity);
+        CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity);
+
+        -- FTS for entity names/types
+        CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
+            name, entity_type, content='entities', content_rowid='rowid'
+        );
+        CREATE TRIGGER IF NOT EXISTS entities_ai AFTER INSERT ON entities BEGIN
+            INSERT INTO entities_fts(rowid, name, entity_type)
+            VALUES (new.rowid, new.name, new.entity_type);
+        END;
+        CREATE TRIGGER IF NOT EXISTS entities_ad AFTER DELETE ON entities BEGIN
+            INSERT INTO entities_fts(entities_fts, rowid, name, entity_type)
+            VALUES ('delete', old.rowid, old.name, old.entity_type);
+        END;
+        CREATE TRIGGER IF NOT EXISTS entities_au AFTER UPDATE ON entities BEGIN
+            INSERT INTO entities_fts(entities_fts, rowid, name, entity_type)
+            VALUES ('delete', old.rowid, old.name, old.entity_type);
+            INSERT INTO entities_fts(rowid, name, entity_type)
+            VALUES (new.rowid, new.name, new.entity_type);
+        END;
+
+        -- FTS for observation content
+        CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
+            content, content='observations', content_rowid='rowid'
+        );
+        CREATE TRIGGER IF NOT EXISTS observations_ai AFTER INSERT ON observations BEGIN
+            INSERT INTO observations_fts(rowid, content)
+            VALUES (new.rowid, new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS observations_ad AFTER DELETE ON observations BEGIN
+            INSERT INTO observations_fts(observations_fts, rowid, content)
+            VALUES ('delete', old.rowid, old.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS observations_au AFTER UPDATE ON observations BEGIN
+            INSERT INTO observations_fts(observations_fts, rowid, content)
+            VALUES ('delete', old.rowid, old.content);
+            INSERT INTO observations_fts(rowid, content)
+            VALUES (new.rowid, new.content);
         END;
         ",
     )?;
@@ -469,4 +543,428 @@ impl OptionalRow for rusqlite::Result<Memory> {
             Err(e) => Err(e),
         }
     }
+}
+
+// ── Knowledge Graph functions ──
+
+pub fn resolve_entity_id(conn: &Connection, name: &str, scope: &str) -> rusqlite::Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT id FROM entities WHERE name = ?1 AND scope = ?2")?;
+    match stmt.query_row(params![name, scope], |row| row.get::<_, String>(0)) {
+        Ok(id) => Ok(Some(id)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+pub fn insert_entity(
+    conn: &Connection,
+    name: &str,
+    entity_type: &str,
+    scope: &str,
+    observations: &[String],
+) -> rusqlite::Result<(String, bool)> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Check if entity already exists
+    if let Some(existing_id) = resolve_entity_id(conn, name, scope)? {
+        // Add any new observations to existing entity
+        if !observations.is_empty() {
+            insert_observations_for_entity(conn, &existing_id, observations)?;
+        }
+        return Ok((existing_id, false));
+    }
+
+    let id = ulid::Ulid::new().to_string();
+    conn.execute(
+        "INSERT INTO entities (id, name, entity_type, scope, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, name, entity_type, scope, now, now],
+    )?;
+
+    if !observations.is_empty() {
+        insert_observations_for_entity(conn, &id, observations)?;
+    }
+
+    Ok((id, true))
+}
+
+fn insert_observations_for_entity(
+    conn: &Connection,
+    entity_id: &str,
+    observations: &[String],
+) -> rusqlite::Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    for obs in observations {
+        let obs_id = ulid::Ulid::new().to_string();
+        conn.execute(
+            "INSERT INTO observations (id, entity_id, content, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![obs_id, entity_id, obs, now],
+        )?;
+    }
+    conn.execute(
+        "UPDATE entities SET updated_at = ?1 WHERE id = ?2",
+        params![now, entity_id],
+    )?;
+    Ok(())
+}
+
+pub fn get_entity_by_name(conn: &Connection, name: &str, scope: &str) -> rusqlite::Result<Option<Entity>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, entity_type, scope, created_at, updated_at FROM entities WHERE name = ?1 AND scope = ?2",
+    )?;
+
+    let entity = match stmt.query_row(params![name, scope], |row| {
+        Ok(Entity {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            entity_type: row.get(2)?,
+            scope: row.get(3)?,
+            observations: Vec::new(),
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
+        })
+    }) {
+        Ok(e) => e,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+
+    let observations = get_observations(conn, &entity.id)?;
+    Ok(Some(Entity { observations, ..entity }))
+}
+
+fn get_entity_by_id(conn: &Connection, id: &str) -> rusqlite::Result<Option<Entity>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, entity_type, scope, created_at, updated_at FROM entities WHERE id = ?1",
+    )?;
+
+    let entity = match stmt.query_row(params![id], |row| {
+        Ok(Entity {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            entity_type: row.get(2)?,
+            scope: row.get(3)?,
+            observations: Vec::new(),
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
+        })
+    }) {
+        Ok(e) => e,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+
+    let observations = get_observations(conn, &entity.id)?;
+    Ok(Some(Entity { observations, ..entity }))
+}
+
+fn get_observations(conn: &Connection, entity_id: &str) -> rusqlite::Result<Vec<Observation>> {
+    let mut stmt =
+        conn.prepare("SELECT id, content, created_at FROM observations WHERE entity_id = ?1 ORDER BY created_at")?;
+    let rows = stmt.query_map(params![entity_id], |row| {
+        Ok(Observation {
+            id: row.get(0)?,
+            content: row.get(1)?,
+            created_at: row.get(2)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn insert_observations(
+    conn: &Connection,
+    entity_name: &str,
+    scope: &str,
+    observations: &[String],
+) -> rusqlite::Result<Option<Entity>> {
+    let entity_id = match resolve_entity_id(conn, entity_name, scope)? {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+
+    insert_observations_for_entity(conn, &entity_id, observations)?;
+    get_entity_by_id(conn, &entity_id)
+}
+
+pub fn delete_observations(
+    conn: &Connection,
+    entity_name: &str,
+    scope: &str,
+    observations: &[String],
+) -> rusqlite::Result<Option<Entity>> {
+    let entity_id = match resolve_entity_id(conn, entity_name, scope)? {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+
+    for obs in observations {
+        conn.execute(
+            "DELETE FROM observations WHERE entity_id = ?1 AND content = ?2",
+            params![entity_id, obs],
+        )?;
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE entities SET updated_at = ?1 WHERE id = ?2",
+        params![now, entity_id],
+    )?;
+
+    get_entity_by_id(conn, &entity_id)
+}
+
+pub fn delete_entity(conn: &Connection, name: &str, scope: &str) -> rusqlite::Result<bool> {
+    let rows = conn.execute(
+        "DELETE FROM entities WHERE name = ?1 AND scope = ?2",
+        params![name, scope],
+    )?;
+    Ok(rows > 0)
+}
+
+pub fn insert_relation(
+    conn: &Connection,
+    from_name: &str,
+    to_name: &str,
+    relation_type: &str,
+    scope: &str,
+) -> rusqlite::Result<Option<(String, bool)>> {
+    let from_id = match resolve_entity_id(conn, from_name, scope)? {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+    let to_id = match resolve_entity_id(conn, to_name, scope)? {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+
+    // Check if relation already exists
+    let existing: bool = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_entity = ?1 AND to_entity = ?2 AND relation_type = ?3",
+        params![from_id, to_id, relation_type],
+        |row| Ok(row.get::<_, i64>(0)? > 0),
+    )?;
+
+    if existing {
+        let id: String = conn.query_row(
+            "SELECT id FROM relations WHERE from_entity = ?1 AND to_entity = ?2 AND relation_type = ?3",
+            params![from_id, to_id, relation_type],
+            |row| row.get(0),
+        )?;
+        return Ok(Some((id, false)));
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let id = ulid::Ulid::new().to_string();
+    conn.execute(
+        "INSERT INTO relations (id, from_entity, to_entity, relation_type, scope, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, from_id, to_id, relation_type, scope, now],
+    )?;
+
+    Ok(Some((id, true)))
+}
+
+pub fn delete_relation(
+    conn: &Connection,
+    from_name: &str,
+    to_name: &str,
+    relation_type: &str,
+    scope: &str,
+) -> rusqlite::Result<bool> {
+    let from_id = match resolve_entity_id(conn, from_name, scope)? {
+        Some(id) => id,
+        None => return Ok(false),
+    };
+    let to_id = match resolve_entity_id(conn, to_name, scope)? {
+        Some(id) => id,
+        None => return Ok(false),
+    };
+
+    let rows = conn.execute(
+        "DELETE FROM relations WHERE from_entity = ?1 AND to_entity = ?2 AND relation_type = ?3",
+        params![from_id, to_id, relation_type],
+    )?;
+    Ok(rows > 0)
+}
+
+pub fn read_graph(conn: &Connection, scope: &str) -> rusqlite::Result<Graph> {
+    // Get all entities in scope (prefix match)
+    let mut entity_stmt = conn.prepare(
+        "SELECT id, name, entity_type, scope, created_at, updated_at FROM entities WHERE scope = ?1 OR scope LIKE ?2 ORDER BY name",
+    )?;
+    let scope_prefix = format!("{scope}/%");
+    let entities_raw: Vec<Entity> = entity_stmt
+        .query_map(params![scope, scope_prefix], |row| {
+            Ok(Entity {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                entity_type: row.get(2)?,
+                scope: row.get(3)?,
+                observations: Vec::new(),
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut entities = Vec::with_capacity(entities_raw.len());
+    for e in entities_raw {
+        let observations = get_observations(conn, &e.id)?;
+        entities.push(Entity { observations, ..e });
+    }
+
+    // Get all relations in scope
+    let mut rel_stmt = conn.prepare(
+        "SELECT r.id, ef.name, r.from_entity, et.name, r.to_entity, r.relation_type, r.scope, r.created_at
+         FROM relations r
+         JOIN entities ef ON ef.id = r.from_entity
+         JOIN entities et ON et.id = r.to_entity
+         WHERE r.scope = ?1 OR r.scope LIKE ?2
+         ORDER BY ef.name, et.name",
+    )?;
+    let relations: Vec<Relation> = rel_stmt
+        .query_map(params![scope, scope_prefix], |row| {
+            Ok(Relation {
+                id: row.get(0)?,
+                from_entity: row.get(1)?,
+                from_entity_id: row.get(2)?,
+                to_entity: row.get(3)?,
+                to_entity_id: row.get(4)?,
+                relation_type: row.get(5)?,
+                scope: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    Ok(Graph { entities, relations })
+}
+
+pub fn search_entities(
+    conn: &Connection,
+    query: &str,
+    scope: Option<&str>,
+    limit: usize,
+) -> rusqlite::Result<Vec<EntitySearchResult>> {
+    // Search entity names/types via FTS, then observation content via FTS
+    // Union the entity IDs and return full entities with observations
+    let mut sql = String::from(
+        "SELECT DISTINCT e.id, MIN(rank) as best_rank FROM (
+            SELECT e.id, fts.rank
+            FROM entities_fts fts
+            JOIN entities e ON e.rowid = fts.rowid
+            WHERE entities_fts MATCH ?1
+            UNION ALL
+            SELECT o.entity_id as id, fts.rank
+            FROM observations_fts fts
+            JOIN observations o ON o.rowid = fts.rowid
+            WHERE observations_fts MATCH ?1
+        ) sub
+        JOIN entities e ON e.id = sub.id
+        WHERE 1=1",
+    );
+    let mut sql_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(query.to_string())];
+    let mut param_idx = 2;
+
+    if let Some(s) = scope {
+        sql.push_str(&format!(
+            " AND (e.scope = ?{idx} OR e.scope LIKE ?{idx2})",
+            idx = param_idx,
+            idx2 = param_idx + 1,
+        ));
+        sql_params.push(Box::new(s.to_string()));
+        sql_params.push(Box::new(format!("{s}/%")));
+        param_idx += 2;
+    }
+
+    sql.push_str(&format!(" GROUP BY e.id ORDER BY best_rank LIMIT ?{param_idx}"));
+    sql_params.push(Box::new(limit as i64));
+
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+
+    let rows: Vec<(String, Option<f64>)> = stmt
+        .query_map(param_refs.as_slice(), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<f64>>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut results = Vec::with_capacity(rows.len());
+    for (entity_id, rank) in rows {
+        if let Some(entity) = get_entity_by_id(conn, &entity_id)? {
+            results.push(EntitySearchResult { entity, rank });
+        }
+    }
+    Ok(results)
+}
+
+pub fn open_entities(
+    conn: &Connection,
+    names: &[String],
+    scope: &str,
+) -> rusqlite::Result<Graph> {
+    let mut entities = Vec::new();
+    let mut entity_ids = Vec::new();
+
+    for name in names {
+        if let Some(entity) = get_entity_by_name(conn, name, scope)? {
+            entity_ids.push(entity.id.clone());
+            entities.push(entity);
+        }
+    }
+
+    if entity_ids.is_empty() {
+        return Ok(Graph {
+            entities: Vec::new(),
+            relations: Vec::new(),
+        });
+    }
+
+    // Get all relations involving these entities (from or to)
+    let placeholders: Vec<String> = entity_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let ph_str = placeholders.join(", ");
+    let sql = format!(
+        "SELECT r.id, ef.name, r.from_entity, et.name, r.to_entity, r.relation_type, r.scope, r.created_at
+         FROM relations r
+         JOIN entities ef ON ef.id = r.from_entity
+         JOIN entities et ON et.id = r.to_entity
+         WHERE r.from_entity IN ({ph_str}) OR r.to_entity IN ({ph_str})"
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    // Build params: each entity_id appears once in the param list, but is referenced twice
+    let sql_params: Vec<Box<dyn rusqlite::types::ToSql>> =
+        entity_ids.iter().map(|id| Box::new(id.clone()) as Box<dyn rusqlite::types::ToSql>).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+
+    let relations: Vec<Relation> = stmt
+        .query_map(param_refs.as_slice(), |row| {
+            Ok(Relation {
+                id: row.get(0)?,
+                from_entity: row.get(1)?,
+                from_entity_id: row.get(2)?,
+                to_entity: row.get(3)?,
+                to_entity_id: row.get(4)?,
+                relation_type: row.get(5)?,
+                scope: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    // Also load neighbor entities that aren't already in the list
+    let mut neighbor_ids: Vec<String> = Vec::new();
+    for rel in &relations {
+        if !entity_ids.contains(&rel.from_entity_id) && !neighbor_ids.contains(&rel.from_entity_id) {
+            neighbor_ids.push(rel.from_entity_id.clone());
+        }
+        if !entity_ids.contains(&rel.to_entity_id) && !neighbor_ids.contains(&rel.to_entity_id) {
+            neighbor_ids.push(rel.to_entity_id.clone());
+        }
+    }
+    for nid in &neighbor_ids {
+        if let Some(entity) = get_entity_by_id(conn, nid)? {
+            entities.push(entity);
+        }
+    }
+
+    Ok(Graph { entities, relations })
 }

@@ -37,7 +37,7 @@ The server is a single async process: axum serves HTTP, rmcp handles MCP protoco
 - **`server.rs`** — `SteleServer` implements rmcp's `ServerHandler`. Tools are defined with rmcp's `#[tool_router]` / `#[tool_handler]` macros. Each tool method locks the DB mutex, calls into `db.rs`, and returns a JSON string. Tool parameter structs must derive `schemars::JsonSchema` (v1, not v0.8 — rmcp requires schemars v1).
 - **`db.rs`** — SQLite schema init (tables + FTS5 + triggers), all CRUD functions. `DbPool` is `Arc<Mutex<Connection>>` (tokio mutex). SQL is built dynamically in `search_memories` using helper functions that append scope/tag filter clauses with positional parameter tracking (`?N` style).
 - **`api.rs`** — REST API router mounted at `/api`. Axum handlers with JSON request/response, CORS via `tower-http`. Reuses `db.rs` functions directly.
-- **`models.rs`** — Domain types: `Memory`, `SearchResult`, `MemoryType` enum, `ScopeInfo`, `TagInfo`, `Stats`.
+- **`models.rs`** — Domain types: `Memory`, `SearchResult`, `MemoryType` enum, `ScopeInfo`, `TagInfo`, `Stats`, plus knowledge graph types: `Entity`, `Observation`, `Relation`, `Graph`, `EntitySearchResult`.
 - **`query.rs`** — `SearchParams` struct used to pass search criteria from server to db layer.
 - **`config.rs`** — Clap derive struct with env var fallbacks. Desktop feature adds `with_desktop_defaults()` to relocate DB to `~/Library/Application Support/Stele/`.
 
@@ -49,6 +49,36 @@ Two-dimensional organization:
 2. **Tags** (many per memory, flat labels) — stored in `memory_tags` join table. Filtered as union (any tag matches) by default, or intersection (all tags must match) with `match_all_tags`.
 
 Full-text search uses SQLite FTS5 on title + content, kept in sync via INSERT/UPDATE/DELETE triggers. The FTS table uses content-sync mode (`content='memories'`).
+
+### Knowledge Graph
+
+Structured relationships stored in three tables:
+
+1. **Entities** (`entities` table) — nodes with `name`, `entity_type`, `scope`. Names are unique within a scope (`UNIQUE(name, scope)`).
+2. **Observations** (`observations` table) — atomic facts attached to entities. Stored in a join table with FK to entities (CASCADE delete).
+3. **Relations** (`relations` table) — directed edges between entities with `relation_type`. Unique constraint on `(from_entity, to_entity, relation_type)`.
+
+Two FTS5 tables enable `search_nodes` to match by entity name/type (`entities_fts`) OR observation content (`observations_fts`).
+
+### MCP Tools
+
+**Flat memory tools (7):** `store_memory`, `recall_memories`, `get_memory`, `update_memory`, `forget_memory`, `list_scopes`, `list_tags`
+
+**Knowledge graph tools (9):**
+
+| Tool                  | Description                                                              |
+| --------------------- | ------------------------------------------------------------------------ |
+| `create_entities`     | Create nodes (idempotent — existing entities get observations appended)  |
+| `create_relations`    | Create directed edges (idempotent)                                       |
+| `add_observations`    | Append atomic facts to an entity                                         |
+| `delete_entities`     | Delete nodes (cascades observations + relations)                         |
+| `delete_observations` | Remove specific facts by exact content match                             |
+| `delete_relations`    | Remove specific edges                                                    |
+| `read_graph`          | Full graph dump for a scope                                              |
+| `search_nodes`        | FTS across entity names + observations                                   |
+| `open_nodes`          | Fetch entities + their direct neighbor relations                         |
+
+**Bootstrap tool (1):** `bootstrap_project` — generates a CLAUDE.md snippet teaching Claude Code how to use both flat memory and knowledge graph for a project.
 
 ## REST API
 
@@ -65,12 +95,76 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 | GET    | /api/v1/tags          | List tags with counts   |
 | GET    | /api/v1/stats         | Dashboard summary stats |
 
+### Knowledge Graph
+
+| Method | Path                                      | Description            |
+| ------ | ----------------------------------------- | ---------------------- |
+| GET    | /api/v1/graph?scope=                      | Read full graph        |
+| POST   | /api/v1/graph/entities                    | Create entities        |
+| GET    | /api/v1/graph/entities?q=&scope=          | Search entities        |
+| GET    | /api/v1/graph/entities/:name?scope=       | Get entity by name     |
+| DELETE | /api/v1/graph/entities/:name?scope=       | Delete entity          |
+| POST   | /api/v1/graph/entities/:name/observations | Add observations       |
+| DELETE | /api/v1/graph/entities/:name/observations | Delete observations    |
+| POST   | /api/v1/graph/relations                   | Create relations       |
+| DELETE | /api/v1/graph/relations                   | Delete relations       |
+| GET    | /api/v1/graph/open?names=a,b&scope=       | Open specific nodes    |
+
 ## rmcp Conventions
 
 - Tool methods go inside `#[tool_router] impl SteleServer { ... }` — this generates `Self::tool_router()`.
 - `#[tool_handler] impl ServerHandler for SteleServer` auto-implements `call_tool`, `list_tools`, `get_tool` by delegating to the router stored in `self.tool_router`.
 - Tool parameters use `Parameters<T>` extractor where `T: Deserialize + JsonSchema`.
 - Tool return type is `String` (auto-converted to `Content::text` by rmcp).
+
+## Stele Shared Memory Protocol
+
+**Scope:** `stele` | **Type:** library
+
+This is the core Stele repository. Use scope `stele` for all memories and entities. Sub-scopes: `stele/core` (server, DB, MCP), `stele/api` (REST endpoints), `stele/desktop` (tray/menu bar).
+
+### Hybrid Storage Strategy
+
+- **Flat Memory** — decisions, conventions, troubleshooting, references. Use `store_memory` / `recall_memories`.
+- **Knowledge Graph** — architecture, components, dependencies. Use `create_entities` / `create_relations` / `search_nodes` / `open_nodes` / `read_graph`.
+- Rule of thumb: **fact or note** → flat memory. **Thing with relationships** → knowledge graph.
+
+### Knowledge Synchronization
+
+- **On Boot:** At the start of every task, run `recall_memories(scope: "stele")` and `search_nodes(query: "*", scope: "stele")`. Do not assume you know the current state.
+- **Dependency Awareness:** Before architectural changes, run `open_nodes` or `read_graph` to check what depends on the module you're changing.
+- **Sub-projects:** When creating a new sub-module, call `bootstrap_project(project_name: "module-name", parent_scope: "stele")`.
+
+### Update-on-Change Protocol (Autonomous)
+
+You MUST update remote memory immediately when any of the following change — no permission needed:
+- **Contract changes:** API signature, env var, or shared interface → `store_memory` with `#contract` tag + `add_observations` on the relevant entity. Tag `#breaking` if it affects other services.
+- **Lessons learned:** Non-obvious bug fix → `add_observations` on the entity + `store_memory` with `#wisdom` tag.
+- **Relationship discovery:** If you find module A depends on module B → `create_relations`.
+
+### Tagging Convention
+
+| Tag         | Meaning                                              |
+| ----------- | ---------------------------------------------------- |
+| `#active`   | Currently implemented and enforced rules             |
+| `#todo`     | Technical debt or pending migrations                 |
+| `#contract` | Inter-service API definitions and shared interfaces  |
+| `#breaking` | Changes that require other agents/services to update |
+| `#wisdom`   | Non-obvious technical discoveries and gotchas        |
+| `#conflict` | Local rule that conflicts with a workspace-level rule|
+
+Project-specific: `#public-api`, `#semver`, `#docs`
+
+### Scope Guide
+
+Queries use prefix matching: `recall_memories(scope: "stele")` matches `stele`, `stele/core`, `stele/api`, etc.
+
+| Scope           | What it covers                     |
+| --------------- | ---------------------------------- |
+| `stele`         | Workspace-wide standards           |
+| `stele/core`    | Server, DB, MCP protocol layer     |
+| `stele/api`     | REST API endpoints                 |
+| `stele/desktop` | Tray app, menu bar (macOS)         |
 
 ## Docker
 
