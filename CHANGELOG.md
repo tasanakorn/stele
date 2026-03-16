@@ -1,0 +1,19 @@
+# Changelog
+
+Maintained with the help of AI tooling. Each entry references the git hash it covers through.
+
+## 2026-03-16 23:00:51 `a033c96`
+
+### Added
+- Shared memory server for Claude Code with MCP interface over Streamable HTTP and SQLite storage (`9904b65`)
+- Flat memory tools: `store_memory`, `recall_memories`, `get_memory`, `update_memory`, `forget_memory`, `list_scopes`, `list_tags` (`9904b65`)
+- macOS/Windows/Linux menu bar app as default build mode with tray icon, "Open Dashboard", and "Quit" menu items (`ca28505`)
+- REST API at `/api/v1` for memories, scopes, tags, and stats with CORS support (`ca28505`)
+- Desktop-friendly defaults: DB relocated to `~/Library/Application Support/Stele/` on macOS (`ca28505`)
+- Knowledge graph with entities, observations, and relations stored in SQLite with FTS5 search (`84863b4`)
+- Knowledge graph MCP tools: `create_entities`, `create_relations`, `add_observations`, `delete_entities`, `delete_observations`, `delete_relations`, `read_graph`, `search_nodes`, `open_nodes` (`84863b4`)
+- Knowledge graph REST API endpoints under `/api/v1/graph` (`84863b4`)
+- `bootstrap_project` MCP tool for generating operational CLAUDE.md snippets (`84863b4`)
+
+### Fixed
+- Lenient deserialization for array parameters that arrive as JSON-encoded strings instead of actual arrays (`a033c96`)
