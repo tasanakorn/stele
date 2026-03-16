@@ -53,6 +53,31 @@ Add to `~/.claude/settings.json` (user scope) or `.mcp.json` (project scope):
 }
 ```
 
+## Bootstrap a Project
+
+Once Stele is running and connected, ask Claude Code to bootstrap your project. This generates a comprehensive CLAUDE.md protocol section tailored to your project type.
+
+**Example prompts:**
+
+```
+Bootstrap this project with stele, project group = "acme", this is a web app
+```
+
+```
+Bootstrap this project with stele, scope = "acme/payments", project type = api
+```
+
+Claude Code will call `bootstrap_project` and produce an operational protocol covering:
+- Hybrid storage strategy (flat memory vs knowledge graph)
+- Knowledge synchronization rules (on-boot queries, dependency checks)
+- Update-on-change protocol (autonomous memory updates)
+- Tagging conventions and scope hierarchy
+- Suggested entity and relation types for your project type
+
+Paste the output into your project's `CLAUDE.md` so all Claude Code sessions follow the same protocol.
+
+**Supported project types:** `web-app`, `frontend`, `api`, `backend`, `library`, `sdk`, `monorepo`, `data-pipeline`, `ml`, or `general` (default).
+
 ## Configuration
 
 | Flag         | Env Var          | Default                                            | Description                  |
@@ -74,11 +99,11 @@ Prose entries for decisions, conventions, troubleshooting notes, and references.
 **Scopes** are hierarchical and prefix-matched when querying:
 
 ```
-scope: "team-a/frontend"
+scope: "acme/frontend"
 
 # Found by querying:
-scope: "team-a"            # prefix match
-scope: "team-a/frontend"   # exact match
+scope: "acme"              # prefix match — matches all acme/* scopes
+scope: "acme/frontend"     # exact match
 ```
 
 **Tags** are flat labels, many per memory. Filter by any matching tag (default) or require all tags with `match_all_tags`:
