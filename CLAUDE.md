@@ -38,14 +38,15 @@ The server is a single async process: axum serves HTTP, rmcp handles MCP protoco
 - **`db.rs`** — SQLite schema init (tables + FTS5 + triggers), all CRUD functions. `DbPool` is `Arc<Mutex<Connection>>` (tokio mutex). SQL is built dynamically in `search_memories` using helper functions that append scope/tag filter clauses with positional parameter tracking (`?N` style).
 - **`api.rs`** — REST API router mounted at `/api`. Axum handlers with JSON request/response, CORS via `tower-http`. Reuses `db.rs` functions directly.
 - **`models.rs`** — Domain types: `Memory`, `SearchResult`, `MemoryType` enum, `ScopeInfo`, `TagInfo`, `Stats`, plus knowledge graph types: `Entity`, `Observation`, `Relation`, `Graph`, `EntitySearchResult`.
-- **`query.rs`** — `SearchParams` struct used to pass search criteria from server to db layer.
+- **`serde_helpers.rs`** — Lenient deserialization helpers. `string_or_vec`/`string_or_vec_opt` handle JSON-encoded arrays in strings. `string_or_string_vec`/`string_or_string_vec_opt` handle bare strings or arrays of strings (used for multi-scope parameters).
+- **`query.rs`** — `SearchParams` struct used to pass search criteria from server to db layer. `scope` is `Option<Vec<String>>` to support multi-scope queries.
 - **`config.rs`** — Clap derive struct with env var fallbacks. Desktop feature adds `with_desktop_defaults()` to relocate DB to `~/Library/Application Support/Stele/`.
 
 ## Data Model
 
 Two-dimensional organization:
 
-1. **Scope** (one per memory, hierarchical) — queried via prefix match: `scope = ?1 OR scope LIKE ?1||'/%'`. Example: querying `team-a` matches `team-a`, `team-a/frontend`, `team-a/backend`.
+1. **Scope** (one per memory, hierarchical) — queried via prefix match: `scope = ?1 OR scope LIKE ?1||'/%'`. Example: querying `team-a` matches `team-a`, `team-a/frontend`, `team-a/backend`. Read/search tools accept multiple scopes (string or array) for cross-scope queries; write tools remain single-scope.
 2. **Tags** (many per memory, flat labels) — stored in `memory_tags` join table. Filtered as union (any tag matches) by default, or intersection (all tags must match) with `match_all_tags`.
 
 Full-text search uses SQLite FTS5 on title + content, kept in sync via INSERT/UPDATE/DELETE triggers. The FTS table uses content-sync mode (`content='memories'`).
@@ -74,9 +75,9 @@ Two FTS5 tables enable `search_nodes` to match by entity name/type (`entities_ft
 | `delete_entities`     | Delete nodes (cascades observations + relations)                         |
 | `delete_observations` | Remove specific facts by exact content match                             |
 | `delete_relations`    | Remove specific edges                                                    |
-| `read_graph`          | Full graph dump for a scope                                              |
-| `search_nodes`        | FTS across entity names + observations                                   |
-| `open_nodes`          | Fetch entities + their direct neighbor relations                         |
+| `read_graph`          | Full graph dump for one or more scopes (multi-scope)                     |
+| `search_nodes`        | FTS across entity names + observations (multi-scope)                     |
+| `open_nodes`          | Fetch entities + their direct neighbor relations (multi-scope)           |
 
 **Bootstrap tool (1):** `bootstrap_project` — generates a CLAUDE.md snippet teaching Claude Code how to use both flat memory and knowledge graph for a project.
 
@@ -131,7 +132,7 @@ This is the core Stele repository. Use scope `stele` for all memories and entiti
 
 ### Knowledge Synchronization
 
-- **On Boot:** At the start of every task, run `recall_memories(scope: "stele")` and `search_nodes(query: "*", scope: "stele")`. Do not assume you know the current state.
+- **On Boot:** At the start of every task, run `recall_memories(scope: ["stele", "global"])` and `search_nodes(query: "*", scope: ["stele", "global"])`. Do not assume you know the current state.
 - **Dependency Awareness:** Before architectural changes, run `open_nodes` or `read_graph` to check what depends on the module you're changing.
 - **Sub-projects:** When creating a new sub-module, call `bootstrap_project(project_name: "module-name", parent_scope: "stele")`.
 
@@ -165,6 +166,14 @@ Queries use prefix matching: `recall_memories(scope: "stele")` matches `stele`, 
 | `stele/core`    | Server, DB, MCP protocol layer     |
 | `stele/api`     | REST API endpoints                 |
 | `stele/desktop` | Tray app, menu bar (macOS)         |
+
+#### Multi-Scope Retrieval
+
+Read tools (`recall_memories`, `search_nodes`, `read_graph`, `open_nodes`, `list_tags`) accept `scope` as a string or array of strings. Use array form to include the `global` scope for shared cross-project knowledge. Write tools remain single-scope.
+
+- `recall_memories(scope: ["stele", "global"])` — project + shared global knowledge
+- `recall_memories(scope: "stele")` — project only (children included via prefix match)
+- REST API: comma-separated — `GET /api/v1/memories?scope=stele,global`
 
 ## Docker
 
