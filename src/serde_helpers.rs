@@ -44,6 +44,61 @@ where
     }
 }
 
+/// Deserialize a `Vec<String>` from either a single string or an array of strings.
+///
+/// Unlike `string_or_vec`, a bare string `"foo"` becomes `vec!["foo"]` directly —
+/// it is NOT parsed as a JSON-encoded array.
+pub fn string_or_string_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    match value {
+        Value::Array(arr) => arr
+            .into_iter()
+            .map(|v| match v {
+                Value::String(s) => Ok(s),
+                other => Err(de::Error::custom(format!(
+                    "expected string in array, got {}",
+                    value_type_name(&other)
+                ))),
+            })
+            .collect(),
+        Value::String(s) => Ok(vec![s]),
+        other => Err(de::Error::custom(format!(
+            "expected string or array of strings, got {}",
+            value_type_name(&other)
+        ))),
+    }
+}
+
+/// Deserialize an `Option<Vec<String>>` from null/missing, a single string, or an array of strings.
+pub fn string_or_string_vec_opt<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    match value {
+        Value::Null => Ok(None),
+        Value::Array(arr) => arr
+            .into_iter()
+            .map(|v| match v {
+                Value::String(s) => Ok(s),
+                other => Err(de::Error::custom(format!(
+                    "expected string in array, got {}",
+                    value_type_name(&other)
+                ))),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some),
+        Value::String(s) => Ok(Some(vec![s])),
+        other => Err(de::Error::custom(format!(
+            "expected string, array of strings, or null, got {}",
+            value_type_name(&other)
+        ))),
+    }
+}
+
 fn value_type_name(v: &Value) -> &'static str {
     match v {
         Value::Null => "null",

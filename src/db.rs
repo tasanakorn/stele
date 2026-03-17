@@ -375,21 +375,34 @@ fn search_without_fts(
     Ok(results)
 }
 
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 fn append_scope_filter(
     sql: &mut String,
     sql_params: &mut Vec<Box<dyn rusqlite::types::ToSql>>,
     param_idx: &mut usize,
-    scope: Option<&str>,
+    scopes: Option<&[String]>,
 ) {
-    if let Some(s) = scope {
-        sql.push_str(&format!(
-            " AND (m.scope = ?{idx} OR m.scope LIKE ?{idx2})",
-            idx = *param_idx,
-            idx2 = *param_idx + 1,
-        ));
-        sql_params.push(Box::new(s.to_string()));
-        sql_params.push(Box::new(format!("{s}/%")));
-        *param_idx += 2;
+    if let Some(scopes) = scopes {
+        if scopes.is_empty() {
+            return;
+        }
+        let mut clauses = Vec::with_capacity(scopes.len());
+        for s in scopes {
+            clauses.push(format!(
+                "(m.scope = ?{idx} OR m.scope LIKE ?{idx2} ESCAPE '\\')",
+                idx = *param_idx,
+                idx2 = *param_idx + 1,
+            ));
+            sql_params.push(Box::new(s.to_string()));
+            sql_params.push(Box::new(format!("{}/%", escape_like(s))));
+            *param_idx += 2;
+        }
+        sql.push_str(&format!(" AND ({})", clauses.join(" OR ")));
     }
 }
 
@@ -447,9 +460,9 @@ fn append_tag_filter(
 pub fn list_scopes(conn: &Connection, prefix: Option<&str>) -> rusqlite::Result<Vec<ScopeInfo>> {
     let (sql, sql_params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match prefix {
         Some(p) => (
-            "SELECT scope, COUNT(*) as count FROM memories WHERE scope = ?1 OR scope LIKE ?2 GROUP BY scope ORDER BY scope"
+            "SELECT scope, COUNT(*) as count FROM memories WHERE scope = ?1 OR scope LIKE ?2 ESCAPE '\\' GROUP BY scope ORDER BY scope"
                 .to_string(),
-            vec![Box::new(p.to_string()), Box::new(format!("{p}/%"))],
+            vec![Box::new(p.to_string()), Box::new(format!("{}/%", escape_like(p)))],
         ),
         None => (
             "SELECT scope, COUNT(*) as count FROM memories GROUP BY scope ORDER BY scope".to_string(),
@@ -470,22 +483,38 @@ pub fn list_scopes(conn: &Connection, prefix: Option<&str>) -> rusqlite::Result<
     rows.collect()
 }
 
-pub fn list_tags(conn: &Connection, scope: Option<&str>) -> rusqlite::Result<Vec<TagInfo>> {
-    let (sql, sql_params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match scope {
-        Some(s) => (
-            "SELECT mt.tag, COUNT(*) as count
-             FROM memory_tags mt
-             JOIN memories m ON m.id = mt.memory_id
-             WHERE m.scope = ?1 OR m.scope LIKE ?2
-             GROUP BY mt.tag ORDER BY count DESC, mt.tag"
-                .to_string(),
-            vec![Box::new(s.to_string()), Box::new(format!("{s}/%"))],
-        ),
-        None => (
-            "SELECT tag, COUNT(*) as count FROM memory_tags GROUP BY tag ORDER BY count DESC, tag"
-                .to_string(),
-            vec![],
-        ),
+pub fn list_tags(conn: &Connection, scopes: Option<&[String]>) -> rusqlite::Result<Vec<TagInfo>> {
+    let mut sql = String::new();
+    let mut sql_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    match scopes {
+        Some(scopes) if !scopes.is_empty() => {
+            sql.push_str(
+                "SELECT mt.tag, COUNT(*) as count
+                 FROM memory_tags mt
+                 JOIN memories m ON m.id = mt.memory_id
+                 WHERE ",
+            );
+            let mut clauses = Vec::with_capacity(scopes.len());
+            let mut idx = 1;
+            for s in scopes {
+                clauses.push(format!(
+                    "(m.scope = ?{idx} OR m.scope LIKE ?{idx2} ESCAPE '\\')",
+                    idx = idx,
+                    idx2 = idx + 1,
+                ));
+                sql_params.push(Box::new(s.to_string()));
+                sql_params.push(Box::new(format!("{}/%", escape_like(s))));
+                idx += 2;
+            }
+            sql.push_str(&format!("({})", clauses.join(" OR ")));
+            sql.push_str(" GROUP BY mt.tag ORDER BY count DESC, mt.tag");
+        }
+        _ => {
+            sql.push_str(
+                "SELECT tag, COUNT(*) as count FROM memory_tags GROUP BY tag ORDER BY count DESC, tag",
+            );
+        }
     };
 
     let mut stmt = conn.prepare(&sql)?;
@@ -785,14 +814,37 @@ pub fn delete_relation(
     Ok(rows > 0)
 }
 
-pub fn read_graph(conn: &Connection, scope: &str) -> rusqlite::Result<Graph> {
-    // Get all entities in scope (prefix match)
-    let mut entity_stmt = conn.prepare(
-        "SELECT id, name, entity_type, scope, created_at, updated_at FROM entities WHERE scope = ?1 OR scope LIKE ?2 ORDER BY name",
-    )?;
-    let scope_prefix = format!("{scope}/%");
+pub fn read_graph(conn: &Connection, scopes: &[String]) -> rusqlite::Result<Graph> {
+    if scopes.is_empty() {
+        return Ok(Graph {
+            entities: Vec::new(),
+            relations: Vec::new(),
+        });
+    }
+
+    // Build scope filter for entities
+    let mut entity_sql = String::from(
+        "SELECT id, name, entity_type, scope, created_at, updated_at FROM entities WHERE ",
+    );
+    let mut sql_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut idx = 1;
+    let mut clauses = Vec::with_capacity(scopes.len());
+    for s in scopes {
+        clauses.push(format!(
+            "(scope = ?{idx} OR scope LIKE ?{idx2} ESCAPE '\\')",
+            idx = idx,
+            idx2 = idx + 1,
+        ));
+        sql_params.push(Box::new(s.to_string()));
+        sql_params.push(Box::new(format!("{}/%", escape_like(s))));
+        idx += 2;
+    }
+    entity_sql.push_str(&format!("({}) ORDER BY name", clauses.join(" OR ")));
+
+    let mut entity_stmt = conn.prepare(&entity_sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
     let entities_raw: Vec<Entity> = entity_stmt
-        .query_map(params![scope, scope_prefix], |row| {
+        .query_map(param_refs.as_slice(), |row| {
             Ok(Entity {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -811,17 +863,33 @@ pub fn read_graph(conn: &Connection, scope: &str) -> rusqlite::Result<Graph> {
         entities.push(Entity { observations, ..e });
     }
 
-    // Get all relations in scope
-    let mut rel_stmt = conn.prepare(
+    // Build scope filter for relations
+    let mut rel_sql = String::from(
         "SELECT r.id, ef.name, r.from_entity, et.name, r.to_entity, r.relation_type, r.scope, r.created_at
          FROM relations r
          JOIN entities ef ON ef.id = r.from_entity
          JOIN entities et ON et.id = r.to_entity
-         WHERE r.scope = ?1 OR r.scope LIKE ?2
-         ORDER BY ef.name, et.name",
-    )?;
+         WHERE ",
+    );
+    let mut rel_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut idx = 1;
+    let mut clauses = Vec::with_capacity(scopes.len());
+    for s in scopes {
+        clauses.push(format!(
+            "(r.scope = ?{idx} OR r.scope LIKE ?{idx2} ESCAPE '\\')",
+            idx = idx,
+            idx2 = idx + 1,
+        ));
+        rel_params.push(Box::new(s.to_string()));
+        rel_params.push(Box::new(format!("{}/%", escape_like(s))));
+        idx += 2;
+    }
+    rel_sql.push_str(&format!("({}) ORDER BY ef.name, et.name", clauses.join(" OR ")));
+
+    let mut rel_stmt = conn.prepare(&rel_sql)?;
+    let rel_param_refs: Vec<&dyn rusqlite::types::ToSql> = rel_params.iter().map(|p| p.as_ref()).collect();
     let relations: Vec<Relation> = rel_stmt
-        .query_map(params![scope, scope_prefix], |row| {
+        .query_map(rel_param_refs.as_slice(), |row| {
             Ok(Relation {
                 id: row.get(0)?,
                 from_entity: row.get(1)?,
@@ -841,7 +909,7 @@ pub fn read_graph(conn: &Connection, scope: &str) -> rusqlite::Result<Graph> {
 pub fn search_entities(
     conn: &Connection,
     query: &str,
-    scope: Option<&str>,
+    scopes: Option<&[String]>,
     limit: usize,
 ) -> rusqlite::Result<Vec<EntitySearchResult>> {
     // Search entity names/types via FTS, then observation content via FTS
@@ -864,15 +932,21 @@ pub fn search_entities(
     let mut sql_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(query.to_string())];
     let mut param_idx = 2;
 
-    if let Some(s) = scope {
-        sql.push_str(&format!(
-            " AND (e.scope = ?{idx} OR e.scope LIKE ?{idx2})",
-            idx = param_idx,
-            idx2 = param_idx + 1,
-        ));
-        sql_params.push(Box::new(s.to_string()));
-        sql_params.push(Box::new(format!("{s}/%")));
-        param_idx += 2;
+    if let Some(scopes) = scopes {
+        if !scopes.is_empty() {
+            let mut clauses = Vec::with_capacity(scopes.len());
+            for s in scopes {
+                clauses.push(format!(
+                    "(e.scope = ?{idx} OR e.scope LIKE ?{idx2} ESCAPE '\\')",
+                    idx = param_idx,
+                    idx2 = param_idx + 1,
+                ));
+                sql_params.push(Box::new(s.to_string()));
+                sql_params.push(Box::new(format!("{}/%", escape_like(s))));
+                param_idx += 2;
+            }
+            sql.push_str(&format!(" AND ({})", clauses.join(" OR ")));
+        }
     }
 
     sql.push_str(&format!(" GROUP BY e.id ORDER BY best_rank LIMIT ?{param_idx}"));
@@ -899,15 +973,61 @@ pub fn search_entities(
 pub fn open_entities(
     conn: &Connection,
     names: &[String],
-    scope: &str,
+    scopes: &[String],
 ) -> rusqlite::Result<Graph> {
     let mut entities = Vec::new();
     let mut entity_ids = Vec::new();
 
-    for name in names {
-        if let Some(entity) = get_entity_by_name(conn, name, scope)? {
-            entity_ids.push(entity.id.clone());
-            entities.push(entity);
+    if !names.is_empty() && !scopes.is_empty() {
+        // Build a query that finds entities matching any name + any scope (prefix-matched)
+        let mut sql = String::from(
+            "SELECT id, name, entity_type, scope, created_at, updated_at FROM entities WHERE ",
+        );
+        let mut sql_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut idx = 1;
+
+        // Name filter
+        let name_placeholders: Vec<String> = names.iter().enumerate().map(|(i, _)| format!("?{}", idx + i)).collect();
+        sql.push_str(&format!("name IN ({})", name_placeholders.join(", ")));
+        for n in names {
+            sql_params.push(Box::new(n.to_string()));
+        }
+        idx += names.len();
+
+        // Scope filter (prefix-matched)
+        let mut scope_clauses = Vec::with_capacity(scopes.len());
+        for s in scopes {
+            scope_clauses.push(format!(
+                "(scope = ?{idx} OR scope LIKE ?{idx2} ESCAPE '\\')",
+                idx = idx,
+                idx2 = idx + 1,
+            ));
+            sql_params.push(Box::new(s.to_string()));
+            sql_params.push(Box::new(format!("{}/%", escape_like(s))));
+            idx += 2;
+        }
+        sql.push_str(&format!(" AND ({})", scope_clauses.join(" OR ")));
+
+        let mut stmt = conn.prepare(&sql)?;
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+        let rows: Vec<Entity> = stmt
+            .query_map(param_refs.as_slice(), |row| {
+                Ok(Entity {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    entity_type: row.get(2)?,
+                    scope: row.get(3)?,
+                    observations: Vec::new(),
+                    created_at: row.get(4)?,
+                    updated_at: row.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        for e in rows {
+            let observations = get_observations(conn, &e.id)?;
+            entity_ids.push(e.id.clone());
+            entities.push(Entity { observations, ..e });
         }
     }
 

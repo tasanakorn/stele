@@ -141,10 +141,11 @@ async fn list_memories(
     Query(q): Query<MemoriesQuery>,
 ) -> impl IntoResponse {
     let tags = q.tags.map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
+    let scopes = q.scope.map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect());
 
     let search = SearchParams {
         query: q.q,
-        scope: q.scope,
+        scope: scopes,
         tags,
         match_all_tags: q.match_all_tags,
         limit: q.limit,
@@ -222,7 +223,8 @@ async fn list_tags(
     Query(q): Query<TagsQuery>,
 ) -> impl IntoResponse {
     let conn = db.lock().await;
-    match db::list_tags(&conn, q.scope.as_deref()) {
+    let scopes: Option<Vec<String>> = q.scope.map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect());
+    match db::list_tags(&conn, scopes.as_deref()) {
         Ok(tags) => Json(serde_json::to_value(&tags).unwrap()).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
@@ -351,15 +353,17 @@ async fn graph_search_entities(
     let conn = db.lock().await;
     let limit = q.limit.unwrap_or(20).min(100);
 
+    let scopes: Option<Vec<String>> = q.scope.map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect());
+
     if let Some(query) = &q.q {
-        match db::search_entities(&conn, query, q.scope.as_deref(), limit) {
+        match db::search_entities(&conn, query, scopes.as_deref(), limit) {
             Ok(results) => Json(serde_json::to_value(&results).unwrap()).into_response(),
             Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
         }
     } else {
         // No query — return full graph for scope
-        let scope = q.scope.as_deref().unwrap_or("");
-        match db::read_graph(&conn, scope) {
+        let scope_vec = scopes.unwrap_or_else(|| vec![String::new()]);
+        match db::read_graph(&conn, &scope_vec) {
             Ok(graph) => Json(serde_json::to_value(&graph.entities).unwrap()).into_response(),
             Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
         }
@@ -478,8 +482,10 @@ async fn graph_read(
     Query(q): Query<GraphQuery>,
 ) -> impl IntoResponse {
     let conn = db.lock().await;
-    let scope = q.scope.as_deref().unwrap_or("");
-    match db::read_graph(&conn, scope) {
+    let scopes: Vec<String> = q.scope
+        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+        .unwrap_or_else(|| vec![String::new()]);
+    match db::read_graph(&conn, &scopes) {
         Ok(graph) => Json(serde_json::to_value(&graph).unwrap()).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
@@ -490,10 +496,12 @@ async fn graph_open_nodes(
     Query(q): Query<OpenNodesQuery>,
 ) -> impl IntoResponse {
     let conn = db.lock().await;
-    let scope = q.scope.as_deref().unwrap_or("");
+    let scopes: Vec<String> = q.scope
+        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+        .unwrap_or_else(|| vec![String::new()]);
     let names: Vec<String> = q.names.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
 
-    match db::open_entities(&conn, &names, scope) {
+    match db::open_entities(&conn, &names, &scopes) {
         Ok(graph) => Json(serde_json::to_value(&graph).unwrap()).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }

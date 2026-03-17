@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::db::{self, DbPool};
 use crate::models::{Memory, MemoryType};
 use crate::query::SearchParams;
-use crate::serde_helpers::{string_or_vec, string_or_vec_opt};
+use crate::serde_helpers::{string_or_string_vec, string_or_string_vec_opt, string_or_vec, string_or_vec_opt};
 use serde::Serialize;
 
 #[derive(Clone)]
@@ -47,8 +47,9 @@ pub struct StoreMemoryParams {
 pub struct RecallMemoriesParams {
     /// Full-text search query
     pub query: Option<String>,
-    /// Scope prefix to filter by (e.g. "team-a" matches "team-a/frontend" too)
-    pub scope: Option<String>,
+    /// Scope prefix(es) to filter by. String or array of strings (e.g. "team-a" or ["myproject", "global"])
+    #[serde(default, deserialize_with = "string_or_string_vec_opt")]
+    pub scope: Option<Vec<String>>,
     /// JSON array of tags to filter by, e.g. ["vue", "auth"]
     #[serde(default, deserialize_with = "string_or_vec_opt")]
     pub tags: Option<Vec<String>>,
@@ -96,8 +97,9 @@ pub struct ListScopesParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListTagsParams {
-    /// Optional scope to filter tags within
-    pub scope: Option<String>,
+    /// Optional scope(s) to filter tags within. String or array of strings.
+    #[serde(default, deserialize_with = "string_or_string_vec_opt")]
+    pub scope: Option<Vec<String>>,
 }
 
 // ── Knowledge Graph result structs ──
@@ -201,16 +203,18 @@ pub struct DeleteRelationsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReadGraphParams {
-    /// Scope to read the graph from (prefix-matched)
-    pub scope: String,
+    /// Scope(s) to read the graph from. String or array of strings (prefix-matched).
+    #[serde(deserialize_with = "string_or_string_vec")]
+    pub scope: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchNodesParams {
     /// Full-text search query
     pub query: String,
-    /// Optional scope prefix to filter by
-    pub scope: Option<String>,
+    /// Optional scope prefix(es). String or array of strings.
+    #[serde(default, deserialize_with = "string_or_string_vec_opt")]
+    pub scope: Option<Vec<String>>,
     /// Maximum number of results (default: 20, max: 100)
     pub limit: Option<usize>,
 }
@@ -220,8 +224,9 @@ pub struct OpenNodesParams {
     /// JSON array of entity names to open, e.g. ["EntityA", "EntityB"]
     #[serde(deserialize_with = "string_or_vec")]
     pub names: Vec<String>,
-    /// Scope where the entities exist
-    pub scope: String,
+    /// Scope(s) where the entities exist. String or array of strings (prefix-matched).
+    #[serde(deserialize_with = "string_or_string_vec")]
+    pub scope: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -262,7 +267,7 @@ impl SteleServer {
         }
     }
 
-    #[tool(description = "Search memories by keywords, scope, and/or tags")]
+    #[tool(description = "Search memories by keywords, scope(s), and/or tags. Scope accepts a string or array for cross-scope search.")]
     async fn recall_memories(
         &self,
         Parameters(params): Parameters<RecallMemoriesParams>,
@@ -333,7 +338,7 @@ impl SteleServer {
         }
     }
 
-    #[tool(description = "List all tags with memory counts, optionally filtered by scope")]
+    #[tool(description = "List all tags with memory counts, optionally filtered by scope(s)")]
     async fn list_tags(&self, Parameters(params): Parameters<ListTagsParams>) -> String {
         let conn = self.db.lock().await;
         match db::list_tags(&conn, params.scope.as_deref()) {
@@ -450,7 +455,7 @@ impl SteleServer {
         .unwrap_or_default()
     }
 
-    #[tool(description = "Read the full knowledge graph for a scope (all entities, observations, and relations)")]
+    #[tool(description = "Read the full knowledge graph for one or more scopes (all entities, observations, and relations)")]
     async fn read_graph(&self, Parameters(params): Parameters<ReadGraphParams>) -> String {
         let conn = self.db.lock().await;
         match db::read_graph(&conn, &params.scope) {
@@ -459,7 +464,7 @@ impl SteleServer {
         }
     }
 
-    #[tool(description = "Search the knowledge graph by entity name or observation content using full-text search")]
+    #[tool(description = "Search the knowledge graph by entity name or observation content. Scope accepts a string or array.")]
     async fn search_nodes(&self, Parameters(params): Parameters<SearchNodesParams>) -> String {
         let limit = params.limit.unwrap_or(20).min(100);
         let conn = self.db.lock().await;
@@ -469,7 +474,7 @@ impl SteleServer {
         }
     }
 
-    #[tool(description = "Open specific entities by name, returning them with their observations and direct neighbor relations")]
+    #[tool(description = "Open specific entities by name across one or more scopes, with observations and neighbor relations")]
     async fn open_nodes(&self, Parameters(params): Parameters<OpenNodesParams>) -> String {
         let conn = self.db.lock().await;
         match db::open_entities(&conn, &params.names, &params.scope) {
@@ -575,8 +580,8 @@ create_relations(relations: [
 At the beginning of every task, pull the latest shared state. **Do not assume you know the current state.**
 
 ```
-recall_memories(scope: "{scope}")
-search_nodes(query: "*", scope: "{scope}")
+recall_memories(scope: ["{scope}", "global"])
+search_nodes(query: "*", scope: ["{scope}", "global"])
 ```
 
 #### Dependency Awareness
@@ -654,6 +659,18 @@ Examples:
 - `recall_memories(scope: "{scope}")` — matches `{scope}`, `{scope}/backend`, `{scope}/frontend`, etc.
 - `recall_memories(scope: "{top_scope}")` — matches everything in the workspace.
 
+#### Multi-Scope Retrieval
+
+Read tools accept scope as a string or array. Use this **only** for including the `global` scope
+alongside your project scope. The `global` scope is designed for shared knowledge that applies
+across all projects (e.g. org-wide conventions, shared infrastructure).
+
+✅ `recall_memories(scope: ["{scope}", "global"])` — project + shared global knowledge
+✅ `recall_memories(scope: "{scope}")` — project only (children included via prefix match)
+❌ `recall_memories(scope: ["{scope}", "other-project"])` — avoid querying across unrelated projects
+
+Do not query across unrelated project scopes unless the user explicitly asks you to.
+
 ---
 
 ### 6. Suggested Entity & Relation Types
@@ -698,7 +715,9 @@ impl ServerHandler for SteleServer {
              stores structural relationships between components, services, people, and dependencies. \
              Use bootstrap_project to generate a full operational protocol for a new project — \
              it produces a comprehensive CLAUDE.md section covering hybrid storage strategy, \
-             knowledge synchronization, update-on-change rules, tagging conventions, and scope guidance."
+             knowledge synchronization, update-on-change rules, tagging conventions, and scope guidance. \
+             Read tools (recall_memories, search_nodes, read_graph, open_nodes, list_tags) accept scope as a string or array. \
+             Use array form to include the 'global' scope for shared cross-project knowledge."
                 .to_string(),
         );
         info
