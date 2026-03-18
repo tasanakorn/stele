@@ -14,6 +14,10 @@ pub struct Config {
     /// MCP endpoint path
     #[arg(long, default_value = "/mcp", env = "STELE_MCP_PATH")]
     pub mcp_path: String,
+
+    /// Open settings dialog (desktop only, used internally)
+    #[arg(long, hide = true)]
+    pub settings: bool,
 }
 
 #[cfg(feature = "desktop")]
