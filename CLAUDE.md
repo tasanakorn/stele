@@ -175,6 +175,20 @@ Read tools (`recall_memories`, `search_nodes`, `read_graph`, `open_nodes`, `list
 - `recall_memories(scope: "stele")` — project only (children included via prefix match)
 - REST API: comma-separated — `GET /api/v1/memories?scope=stele,global`
 
+## macOS .app Bundle
+
+Shell-script-based packaging using only macOS built-ins (`sips`, `iconutil`, `hdiutil`). No `cargo-bundle` dependency.
+
+```bash
+./scripts/build-macos.sh          # builds target/release/Stele.app
+./scripts/build-dmg.sh            # creates target/release/Stele-0.1.0-macos.dmg
+```
+
+- **`assets/AppIcon.png`** — 1024×1024 source icon (menu bar icon is separate: `assets/icon.png` at 22×22).
+- **`macos/Info.plist`** — Bundle metadata template. `__VERSION__` is substituted from `Cargo.toml` at build time. `LSUIElement=true` hides from Dock.
+- **`scripts/build-macos.sh`** — Runs `cargo build --release`, generates `.icns` via `sips`+`iconutil`, assembles `.app` directory layout.
+- **`scripts/build-dmg.sh`** — Wraps `Stele.app` in a compressed DMG with `/Applications` symlink.
+
 ## Docker
 
 ```bash

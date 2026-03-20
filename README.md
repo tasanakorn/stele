@@ -200,6 +200,24 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 | DELETE | /api/v1/graph/relations                   | Delete relations   |
 | GET    | /api/v1/graph/open?names=a,b&scope=       | Open specific nodes|
 
+## macOS .app Bundle
+
+Package Stele as a native macOS application bundle. Uses only macOS built-in tools — no `cargo-bundle` needed.
+
+```bash
+# Build Stele.app (includes cargo build --release)
+./scripts/build-macos.sh
+
+# Create distributable DMG (run after build-macos.sh)
+./scripts/build-dmg.sh
+```
+
+Output:
+- `target/release/Stele.app` — double-click to launch, or drag to `/Applications`
+- `target/release/Stele-0.1.0-macos.dmg` — compressed disk image with Applications symlink
+
+The app runs as a menu-bar-only utility (`LSUIElement=true`) — no Dock icon, just the tray icon.
+
 ## Docker
 
 ```bash

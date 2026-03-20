@@ -2,6 +2,13 @@
 
 Maintained with the help of AI tooling. Each entry references the git hash it covers through.
 
+## 2026-03-20 07:48:13 `7a809aa`
+
+### Added
+- Multi-scope retrieval for read/search tools — `recall_memories`, `search_nodes`, `read_graph`, `open_nodes`, and `list_tags` now accept scope as a string or array of strings for cross-scope queries (`17e3053`)
+- Bind address settings dialog with live server rebind — new "Settings" menu item in tray opens an egui dialog to change the bind IP, persisted in `config.toml`, with the server rebinding without restart (`443d21d`)
+- macOS `.app` bundle build scripts using only built-in tools (`sips`, `iconutil`, `hdiutil`) — `scripts/build-macos.sh` assembles `Stele.app`, `scripts/build-dmg.sh` creates a distributable DMG (`7a809aa`)
+
 ## 2026-03-16 23:00:51 `a033c96`
 
 ### Added
