@@ -3,3 +3,6 @@
 *.db-shm
 *.db-wal
 .claude/
+*.app
+*.dmg
+*.icns
