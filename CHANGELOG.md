@@ -2,6 +2,11 @@
 
 Maintained with the help of AI tooling. Each entry references the git hash it covers through.
 
+## 2026-03-20 08:42:33 `3d94ac8`
+
+### Added
+- Linux systemd service with install/uninstall scripts, hardened unit file, dedicated `stele` user, and environment config at `/etc/default/stele` (`3d94ac8`)
+
 ## 2026-03-20 07:48:13 `7a809aa`
 
 ### Added
