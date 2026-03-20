@@ -18,9 +18,15 @@ echo "=== Installing Stele v${VERSION} (system service) ==="
 echo "Building release binary (headless)..."
 cd "$ROOT_DIR"
 BUILD_USER="${SUDO_USER:-$(logname)}"
-BUILD_USER_HOME=$(eval echo "~$BUILD_USER")
+BUILD_USER_HOME=$(getent passwd "$BUILD_USER" | cut -d: -f6)
 sudo -u "$BUILD_USER" env PATH="$BUILD_USER_HOME/.cargo/bin:$PATH" \
     cargo build --release --features headless --no-default-features
+
+# Stop service before replacing binary (upgrade case)
+if systemctl is-active --quiet stele 2>/dev/null; then
+    echo "Stopping running stele service..."
+    systemctl stop stele
+fi
 
 # Install binary
 echo "Installing binary to /usr/local/bin/stele..."
