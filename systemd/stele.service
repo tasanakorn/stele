@@ -1,0 +1,22 @@
+[Unit]
+Description=Stele shared memory server
+After=network.target
+
+[Service]
+Type=simple
+User=stele
+Group=stele
+EnvironmentFile=/etc/default/stele
+ExecStart=/usr/local/bin/stele
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/stele
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
