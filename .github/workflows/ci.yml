@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+
+  clippy:
+    name: Clippy (headless)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --features headless --no-default-features -- -D warnings
+
+  check-desktop:
+    name: Check (desktop, macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check
+
+  validate-plugin:
+    name: Validate plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required files
+        run: |
+          for f in \
+            plugin/.claude-plugin/plugin.json \
+            plugin/.mcp.json \
+            plugin/skills/install/SKILL.md \
+            plugin/skills/bootstrap/SKILL.md \
+            plugin/skills/sync/SKILL.md \
+            plugin/skills/checkpoint/SKILL.md \
+            plugin/skills/bootstrap/references/claude-md-template.md \
+            plugin/agents/stele-librarian.md \
+            plugin/README.md; do
+            [ -f "$f" ] || { echo "Missing: $f"; exit 1; }
+          done
+          echo "All plugin files present."
+
+      - name: Validate JSON files
+        run: |
+          python3 -c "import json; json.load(open('plugin/.claude-plugin/plugin.json'))"
+          python3 -c "import json; json.load(open('plugin/.mcp.json'))"
+          python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"
+
+      - name: Check version sync
+        run: |
+          CARGO_VER=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PLUGIN_VER=$(python3 -c "import json; print(json.load(open('plugin/.claude-plugin/plugin.json'))['version'])")
+          MARKET_VER=$(python3 -c "import json; print(json.load(open('.claude-plugin/marketplace.json'))['plugins'][0]['version'])")
+          OK=true
+          if [ "$CARGO_VER" != "$PLUGIN_VER" ]; then
+            echo "Version mismatch: Cargo.toml=$CARGO_VER plugin.json=$PLUGIN_VER"
+            OK=false
+          fi
+          if [ "$CARGO_VER" != "$MARKET_VER" ]; then
+            echo "Version mismatch: Cargo.toml=$CARGO_VER marketplace.json=$MARKET_VER"
+            OK=false
+          fi
+          $OK && echo "All versions match: $CARGO_VER" || exit 1

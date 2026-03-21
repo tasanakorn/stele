@@ -1,0 +1,10 @@
+{
+  "name": "stele",
+  "version": "0.2.0",
+  "description": "Shared team memory for Claude Code — flat memories + knowledge graph via MCP",
+  "author": {
+    "name": "tasanakorn"
+  },
+  "homepage": "https://github.com/tasanakorn/stele",
+  "license": "MIT"
+}

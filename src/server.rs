@@ -483,7 +483,7 @@ impl SteleServer {
         }
     }
 
-    #[tool(description = "Generate a CLAUDE.md snippet for a project that teaches Claude Code how to use Stele's flat memory and knowledge graph together")]
+    #[tool(description = "DEPRECATED: Use the Stele plugin's /stele:bootstrap skill instead. Generate a CLAUDE.md snippet for a project that teaches Claude Code how to use Stele's flat memory and knowledge graph together")]
     async fn bootstrap_project(&self, Parameters(params): Parameters<BootstrapProjectParams>) -> String {
         let scope = match &params.parent_scope {
             Some(parent) => format!("{parent}/{}", params.project_name),
@@ -713,8 +713,8 @@ impl ServerHandler for SteleServer {
              Tags are flat labels for multi-perspective categorization. \
              The knowledge graph (create_entities, create_relations, search_nodes, open_nodes, read_graph) \
              stores structural relationships between components, services, people, and dependencies. \
-             Use bootstrap_project to generate a full operational protocol for a new project — \
-             it produces a comprehensive CLAUDE.md section covering hybrid storage strategy, \
+             The bootstrap_project tool is deprecated — install the Stele plugin for the /stele:bootstrap skill instead. \
+             bootstrap_project generates a CLAUDE.md section covering hybrid storage strategy, \
              knowledge synchronization, update-on-change rules, tagging conventions, and scope guidance. \
              Read tools (recall_memories, search_nodes, read_graph, open_nodes, list_tags) accept scope as a string or array. \
              Use array form to include the 'global' scope for shared cross-project knowledge."

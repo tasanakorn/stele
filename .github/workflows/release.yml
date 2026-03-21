@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-macos:
+    name: macOS ${{ matrix.suffix }}
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            suffix: aarch64
+          - target: x86_64-apple-darwin
+            suffix: x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Build desktop
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package desktop binary
+        run: |
+          cp target/${{ matrix.target }}/release/stele stele-${{ matrix.suffix }}-apple-darwin-desktop
+          shasum -a 256 stele-${{ matrix.suffix }}-apple-darwin-desktop > stele-${{ matrix.suffix }}-apple-darwin-desktop.sha256
+
+      - name: Build headless
+        run: cargo build --release --target ${{ matrix.target }} --features headless --no-default-features
+
+      - name: Package headless binary
+        run: |
+          cp target/${{ matrix.target }}/release/stele stele-${{ matrix.suffix }}-apple-darwin-headless
+          shasum -a 256 stele-${{ matrix.suffix }}-apple-darwin-headless > stele-${{ matrix.suffix }}-apple-darwin-headless.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.suffix }}
+          path: stele-*
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  release:
+    name: Create GitHub Release
+    needs: [build-macos, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*

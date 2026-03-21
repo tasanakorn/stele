@@ -1,0 +1,17 @@
+{
+  "name": "stele-plugins",
+  "owner": {
+    "name": "tasanakorn"
+  },
+  "metadata": {
+    "description": "Shared team memory for Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "stele",
+      "source": "./plugin",
+      "description": "Shared team memory for Claude Code — flat memories + knowledge graph via MCP",
+      "version": "0.2.0"
+    }
+  ]
+}

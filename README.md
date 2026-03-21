@@ -4,43 +4,88 @@ Shared memory layer for [Claude Code](https://claude.ai/code). A single Rust bin
 
 ## Quick Start
 
-### Desktop (macOS — default)
+### 1. Start the Server
 
-Runs as a menu bar app with a tray icon.
+**macOS (desktop)** — runs as a menu bar app with a tray icon:
 
 ```bash
 cargo build --release
 ./target/release/stele
 ```
 
-The database is stored at `~/Library/Application Support/Stele/stele.db`.
-
-### Headless (Linux / Docker / CI)
+**Linux / Docker (headless):**
 
 ```bash
 cargo build --release --features headless --no-default-features
 ./target/release/stele
 ```
 
+**Docker:**
+
+```bash
+docker run -d -p 3100:3100 -v stele-data:/data ghcr.io/tasanakorn/stele
+```
+
 Stele is now listening on `127.0.0.1:3100`.
 
-### Connect Claude Code
+### 2. Install the Plugin
 
-**Option A — CLI** (recommended):
+```bash
+claude plugin add tasanakorn/stele
+```
+
+This installs the Stele plugin which auto-configures the MCP connection and provides skills + a subagent. Run `/reload-plugins` to activate.
+
+### 3. Bootstrap Your Project
+
+```
+/stele:bootstrap
+```
+
+The bootstrap skill asks for your project name, scope, and type, then:
+- Creates a project entity in the knowledge graph
+- Stores conventions as shared memory
+- Writes a protocol section into your CLAUDE.md
+
+That's it. All Claude Code sessions in this project now share knowledge through Stele.
+
+## Usage
+
+### Skills
+
+The plugin provides four skills:
+
+| Skill      | Command            | Description                                                        |
+| ---------- | ------------------ | ------------------------------------------------------------------ |
+| Install    | `/stele:install`   | Check Stele MCP connection and help configure it                   |
+| Bootstrap  | `/stele:bootstrap` | Initialize a project — create scope, seed entities, generate CLAUDE.md |
+| Sync       | `/stele:sync`      | Pull latest shared team context into the current session           |
+| Checkpoint | `/stele:checkpoint`| Save session findings back to Stele                                |
+
+**Typical workflow:**
+
+1. `/stele:install` — first time only, verify server is reachable and MCP is configured
+2. `/stele:bootstrap` — once per project, set up scope and conventions
+3. `/stele:sync` — start of each session, pull latest team knowledge
+4. `/stele:checkpoint` — end of session, save decisions and discoveries
+
+### Agent
+
+The **stele-librarian** is a read-only subagent (Sonnet) for searching memories and graph nodes. It's automatically available when the plugin is installed. Claude Code will use it when it needs to look up shared knowledge without writing anything.
+
+### Manual MCP Setup (Without Plugin)
+
+If you prefer not to use the plugin, connect Claude Code directly:
 
 ```bash
 # User scope (available in all projects)
 claude mcp add --scope user stele --transport http http://localhost:3100/mcp
 
-# Project scope (current project only)
+# Project scope (shared via .mcp.json)
 claude mcp add stele --transport http http://localhost:3100/mcp
 ```
 
-Verify with `claude mcp list`.
-
-**Option B — Settings file:**
-
-Add to `~/.claude/settings.json` (user scope) or `.mcp.json` (project scope):
+Or add to `~/.claude/settings.json` (user) or `.mcp.json` (project):
 
 ```json
 {
@@ -53,40 +98,13 @@ Add to `~/.claude/settings.json` (user scope) or `.mcp.json` (project scope):
 }
 ```
 
-## Bootstrap a Project
-
-Once Stele is running and connected, ask Claude Code to bootstrap your project. This generates a comprehensive CLAUDE.md protocol section tailored to your project type.
-
-**Example prompts:**
+Without the plugin, use the `bootstrap_project` MCP tool to generate the CLAUDE.md protocol section:
 
 ```
-Bootstrap this project with stele, project group = "acme", this is a web app
+Bootstrap this project with stele, scope = "acme", this is a web app
 ```
-
-```
-Bootstrap this project with stele, scope = "acme/payments", project type = api
-```
-
-Claude Code will call `bootstrap_project` and produce an operational protocol covering:
-- Hybrid storage strategy (flat memory vs knowledge graph)
-- Knowledge synchronization rules (on-boot queries, dependency checks)
-- Update-on-change protocol (autonomous memory updates)
-- Tagging conventions and scope hierarchy
-- Suggested entity and relation types for your project type
-
-Paste the output into your project's `CLAUDE.md` so all Claude Code sessions follow the same protocol.
 
 **Supported project types:** `web-app`, `frontend`, `api`, `backend`, `library`, `sdk`, `monorepo`, `data-pipeline`, `ml`, or `general` (default).
-
-## Configuration
-
-| Flag         | Env Var          | Default                                            | Description                  |
-| ------------ | ---------------- | -------------------------------------------------- | ---------------------------- |
-| `--bind`     | `STELE_BIND`     | `127.0.0.1:3100`                                   | Address to listen on         |
-| `--db`       | `STELE_DB`       | `~/Library/Application Support/Stele/stele.db` (desktop) / `./stele.db` (headless) | Path to SQLite database file |
-| `--mcp-path` | `STELE_MCP_PATH` | `/mcp`                                             | HTTP path for MCP endpoint   |
-
-Set log level with `RUST_LOG` (e.g. `RUST_LOG=debug`).
 
 ## How It Works
 
@@ -128,6 +146,20 @@ Structured relationships between entities — services, components, people, depe
 
 Full-text search across entity names and observation content.
 
+### Memory Types
+
+`knowledge`, `decision`, `convention`, `troubleshooting`, `reference`, `other`
+
+## Configuration
+
+| Flag         | Env Var          | Default                                                              | Description                |
+| ------------ | ---------------- | -------------------------------------------------------------------- | -------------------------- |
+| `--bind`     | `STELE_BIND`     | `127.0.0.1:3100`                                                     | Address to listen on       |
+| `--db`       | `STELE_DB`       | `~/Library/Application Support/Stele/stele.db` (desktop) / `./stele.db` (headless) | SQLite database path |
+| `--mcp-path` | `STELE_MCP_PATH` | `/mcp`                                                               | HTTP path for MCP endpoint |
+
+Set log level with `RUST_LOG` (e.g. `RUST_LOG=debug`).
+
 ## MCP Tools
 
 ### Flat Memory (7 tools)
@@ -156,18 +188,6 @@ Full-text search across entity names and observation content.
 | `search_nodes`        | FTS across entity names + observations                                  |
 | `open_nodes`          | Fetch entities + their direct neighbor relations                        |
 
-### Bootstrap (1 tool)
-
-| Tool                | Description                                                                          |
-| ------------------- | ------------------------------------------------------------------------------------ |
-| `bootstrap_project` | Generate a CLAUDE.md operational protocol for using Stele in a new project           |
-
-The `bootstrap_project` tool produces a comprehensive protocol covering hybrid storage strategy, knowledge synchronization, update-on-change rules, tagging conventions, and scope guidance — tailored to the project type (web-app, api, library, monorepo, data-pipeline, etc.).
-
-### Memory Types
-
-`knowledge`, `decision`, `convention`, `troubleshooting`, `reference`, `other`
-
 ## REST API
 
 JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for browser access.
@@ -187,38 +207,31 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 
 ### Knowledge Graph
 
-| Method | Path                                      | Description        |
-| ------ | ----------------------------------------- | ------------------ |
-| GET    | /api/v1/graph?scope=                      | Read full graph    |
-| POST   | /api/v1/graph/entities                    | Create entities    |
-| GET    | /api/v1/graph/entities?q=&scope=          | Search entities    |
-| GET    | /api/v1/graph/entities/:name?scope=       | Get entity by name |
-| DELETE | /api/v1/graph/entities/:name?scope=       | Delete entity      |
-| POST   | /api/v1/graph/entities/:name/observations | Add observations   |
-| DELETE | /api/v1/graph/entities/:name/observations | Delete observations|
-| POST   | /api/v1/graph/relations                   | Create relations   |
-| DELETE | /api/v1/graph/relations                   | Delete relations   |
-| GET    | /api/v1/graph/open?names=a,b&scope=       | Open specific nodes|
+| Method | Path                                      | Description         |
+| ------ | ----------------------------------------- | ------------------- |
+| GET    | /api/v1/graph?scope=                      | Read full graph     |
+| POST   | /api/v1/graph/entities                    | Create entities     |
+| GET    | /api/v1/graph/entities?q=&scope=          | Search entities     |
+| GET    | /api/v1/graph/entities/:name?scope=       | Get entity by name  |
+| DELETE | /api/v1/graph/entities/:name?scope=       | Delete entity       |
+| POST   | /api/v1/graph/entities/:name/observations | Add observations    |
+| DELETE | /api/v1/graph/entities/:name/observations | Delete observations |
+| POST   | /api/v1/graph/relations                   | Create relations    |
+| DELETE | /api/v1/graph/relations                   | Delete relations    |
+| GET    | /api/v1/graph/open?names=a,b&scope=       | Open specific nodes |
 
-## macOS .app Bundle
+## Installation Options
 
-Package Stele as a native macOS application bundle. Uses only macOS built-in tools — no `cargo-bundle` needed.
+### macOS .app Bundle
 
 ```bash
-# Build Stele.app (includes cargo build --release)
-./scripts/build-macos.sh
-
-# Create distributable DMG (run after build-macos.sh)
-./scripts/build-dmg.sh
+./scripts/build-macos.sh    # builds target/release/Stele.app
+./scripts/build-dmg.sh      # creates Stele-x.x.x-macos.dmg
 ```
 
-Output:
-- `target/release/Stele.app` — double-click to launch, or drag to `/Applications`
-- `target/release/Stele-0.1.0-macos.dmg` — compressed disk image with Applications symlink
+The app runs as a menu-bar-only utility — no Dock icon, just the tray icon.
 
-The app runs as a menu-bar-only utility (`LSUIElement=true`) — no Dock icon, just the tray icon.
-
-## Docker
+### Docker
 
 ```bash
 docker build -t stele .
@@ -227,7 +240,14 @@ docker run -d -p 3100:3100 -v stele-data:/data stele
 
 The container uses the headless build. Database is stored at `/data/stele.db`.
 
-## Building from Source
+### Linux systemd Service
+
+```bash
+sudo ./scripts/install-system.sh    # builds, creates stele user, installs service
+sudo systemctl start stele
+```
+
+### Building from Source
 
 Requires Rust 1.75+. SQLite is bundled (no system SQLite needed).
 

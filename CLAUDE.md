@@ -79,7 +79,7 @@ Two FTS5 tables enable `search_nodes` to match by entity name/type (`entities_ft
 | `search_nodes`        | FTS across entity names + observations (multi-scope)                     |
 | `open_nodes`          | Fetch entities + their direct neighbor relations (multi-scope)           |
 
-**Bootstrap tool (1):** `bootstrap_project` — generates a CLAUDE.md snippet teaching Claude Code how to use both flat memory and knowledge graph for a project.
+**Bootstrap tool (1, deprecated):** `bootstrap_project` — generates a CLAUDE.md snippet teaching Claude Code how to use both flat memory and knowledge graph for a project. Deprecated in favor of the plugin's `/stele:bootstrap` skill.
 
 ## REST API
 
@@ -174,6 +174,34 @@ Read tools (`recall_memories`, `search_nodes`, `read_graph`, `open_nodes`, `list
 - `recall_memories(scope: ["stele", "global"])` — project + shared global knowledge
 - `recall_memories(scope: "stele")` — project only (children included via prefix match)
 - REST API: comma-separated — `GET /api/v1/memories?scope=stele,global`
+
+## Claude Code Plugin
+
+The `plugin/` directory contains a Claude Code marketplace plugin that provides skills and a subagent for working with Stele.
+
+### Skills
+
+- **`/stele:install`** — Check Stele MCP connection and help configure it at user or project level.
+- **`/stele:bootstrap`** — Initialize a project with Stele: creates scope, seeds entities in the knowledge graph, generates CLAUDE.md protocol section. Replaces the deprecated `bootstrap_project` MCP tool.
+- **`/stele:sync`** — Pull latest shared team context (flat memories + knowledge graph) into the current session.
+- **`/stele:checkpoint`** — Save session findings (decisions, bugs, conventions) back to Stele.
+
+### Agent
+
+- **stele-librarian** — Read-only subagent (Sonnet) for searching memories and graph nodes.
+
+### Plugin Structure
+
+```
+plugin/
+├── .claude-plugin/plugin.json
+├── .mcp.json
+├── skills/{install,bootstrap,sync,checkpoint}/SKILL.md
+├── agents/stele-librarian.md
+└── README.md
+```
+
+The plugin version in `plugin/.claude-plugin/plugin.json` must match `Cargo.toml` version. CI validates this.
 
 ## macOS .app Bundle
 
