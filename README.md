@@ -6,12 +6,24 @@ Shared memory layer for [Claude Code](https://claude.ai/code). A single Rust bin
 
 ### 1. Start the Server
 
-**macOS (desktop)** — runs as a menu bar app with a tray icon:
+**macOS (desktop)** — download from [GitHub Releases](https://github.com/tasanakorn/stele/releases) or build from source:
 
 ```bash
+# Option A: Download the .app bundle
+# Download Stele-x.x.x-macos.dmg from GitHub Releases
+# Open the DMG and drag Stele.app to /Applications
+# Launch from Applications — it appears as a menu bar icon (no Dock icon)
+
+# Option B: Build and run from source
+./scripts/build-macos.sh           # builds target/release/Stele.app
+open target/release/Stele.app      # launch the menu bar app
+
+# Option C: Run the binary directly (no .app bundle)
 cargo build --release
 ./target/release/stele
 ```
+
+The database is stored at `~/Library/Application Support/Stele/stele.db`.
 
 **Linux / Docker (headless):**
 
@@ -30,11 +42,27 @@ Stele is now listening on `127.0.0.1:3100`.
 
 ### 2. Install the Plugin
 
+Add the Stele marketplace and install the plugin:
+
 ```bash
+# Add the marketplace (one-time)
 claude plugin add tasanakorn/stele
+
+# In Claude Code, install the plugin from the marketplace
+/plugin
+# → Select "Discover" → find "stele" → Install
+# → Run /reload-plugins to activate
 ```
 
-This installs the Stele plugin which auto-configures the MCP connection and provides skills + a subagent. Run `/reload-plugins` to activate.
+Or install directly within Claude Code:
+
+```
+/plugin
+```
+
+Navigate to **Discover** → **Marketplaces** → **Add marketplace** → enter `tasanakorn/stele` → then install the `stele` plugin.
+
+The plugin auto-configures the MCP connection and provides skills + a subagent.
 
 ### 3. Bootstrap Your Project
 
@@ -224,12 +252,17 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 
 ### macOS .app Bundle
 
+Download from [GitHub Releases](https://github.com/tasanakorn/stele/releases) or build locally:
+
 ```bash
 ./scripts/build-macos.sh    # builds target/release/Stele.app
 ./scripts/build-dmg.sh      # creates Stele-x.x.x-macos.dmg
 ```
 
-The app runs as a menu-bar-only utility — no Dock icon, just the tray icon.
+- **Stele.app** — double-click to launch, or drag to `/Applications`
+- **DMG** — compressed disk image with `/Applications` symlink for easy install
+
+The app runs as a menu-bar-only utility (`LSUIElement=true`) — no Dock icon, just a tray icon. The database is stored at `~/Library/Application Support/Stele/stele.db`.
 
 ### Docker
 
