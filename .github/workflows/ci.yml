@@ -47,7 +47,6 @@ jobs:
         run: |
           for f in \
             plugin/.claude-plugin/plugin.json \
-            plugin/.mcp.json \
             plugin/skills/install/SKILL.md \
             plugin/skills/bootstrap/SKILL.md \
             plugin/skills/sync/SKILL.md \
@@ -62,7 +61,6 @@ jobs:
       - name: Validate JSON files
         run: |
           python3 -c "import json; json.load(open('plugin/.claude-plugin/plugin.json'))"
-          python3 -c "import json; json.load(open('plugin/.mcp.json'))"
           python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"
 
       - name: Check version sync

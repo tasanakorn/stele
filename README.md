@@ -62,9 +62,17 @@ Or install directly within Claude Code:
 
 Navigate to **Discover** → **Marketplaces** → **Add marketplace** → enter `tasanakorn/stele` → then install the `stele` plugin.
 
-The plugin auto-configures the MCP connection and provides skills + a subagent.
+The plugin provides skills and a subagent but does **not** auto-configure the MCP connection — run `/stele:install` to set it up.
 
-### 3. Bootstrap Your Project
+### 3. Configure MCP Connection
+
+```
+/stele:install
+```
+
+This asks for your Stele server URL and where to install the config (user-level or project-level). **Restart Claude Code** after setup to activate the connection.
+
+### 4. Bootstrap Your Project
 
 ```
 /stele:bootstrap

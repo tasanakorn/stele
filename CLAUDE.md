@@ -134,7 +134,7 @@ This is the core Stele repository. Use scope `stele` for all memories and entiti
 
 - **On Boot:** At the start of every task, run `recall_memories(scope: ["stele", "global"])` and `search_nodes(query: "*", scope: ["stele", "global"])`. Do not assume you know the current state.
 - **Dependency Awareness:** Before architectural changes, run `open_nodes` or `read_graph` to check what depends on the module you're changing.
-- **Sub-projects:** When creating a new sub-module, call `bootstrap_project(project_name: "module-name", parent_scope: "stele")`.
+- **Sub-projects:** When creating a new sub-module, use `/stele:bootstrap` or call `bootstrap_project(project_name: "module-name", parent_scope: "stele")`.
 
 ### Update-on-Change Protocol (Autonomous)
 
@@ -181,7 +181,7 @@ The `plugin/` directory contains a Claude Code marketplace plugin that provides 
 
 ### Skills
 
-- **`/stele:install`** — Check Stele MCP connection and help configure it at user or project level.
+- **`/stele:install`** — Configure Stele MCP connection at user or project level. The plugin does not ship with a hardcoded MCP config — this skill is the way to set it up.
 - **`/stele:bootstrap`** — Initialize a project with Stele: creates scope, seeds entities in the knowledge graph, generates CLAUDE.md protocol section. Replaces the deprecated `bootstrap_project` MCP tool.
 - **`/stele:sync`** — Pull latest shared team context (flat memories + knowledge graph) into the current session.
 - **`/stele:checkpoint`** — Save session findings (decisions, bugs, conventions) back to Stele.
@@ -195,7 +195,6 @@ The `plugin/` directory contains a Claude Code marketplace plugin that provides 
 ```
 plugin/
 ├── .claude-plugin/plugin.json
-├── .mcp.json
 ├── skills/{install,bootstrap,sync,checkpoint}/SKILL.md
 ├── agents/stele-librarian.md
 └── README.md

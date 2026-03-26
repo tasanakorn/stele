@@ -1,54 +1,56 @@
 # Stele Plugin for Claude Code
 
-Shared team memory for Claude Code. This plugin connects Claude Code to a running [Stele](https://github.com/tasanakorn/stele) server, providing skills for bootstrapping projects, syncing team context, and checkpointing session findings.
+Shared team memory for Claude Code. This plugin provides skills and a subagent for working with a [Stele](https://github.com/tasanakorn/stele) server.
 
 ## Prerequisites
 
 A Stele server must be running and accessible. See the [main README](../README.md) for installation options.
-
-Default server address: `http://127.0.0.1:3100/mcp`
 
 ## Installation
 
 ### From Marketplace
 
 ```bash
-claude plugin add stele
+claude plugin add tasanakorn/stele
 ```
 
 ### Manual
-
-Clone the repository and install the plugin from the `plugin/` directory:
 
 ```bash
 git clone https://github.com/tasanakorn/stele.git
 claude plugin install ./stele/plugin
 ```
 
-## What You Get
+## Getting Started
 
-### MCP Connection
+After installing the plugin, run `/stele:install` to configure the MCP connection:
 
-The plugin auto-configures a connection to the Stele MCP server at `localhost:3100`. All 17 Stele MCP tools become available in your Claude Code sessions.
+```
+/stele:install
+```
 
-### Skills
+This will ask for your Stele server URL and where to install the config (user-level or project-level). Restart Claude Code after setup to activate.
 
-| Skill         | Command              | Description                                                                            |
-| ------------- | -------------------- | -------------------------------------------------------------------------------------- |
-| Install       | `/stele:install`     | Check Stele MCP connection and help configure it at user or project level              |
-| Bootstrap     | `/stele:bootstrap`   | Initialize a project with Stele — creates scope, seeds entities, generates CLAUDE.md   |
-| Sync          | `/stele:sync`        | Pull latest shared team context (flat memories + knowledge graph) into current session |
-| Checkpoint    | `/stele:checkpoint`  | Save session findings, decisions, and discoveries back to Stele                        |
+Then bootstrap your project:
 
-### Agent
+```
+/stele:bootstrap
+```
 
-| Agent            | Description                                                     |
-| ---------------- | --------------------------------------------------------------- |
-| stele-librarian  | Read-only retrieval subagent for searching memories and graph nodes. Uses Sonnet for fast, cost-effective lookups. |
+## Skills
 
-## Configuration
+| Skill      | Command            | Description                                                          |
+| ---------- | ------------------ | -------------------------------------------------------------------- |
+| Install    | `/stele:install`   | Configure Stele MCP connection at user or project level              |
+| Bootstrap  | `/stele:bootstrap` | Initialize a project — create scope, seed entities, generate CLAUDE.md |
+| Sync       | `/stele:sync`      | Pull latest shared team context into the current session             |
+| Checkpoint | `/stele:checkpoint`| Save session findings, decisions, and discoveries back to Stele      |
 
-The plugin connects to Stele at `http://127.0.0.1:3100/mcp` by default. To use a different address, edit the `.mcp.json` file in the plugin directory or override it in your project's `.mcp.json`.
+## Agent
+
+| Agent           | Description                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| stele-librarian | Read-only retrieval subagent for searching memories and graph nodes. Uses Sonnet for fast lookups. |
 
 ## License
 
