@@ -122,58 +122,43 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 
 **Scope:** `stele` | **Type:** library
 
-This is the core Stele repository. Use scope `stele` for all memories and entities. Sub-scopes: `stele/core` (server, DB, MCP), `stele/api` (REST endpoints), `stele/desktop` (tray/menu bar).
+This is the core Stele repository. Use scope `stele` for all memories and entities.
 
-### Hybrid Storage Strategy
+### Storage
 
-- **Flat Memory** — decisions, conventions, troubleshooting, references. Use `store_memory` / `recall_memories`.
-- **Knowledge Graph** — architecture, components, dependencies. Use `create_entities` / `create_relations` / `search_nodes` / `open_nodes` / `read_graph`.
-- Rule of thumb: **fact or note** → flat memory. **Thing with relationships** → knowledge graph.
+- **Flat Memory** (`store_memory`/`recall_memories`) — facts, decisions, conventions, notes.
+- **Knowledge Graph** (`create_entities`/`create_relations`/`search_nodes`/`open_nodes`) — things with relationships.
 
-### Knowledge Synchronization
+### Scope & Retrieval
 
-- **On Boot:** At the start of every task, run `recall_memories(scope: ["stele", "global"])` and `search_nodes(query: "*", scope: ["stele", "global"])`. Do not assume you know the current state.
-- **Dependency Awareness:** Before architectural changes, run `open_nodes` or `read_graph` to check what depends on the module you're changing.
-- **Sub-projects:** When creating a new sub-module, use `/stele:bootstrap` or call `bootstrap_project(project_name: "module-name", parent_scope: "stele")`.
+Scopes use **prefix matching** — querying `stele` also matches `stele/core`, `stele/api`, `stele/desktop`.
 
-### Update-on-Change Protocol (Autonomous)
+| Scope           | Covers                         |
+| --------------- | ------------------------------ |
+| `stele`         | Workspace-wide standards       |
+| `stele/core`    | Server, DB, MCP protocol layer |
+| `stele/api`     | REST API endpoints             |
+| `stele/desktop` | Tray app, menu bar (macOS)     |
 
-You MUST update remote memory immediately when any of the following change — no permission needed:
-- **Contract changes:** API signature, env var, or shared interface → `store_memory` with `#contract` tag + `add_observations` on the relevant entity. Tag `#breaking` if it affects other services.
-- **Lessons learned:** Non-obvious bug fix → `add_observations` on the entity + `store_memory` with `#wisdom` tag.
-- **Relationship discovery:** If you find module A depends on module B → `create_relations`.
+**Multi-scope reads:** `scope: ["stele", "global"]` to include shared cross-project knowledge. Write tools remain single-scope.
 
-### Tagging Convention
+### Workflow
 
-| Tag         | Meaning                                              |
-| ----------- | ---------------------------------------------------- |
-| `#active`   | Currently implemented and enforced rules             |
-| `#todo`     | Technical debt or pending migrations                 |
-| `#contract` | Inter-service API definitions and shared interfaces  |
-| `#breaking` | Changes that require other agents/services to update |
-| `#wisdom`   | Non-obvious technical discoveries and gotchas        |
-| `#conflict` | Local rule that conflicts with a workspace-level rule|
+- **Task start:** Run `/stele:sync` — pulls latest shared state. Do not assume you know the current state.
+- **Before architectural changes:** Run `open_nodes` or `read_graph` to check dependencies.
+- **End of session:** Run `/stele:checkpoint` — persists decisions, discoveries, and fixes back to Stele.
+- **New sub-module:** Run `/stele:bootstrap` to create a sub-scope.
 
-Project-specific: `#public-api`, `#semver`, `#docs`
+### Autonomous Updates (no permission needed)
 
-### Scope Guide
+You MUST update Stele immediately when any of these occur — do not defer:
 
-Queries use prefix matching: `recall_memories(scope: "stele")` matches `stele`, `stele/core`, `stele/api`, etc.
+- **Contract change** (API, env var, shared interface) → store + tag `#contract #breaking`
+- **Lesson learned** (non-obvious bug fix) → store + tag `#wisdom`
+- **Relationship discovered** (A depends on B) → `create_relations`
+- **Convention established** (new agreed rule) → store + tag `#active`
 
-| Scope           | What it covers                     |
-| --------------- | ---------------------------------- |
-| `stele`         | Workspace-wide standards           |
-| `stele/core`    | Server, DB, MCP protocol layer     |
-| `stele/api`     | REST API endpoints                 |
-| `stele/desktop` | Tray app, menu bar (macOS)         |
-
-#### Multi-Scope Retrieval
-
-Read tools (`recall_memories`, `search_nodes`, `read_graph`, `open_nodes`, `list_tags`) accept `scope` as a string or array of strings. Use array form to include the `global` scope for shared cross-project knowledge. Write tools remain single-scope.
-
-- `recall_memories(scope: ["stele", "global"])` — project + shared global knowledge
-- `recall_memories(scope: "stele")` — project only (children included via prefix match)
-- REST API: comma-separated — `GET /api/v1/memories?scope=stele,global`
+Standard tags: `#active`, `#todo`, `#contract`, `#breaking`, `#wisdom`, `#conflict`. Project-specific: `#public-api`, `#semver`, `#docs`. Run `/stele:checkpoint` for full tagging convention.
 
 ## Claude Code Plugin
 

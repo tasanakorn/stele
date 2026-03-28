@@ -7,9 +7,6 @@ Replace all `{variables}` with the computed values:
 - `{scope}` — computed scope (parent_scope/project_name or just project_name)
 - `{top_scope}` — parent_scope if provided, otherwise same as scope
 - `{project_type}` — user-provided or "general"
-- `{entity_types}` — from the entity types lookup table
-- `{relation_types}` — from the relation types lookup table
-- `{tag_suggestions}` — from the tag suggestions lookup table (format as bullet list: `- \`#tag\` — description`)
 
 ---
 
@@ -18,160 +15,35 @@ Replace all `{variables}` with the computed values:
 **Scope:** `{scope}` | **Type:** {project_type}
 **Server:** [Stele](https://github.com/tasanakorn/stele) — shared memory for multi-agent Claude Code
 
----
+### Storage
 
-### 1. Hybrid Storage Strategy
+- **Flat Memory** (`store_memory`/`recall_memories`) — facts, decisions, conventions, notes.
+- **Knowledge Graph** (`create_entities`/`create_relations`/`search_nodes`/`open_nodes`) — things with relationships.
 
-Stele provides two complementary memory systems. Use both.
+### Scope & Retrieval
 
-#### Flat Memory (Scoped)
-Operational facts, decisions, conventions, troubleshooting notes. Key-value-like prose entries with scope + tags.
+Scopes use **prefix matching** — querying `{scope}` also matches `{scope}/backend`, `{scope}/frontend`, etc.
 
-```
-store_memory(
-  scope: "{scope}",
-  title: "DB Port",
-  content: "PostgreSQL on port 5432, connection pool max 20",
-  memory_type: "convention",
-  tags: ["#active", "#contract"]
-)
+| Scope          | Covers                       |
+| -------------- | ---------------------------- |
+| `{top_scope}`  | Workspace-wide standards     |
+| `{scope}`      | This project (+ sub-scopes)  |
 
-recall_memories(query: "database port", scope: "{scope}")
-```
+**Multi-scope reads:** `scope: ["{scope}", "global"]` to include shared cross-project knowledge. Write tools remain single-scope.
 
-#### Knowledge Graph (KG)
-Structural relationships between entities — services, components, people, dependencies.
+### Workflow
 
-```
-create_entities(entities: [
-  {name: "OrderService", entity_type: "service", observations: ["gRPC service, handles order lifecycle"]},
-  {name: "PaymentService", entity_type: "service", observations: ["Stripe integration, PCI-compliant"]}
-], scope: "{scope}")
+- **Task start:** Run `/stele:sync` — pulls latest shared state. Do not assume you know the current state.
+- **Before architectural changes:** Run `open_nodes` or `read_graph` to check dependencies.
+- **End of session:** Run `/stele:checkpoint` — persists decisions, discoveries, and fixes back to Stele.
 
-create_relations(relations: [
-  {from: "OrderService", to: "PaymentService", relation_type: "depends_on"}
-], scope: "{scope}")
-```
+### Autonomous Updates (no permission needed)
 
-**Rule of thumb:** If it's a **fact or note** → flat memory. If it's a **thing with relationships** → knowledge graph.
+You MUST update Stele immediately when any of these occur — do not defer:
 
-#### When to use which
+- **Contract change** (API, env var, shared interface) → store + tag `#contract #breaking`
+- **Lesson learned** (non-obvious bug fix) → store + tag `#wisdom`
+- **Relationship discovered** (A depends on B) → `create_relations`
+- **Convention established** (new agreed rule) → store + tag `#active`
 
-| Use flat memories for...            | Use knowledge graph for...          |
-| ----------------------------------- | ----------------------------------- |
-| Decisions and their rationale       | Architecture and component maps     |
-| Coding conventions and style rules  | People and ownership                |
-| Troubleshooting steps               | Dependencies between services       |
-| External references and links       | Data flow and call chains           |
-| Onboarding notes                    | Entity facts (observations)         |
-
----
-
-### 2. Knowledge Synchronization & Consistency
-
-#### On Boot (every task start)
-At the beginning of every task, pull the latest shared state. **Do not assume you know the current state.**
-
-```
-recall_memories(scope: ["{scope}", "global"])
-search_nodes(query: "*", scope: ["{scope}", "global"])
-```
-
-#### Dependency Awareness
-Before proposing architectural changes, check what depends on the module you're changing:
-
-```
-open_nodes(names: ["ModuleName"], scope: "{scope}")
-read_graph(scope: "{scope}")
-```
-
-#### Consistency Rules
-- Use the top-level scope `{top_scope}` for workspace-wide standards shared across all sub-projects.
-- If a local rule in `{scope}` conflicts with a rule in `{top_scope}`, flag it with a `#conflict` tag.
-
----
-
-### 3. Update-on-Change Protocol (Autonomous — no permission needed)
-
-You MUST update remote memory immediately when any of the following change. Do not defer or ask for permission.
-
-#### Contract Changes
-If an API signature, env var, or shared interface changes:
-```
-store_memory(scope: "{scope}", title: "API change: ...", content: "...", tags: ["#contract", "#breaking"])
-add_observations(entity_name: "ServiceName", scope: "{scope}", observations: ["New endpoint POST /v2/orders added"])
-```
-
-#### Lessons Learned
-If a non-obvious bug is fixed, record it so other agents don't repeat the mistake:
-```
-add_observations(entity_name: "ServiceName", scope: "{scope}", observations: ["Gotcha: must set Content-Type header explicitly for multipart"])
-store_memory(scope: "{scope}", title: "Fix: multipart upload", content: "...", tags: ["#wisdom"])
-```
-
-#### Relationship Discovery
-If you discover Service A calls Service B, record it immediately:
-```
-create_relations(relations: [{from: "A", to: "B", relation_type: "calls"}], scope: "{scope}")
-```
-
----
-
-### 4. Tagging Convention
-
-Always tag facts to enable cross-agent/cross-machine search:
-
-| Tag          | Meaning                                                |
-| ------------ | ------------------------------------------------------ |
-| `#active`    | Currently implemented and enforced rules               |
-| `#todo`      | Technical debt or pending migrations                   |
-| `#contract`  | Inter-service API definitions and shared interfaces    |
-| `#breaking`  | Changes that require other agents/services to update   |
-| `#wisdom`    | Non-obvious technical discoveries and gotchas          |
-| `#conflict`  | Local rule that conflicts with a workspace-level rule  |
-| `#v[N]`      | Version-specific notes (e.g. `#v2-migration`)          |
-
-Project-type-specific tags:
-{tag_suggestions}
-
----
-
-### 5. Scope Guide
-
-Scopes are hierarchical, like message queue topics. Queries use **prefix matching**.
-
-| Scope                | What it covers                       |
-| -------------------- | ------------------------------------ |
-| `{top_scope}`        | Workspace-wide standards             |
-| `{scope}`            | This project                         |
-| `{scope}/backend`    | Backend-specific knowledge           |
-| `{scope}/frontend`   | Frontend-specific knowledge          |
-
-Examples:
-- `recall_memories(scope: "{scope}")` — matches `{scope}`, `{scope}/backend`, `{scope}/frontend`, etc.
-- `recall_memories(scope: "{top_scope}")` — matches everything in the workspace.
-
-#### Multi-Scope Retrieval
-
-Read tools accept scope as a string or array. Use array form to include the `global` scope for shared cross-project knowledge.
-
-- `recall_memories(scope: ["{scope}", "global"])` — project + shared global knowledge
-- `recall_memories(scope: "{scope}")` — project only (children included via prefix match)
-
----
-
-### 6. Suggested Entity & Relation Types
-
-**Entity types:** {entity_types}
-
-**Relation types:** {relation_types}
-
----
-
-### 7. First-Time Setup
-
-If this is a new project with no existing memories:
-1. Ask the user for the top-level workspace scope (if not already known).
-2. Ask if there are sub-scopes to create (e.g. `{scope}/backend`, `{scope}/frontend`).
-3. Create initial entities for the major components you can identify from the codebase.
-4. Store any conventions or decisions the user mentions during onboarding.
+Standard tags: `#active`, `#todo`, `#contract`, `#breaking`, `#wisdom`, `#conflict`. Run `/stele:checkpoint` for full tagging convention and project-specific tags.

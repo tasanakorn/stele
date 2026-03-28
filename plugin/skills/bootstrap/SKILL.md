@@ -69,7 +69,7 @@ Use the following tables to determine entity_types, relation_types, and tag_sugg
 
 ### Step 3: Seed Stele Database
 
-Create the project entity in the knowledge graph:
+Create the project entity in the knowledge graph. Include entity types, relation types, and project-specific tags as observations so they are retrievable via `/stele:sync`:
 
 ```
 create_entities(
@@ -79,7 +79,10 @@ create_entities(
     observations: [
       "Project type: {project_type}",
       "Scope: {scope}",
-      "Bootstrapped on {today's date}"
+      "Bootstrapped on {today's date}",
+      "Entity types: {entity_types}",
+      "Relation types: {relation_types}",
+      "Project-specific tags: {tag_suggestions (names only, comma-separated)}"
     ]
   }],
   scope: "{scope}"

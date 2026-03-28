@@ -40,12 +40,18 @@ store_memory(
 )
 ```
 
-**Tag selection guide:**
-- `#active` — rule or convention currently in effect
-- `#contract` — API or interface definition
-- `#breaking` — change that affects other services/agents
-- `#wisdom` — non-obvious discovery or gotcha
-- `#todo` — identified technical debt
+**Tagging convention:**
+
+| Tag         | Meaning                                               |
+| ----------- | ----------------------------------------------------- |
+| `#active`   | Currently implemented and enforced rules              |
+| `#todo`     | Technical debt or pending migrations                  |
+| `#contract` | Inter-service API definitions and shared interfaces   |
+| `#breaking` | Changes that require other agents/services to update  |
+| `#wisdom`   | Non-obvious technical discoveries and gotchas         |
+| `#conflict` | Local rule that conflicts with a workspace-level rule |
+
+Check the project entity in Stele for project-specific tags (seeded during `/stele:bootstrap`).
 
 #### Knowledge Graph (things with relationships)
 
