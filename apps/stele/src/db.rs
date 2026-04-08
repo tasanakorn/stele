@@ -213,10 +213,11 @@ pub fn update_memory(
     tags: Option<&[String]>,
     memory_type: Option<&str>,
 ) -> rusqlite::Result<bool> {
-    let exists: bool =
-        conn.query_row("SELECT COUNT(*) FROM memories WHERE id = ?1", params![id], |row| {
-            Ok(row.get::<_, i64>(0)? > 0)
-        })?;
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM memories WHERE id = ?1",
+        params![id],
+        |row| Ok(row.get::<_, i64>(0)? > 0),
+    )?;
 
     if !exists {
         return Ok(false);
@@ -270,7 +271,10 @@ pub fn delete_memory(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
     Ok(rows > 0)
 }
 
-pub fn search_memories(conn: &Connection, params: &SearchParams) -> rusqlite::Result<Vec<SearchResult>> {
+pub fn search_memories(
+    conn: &Connection,
+    params: &SearchParams,
+) -> rusqlite::Result<Vec<SearchResult>> {
     let limit = params.limit.unwrap_or(20).min(100);
 
     if params.query.is_some() {
@@ -297,14 +301,26 @@ fn search_with_fts(
     let mut sql_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(query.to_string())];
     let mut param_idx = 2;
 
-    append_scope_filter(&mut sql, &mut sql_params, &mut param_idx, params.scope.as_deref());
-    append_tag_filter(&mut sql, &mut sql_params, &mut param_idx, &params.tags, params.match_all_tags);
+    append_scope_filter(
+        &mut sql,
+        &mut sql_params,
+        &mut param_idx,
+        params.scope.as_deref(),
+    );
+    append_tag_filter(
+        &mut sql,
+        &mut sql_params,
+        &mut param_idx,
+        &params.tags,
+        params.match_all_tags,
+    );
 
     sql.push_str(&format!(" ORDER BY fts.rank LIMIT ?{param_idx}"));
     sql_params.push(Box::new(limit as i64));
 
     let mut stmt = conn.prepare(&sql)?;
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        sql_params.iter().map(|p| p.as_ref()).collect();
 
     let rows = stmt.query_map(param_refs.as_slice(), |row| {
         Ok(SearchResult {
@@ -342,14 +358,26 @@ fn search_without_fts(
     let mut sql_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
     let mut param_idx = 1;
 
-    append_scope_filter(&mut sql, &mut sql_params, &mut param_idx, params.scope.as_deref());
-    append_tag_filter(&mut sql, &mut sql_params, &mut param_idx, &params.tags, params.match_all_tags);
+    append_scope_filter(
+        &mut sql,
+        &mut sql_params,
+        &mut param_idx,
+        params.scope.as_deref(),
+    );
+    append_tag_filter(
+        &mut sql,
+        &mut sql_params,
+        &mut param_idx,
+        &params.tags,
+        params.match_all_tags,
+    );
 
     sql.push_str(&format!(" ORDER BY updated_at DESC LIMIT ?{param_idx}"));
     sql_params.push(Box::new(limit as i64));
 
     let mut stmt = conn.prepare(&sql)?;
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        sql_params.iter().map(|p| p.as_ref()).collect();
 
     let rows = stmt.query_map(param_refs.as_slice(), |row| {
         Ok(SearchResult {
@@ -471,7 +499,8 @@ pub fn list_scopes(conn: &Connection, prefix: Option<&str>) -> rusqlite::Result<
     };
 
     let mut stmt = conn.prepare(&sql)?;
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        sql_params.iter().map(|p| p.as_ref()).collect();
 
     let rows = stmt.query_map(param_refs.as_slice(), |row| {
         Ok(ScopeInfo {
@@ -518,7 +547,8 @@ pub fn list_tags(conn: &Connection, scopes: Option<&[String]>) -> rusqlite::Resu
     };
 
     let mut stmt = conn.prepare(&sql)?;
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        sql_params.iter().map(|p| p.as_ref()).collect();
 
     let rows = stmt.query_map(param_refs.as_slice(), |row| {
         Ok(TagInfo {
@@ -534,9 +564,13 @@ pub fn get_stats(conn: &Connection) -> rusqlite::Result<Stats> {
     let total_memories: i64 =
         conn.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
     let total_scopes: i64 =
-        conn.query_row("SELECT COUNT(DISTINCT scope) FROM memories", [], |row| row.get(0))?;
+        conn.query_row("SELECT COUNT(DISTINCT scope) FROM memories", [], |row| {
+            row.get(0)
+        })?;
     let total_tags: i64 =
-        conn.query_row("SELECT COUNT(DISTINCT tag) FROM memory_tags", [], |row| row.get(0))?;
+        conn.query_row("SELECT COUNT(DISTINCT tag) FROM memory_tags", [], |row| {
+            row.get(0)
+        })?;
 
     let mut stmt = conn.prepare(
         "SELECT id, title, scope, updated_at FROM memories ORDER BY updated_at DESC LIMIT 5",
@@ -576,7 +610,11 @@ impl OptionalRow for rusqlite::Result<Memory> {
 
 // ── Knowledge Graph functions ──
 
-pub fn resolve_entity_id(conn: &Connection, name: &str, scope: &str) -> rusqlite::Result<Option<String>> {
+pub fn resolve_entity_id(
+    conn: &Connection,
+    name: &str,
+    scope: &str,
+) -> rusqlite::Result<Option<String>> {
     let mut stmt = conn.prepare("SELECT id FROM entities WHERE name = ?1 AND scope = ?2")?;
     match stmt.query_row(params![name, scope], |row| row.get::<_, String>(0)) {
         Ok(id) => Ok(Some(id)),
@@ -636,7 +674,11 @@ fn insert_observations_for_entity(
     Ok(())
 }
 
-pub fn get_entity_by_name(conn: &Connection, name: &str, scope: &str) -> rusqlite::Result<Option<Entity>> {
+pub fn get_entity_by_name(
+    conn: &Connection,
+    name: &str,
+    scope: &str,
+) -> rusqlite::Result<Option<Entity>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, entity_type, scope, created_at, updated_at FROM entities WHERE name = ?1 AND scope = ?2",
     )?;
@@ -658,7 +700,10 @@ pub fn get_entity_by_name(conn: &Connection, name: &str, scope: &str) -> rusqlit
     };
 
     let observations = get_observations(conn, &entity.id)?;
-    Ok(Some(Entity { observations, ..entity }))
+    Ok(Some(Entity {
+        observations,
+        ..entity
+    }))
 }
 
 fn get_entity_by_id(conn: &Connection, id: &str) -> rusqlite::Result<Option<Entity>> {
@@ -683,12 +728,16 @@ fn get_entity_by_id(conn: &Connection, id: &str) -> rusqlite::Result<Option<Enti
     };
 
     let observations = get_observations(conn, &entity.id)?;
-    Ok(Some(Entity { observations, ..entity }))
+    Ok(Some(Entity {
+        observations,
+        ..entity
+    }))
 }
 
 fn get_observations(conn: &Connection, entity_id: &str) -> rusqlite::Result<Vec<Observation>> {
-    let mut stmt =
-        conn.prepare("SELECT id, content, created_at FROM observations WHERE entity_id = ?1 ORDER BY created_at")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, content, created_at FROM observations WHERE entity_id = ?1 ORDER BY created_at",
+    )?;
     let rows = stmt.query_map(params![entity_id], |row| {
         Ok(Observation {
             id: row.get(0)?,
@@ -842,7 +891,8 @@ pub fn read_graph(conn: &Connection, scopes: &[String]) -> rusqlite::Result<Grap
     entity_sql.push_str(&format!("({}) ORDER BY name", clauses.join(" OR ")));
 
     let mut entity_stmt = conn.prepare(&entity_sql)?;
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        sql_params.iter().map(|p| p.as_ref()).collect();
     let entities_raw: Vec<Entity> = entity_stmt
         .query_map(param_refs.as_slice(), |row| {
             Ok(Entity {
@@ -884,10 +934,14 @@ pub fn read_graph(conn: &Connection, scopes: &[String]) -> rusqlite::Result<Grap
         rel_params.push(Box::new(format!("{}/%", escape_like(s))));
         idx += 2;
     }
-    rel_sql.push_str(&format!("({}) ORDER BY ef.name, et.name", clauses.join(" OR ")));
+    rel_sql.push_str(&format!(
+        "({}) ORDER BY ef.name, et.name",
+        clauses.join(" OR ")
+    ));
 
     let mut rel_stmt = conn.prepare(&rel_sql)?;
-    let rel_param_refs: Vec<&dyn rusqlite::types::ToSql> = rel_params.iter().map(|p| p.as_ref()).collect();
+    let rel_param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        rel_params.iter().map(|p| p.as_ref()).collect();
     let relations: Vec<Relation> = rel_stmt
         .query_map(rel_param_refs.as_slice(), |row| {
             Ok(Relation {
@@ -903,7 +957,10 @@ pub fn read_graph(conn: &Connection, scopes: &[String]) -> rusqlite::Result<Grap
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
-    Ok(Graph { entities, relations })
+    Ok(Graph {
+        entities,
+        relations,
+    })
 }
 
 pub fn search_entities(
@@ -949,11 +1006,14 @@ pub fn search_entities(
         }
     }
 
-    sql.push_str(&format!(" GROUP BY e.id ORDER BY best_rank LIMIT ?{param_idx}"));
+    sql.push_str(&format!(
+        " GROUP BY e.id ORDER BY best_rank LIMIT ?{param_idx}"
+    ));
     sql_params.push(Box::new(limit as i64));
 
     let mut stmt = conn.prepare(&sql)?;
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        sql_params.iter().map(|p| p.as_ref()).collect();
 
     let rows: Vec<(String, Option<f64>)> = stmt
         .query_map(param_refs.as_slice(), |row| {
@@ -987,7 +1047,11 @@ pub fn open_entities(
         let mut idx = 1;
 
         // Name filter
-        let name_placeholders: Vec<String> = names.iter().enumerate().map(|(i, _)| format!("?{}", idx + i)).collect();
+        let name_placeholders: Vec<String> = names
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", idx + i))
+            .collect();
         sql.push_str(&format!("name IN ({})", name_placeholders.join(", ")));
         for n in names {
             sql_params.push(Box::new(n.to_string()));
@@ -1009,7 +1073,8 @@ pub fn open_entities(
         sql.push_str(&format!(" AND ({})", scope_clauses.join(" OR ")));
 
         let mut stmt = conn.prepare(&sql)?;
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            sql_params.iter().map(|p| p.as_ref()).collect();
         let rows: Vec<Entity> = stmt
             .query_map(param_refs.as_slice(), |row| {
                 Ok(Entity {
@@ -1039,7 +1104,11 @@ pub fn open_entities(
     }
 
     // Get all relations involving these entities (from or to)
-    let placeholders: Vec<String> = entity_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let placeholders: Vec<String> = entity_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect();
     let ph_str = placeholders.join(", ");
     let sql = format!(
         "SELECT r.id, ef.name, r.from_entity, et.name, r.to_entity, r.relation_type, r.scope, r.created_at
@@ -1051,9 +1120,12 @@ pub fn open_entities(
 
     let mut stmt = conn.prepare(&sql)?;
     // Build params: each entity_id appears once in the param list, but is referenced twice
-    let sql_params: Vec<Box<dyn rusqlite::types::ToSql>> =
-        entity_ids.iter().map(|id| Box::new(id.clone()) as Box<dyn rusqlite::types::ToSql>).collect();
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
+    let sql_params: Vec<Box<dyn rusqlite::types::ToSql>> = entity_ids
+        .iter()
+        .map(|id| Box::new(id.clone()) as Box<dyn rusqlite::types::ToSql>)
+        .collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        sql_params.iter().map(|p| p.as_ref()).collect();
 
     let relations: Vec<Relation> = stmt
         .query_map(param_refs.as_slice(), |row| {
@@ -1073,7 +1145,8 @@ pub fn open_entities(
     // Also load neighbor entities that aren't already in the list
     let mut neighbor_ids: Vec<String> = Vec::new();
     for rel in &relations {
-        if !entity_ids.contains(&rel.from_entity_id) && !neighbor_ids.contains(&rel.from_entity_id) {
+        if !entity_ids.contains(&rel.from_entity_id) && !neighbor_ids.contains(&rel.from_entity_id)
+        {
             neighbor_ids.push(rel.from_entity_id.clone());
         }
         if !entity_ids.contains(&rel.to_entity_id) && !neighbor_ids.contains(&rel.to_entity_id) {
@@ -1086,5 +1159,8 @@ pub fn open_entities(
         }
     }
 
-    Ok(Graph { entities, relations })
+    Ok(Graph {
+        entities,
+        relations,
+    })
 }

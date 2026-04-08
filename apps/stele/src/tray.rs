@@ -28,13 +28,7 @@ struct TrayHandler {
 impl ApplicationHandler for TrayHandler {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
-    fn window_event(
-        &mut self,
-        _event_loop: &ActiveEventLoop,
-        _id: WindowId,
-        _event: WindowEvent,
-    ) {
-    }
+    fn window_event(&mut self, _event_loop: &ActiveEventLoop, _id: WindowId, _event: WindowEvent) {}
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.ct.is_cancelled() {

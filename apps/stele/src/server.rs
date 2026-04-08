@@ -8,7 +8,9 @@ use serde::Deserialize;
 use crate::db::{self, DbPool};
 use crate::models::{Memory, MemoryType};
 use crate::query::SearchParams;
-use crate::serde_helpers::{string_or_string_vec, string_or_string_vec_opt, string_or_vec, string_or_vec_opt};
+use crate::serde_helpers::{
+    string_or_string_vec, string_or_string_vec_opt, string_or_vec, string_or_vec_opt,
+};
 use serde::Serialize;
 
 #[derive(Clone)]
@@ -250,9 +252,7 @@ impl SteleServer {
             id: id.clone(),
             title: params.title,
             content: params.content,
-            memory_type: MemoryType::from_str(
-                params.memory_type.as_deref().unwrap_or("knowledge"),
-            ),
+            memory_type: MemoryType::from_str(params.memory_type.as_deref().unwrap_or("knowledge")),
             scope: params.scope,
             author: params.author,
             tags: params.tags,
@@ -267,7 +267,9 @@ impl SteleServer {
         }
     }
 
-    #[tool(description = "Search memories by keywords, scope(s), and/or tags. Scope accepts a string or array for cross-scope search.")]
+    #[tool(
+        description = "Search memories by keywords, scope(s), and/or tags. Scope accepts a string or array for cross-scope search."
+    )]
     async fn recall_memories(
         &self,
         Parameters(params): Parameters<RecallMemoriesParams>,
@@ -349,13 +351,24 @@ impl SteleServer {
 
     // ── Knowledge Graph tools ──
 
-    #[tool(description = "Create entities (nodes) in the knowledge graph. Idempotent — existing entities get observations appended.")]
-    async fn create_entities(&self, Parameters(params): Parameters<CreateEntitiesParams>) -> String {
+    #[tool(
+        description = "Create entities (nodes) in the knowledge graph. Idempotent — existing entities get observations appended."
+    )]
+    async fn create_entities(
+        &self,
+        Parameters(params): Parameters<CreateEntitiesParams>,
+    ) -> String {
         let conn = self.db.lock().await;
         let mut results: Vec<EntityCreatedResult> = Vec::new();
 
         for input in &params.entities {
-            match db::insert_entity(&conn, &input.name, &input.entity_type, &params.scope, &input.observations) {
+            match db::insert_entity(
+                &conn,
+                &input.name,
+                &input.entity_type,
+                &params.scope,
+                &input.observations,
+            ) {
                 Ok((id, created)) => results.push(EntityCreatedResult {
                     name: input.name.clone(),
                     id,
@@ -368,13 +381,24 @@ impl SteleServer {
         serde_json::to_string_pretty(&results).unwrap_or_default()
     }
 
-    #[tool(description = "Create directed relations (edges) between entities in the knowledge graph. Both entities must exist in the given scope.")]
-    async fn create_relations(&self, Parameters(params): Parameters<CreateRelationsParams>) -> String {
+    #[tool(
+        description = "Create directed relations (edges) between entities in the knowledge graph. Both entities must exist in the given scope."
+    )]
+    async fn create_relations(
+        &self,
+        Parameters(params): Parameters<CreateRelationsParams>,
+    ) -> String {
         let conn = self.db.lock().await;
         let mut results: Vec<RelationCreatedResult> = Vec::new();
 
         for input in &params.relations {
-            match db::insert_relation(&conn, &input.from, &input.to, &input.relation_type, &params.scope) {
+            match db::insert_relation(
+                &conn,
+                &input.from,
+                &input.to,
+                &input.relation_type,
+                &params.scope,
+            ) {
                 Ok(Some((id, created))) => results.push(RelationCreatedResult {
                     from: input.from.clone(),
                     to: input.to.clone(),
@@ -382,10 +406,12 @@ impl SteleServer {
                     id,
                     created,
                 }),
-                Ok(None) => return format!(
-                    "Error: entity '{}' or '{}' not found in scope '{}'",
-                    input.from, input.to, params.scope
-                ),
+                Ok(None) => {
+                    return format!(
+                        "Error: entity '{}' or '{}' not found in scope '{}'",
+                        input.from, input.to, params.scope
+                    )
+                }
                 Err(e) => return format!("Error creating relation: {e}"),
             }
         }
@@ -394,17 +420,33 @@ impl SteleServer {
     }
 
     #[tool(description = "Add observations (atomic facts) to an existing entity")]
-    async fn add_observations(&self, Parameters(params): Parameters<AddObservationsParams>) -> String {
+    async fn add_observations(
+        &self,
+        Parameters(params): Parameters<AddObservationsParams>,
+    ) -> String {
         let conn = self.db.lock().await;
-        match db::insert_observations(&conn, &params.entity_name, &params.scope, &params.observations) {
+        match db::insert_observations(
+            &conn,
+            &params.entity_name,
+            &params.scope,
+            &params.observations,
+        ) {
             Ok(Some(entity)) => serde_json::to_string_pretty(&entity).unwrap_or_default(),
-            Ok(None) => format!("Entity '{}' not found in scope '{}'", params.entity_name, params.scope),
+            Ok(None) => format!(
+                "Entity '{}' not found in scope '{}'",
+                params.entity_name, params.scope
+            ),
             Err(e) => format!("Error adding observations: {e}"),
         }
     }
 
-    #[tool(description = "Delete entities from the knowledge graph. Cascades to observations and relations.")]
-    async fn delete_entities(&self, Parameters(params): Parameters<DeleteEntitiesParams>) -> String {
+    #[tool(
+        description = "Delete entities from the knowledge graph. Cascades to observations and relations."
+    )]
+    async fn delete_entities(
+        &self,
+        Parameters(params): Parameters<DeleteEntitiesParams>,
+    ) -> String {
         let conn = self.db.lock().await;
         let mut deleted = Vec::new();
         let mut not_found = Vec::new();
@@ -425,25 +467,51 @@ impl SteleServer {
     }
 
     #[tool(description = "Remove specific observations from an entity by exact content match")]
-    async fn delete_observations(&self, Parameters(params): Parameters<DeleteObservationsParams>) -> String {
+    async fn delete_observations(
+        &self,
+        Parameters(params): Parameters<DeleteObservationsParams>,
+    ) -> String {
         let conn = self.db.lock().await;
-        match db::delete_observations(&conn, &params.entity_name, &params.scope, &params.observations) {
+        match db::delete_observations(
+            &conn,
+            &params.entity_name,
+            &params.scope,
+            &params.observations,
+        ) {
             Ok(Some(entity)) => serde_json::to_string_pretty(&entity).unwrap_or_default(),
-            Ok(None) => format!("Entity '{}' not found in scope '{}'", params.entity_name, params.scope),
+            Ok(None) => format!(
+                "Entity '{}' not found in scope '{}'",
+                params.entity_name, params.scope
+            ),
             Err(e) => format!("Error deleting observations: {e}"),
         }
     }
 
     #[tool(description = "Delete specific relations from the knowledge graph")]
-    async fn delete_relations(&self, Parameters(params): Parameters<DeleteRelationsParams>) -> String {
+    async fn delete_relations(
+        &self,
+        Parameters(params): Parameters<DeleteRelationsParams>,
+    ) -> String {
         let conn = self.db.lock().await;
         let mut deleted = Vec::new();
         let mut not_found = Vec::new();
 
         for input in &params.relations {
-            match db::delete_relation(&conn, &input.from, &input.to, &input.relation_type, &params.scope) {
-                Ok(true) => deleted.push(format!("{} --[{}]--> {}", input.from, input.relation_type, input.to)),
-                Ok(false) => not_found.push(format!("{} --[{}]--> {}", input.from, input.relation_type, input.to)),
+            match db::delete_relation(
+                &conn,
+                &input.from,
+                &input.to,
+                &input.relation_type,
+                &params.scope,
+            ) {
+                Ok(true) => deleted.push(format!(
+                    "{} --[{}]--> {}",
+                    input.from, input.relation_type, input.to
+                )),
+                Ok(false) => not_found.push(format!(
+                    "{} --[{}]--> {}",
+                    input.from, input.relation_type, input.to
+                )),
                 Err(e) => return format!("Error deleting relation: {e}"),
             }
         }
@@ -455,7 +523,9 @@ impl SteleServer {
         .unwrap_or_default()
     }
 
-    #[tool(description = "Read the full knowledge graph for one or more scopes (all entities, observations, and relations)")]
+    #[tool(
+        description = "Read the full knowledge graph for one or more scopes (all entities, observations, and relations)"
+    )]
     async fn read_graph(&self, Parameters(params): Parameters<ReadGraphParams>) -> String {
         let conn = self.db.lock().await;
         match db::read_graph(&conn, &params.scope) {
@@ -464,7 +534,9 @@ impl SteleServer {
         }
     }
 
-    #[tool(description = "Search the knowledge graph by entity name or observation content. Scope accepts a string or array.")]
+    #[tool(
+        description = "Search the knowledge graph by entity name or observation content. Scope accepts a string or array."
+    )]
     async fn search_nodes(&self, Parameters(params): Parameters<SearchNodesParams>) -> String {
         let limit = params.limit.unwrap_or(20).min(100);
         let conn = self.db.lock().await;
@@ -474,7 +546,9 @@ impl SteleServer {
         }
     }
 
-    #[tool(description = "Open specific entities by name across one or more scopes, with observations and neighbor relations")]
+    #[tool(
+        description = "Open specific entities by name across one or more scopes, with observations and neighbor relations"
+    )]
     async fn open_nodes(&self, Parameters(params): Parameters<OpenNodesParams>) -> String {
         let conn = self.db.lock().await;
         match db::open_entities(&conn, &params.names, &params.scope) {
@@ -483,8 +557,13 @@ impl SteleServer {
         }
     }
 
-    #[tool(description = "DEPRECATED: Use the Stele plugin's /stele:bootstrap skill instead. Generate a CLAUDE.md snippet for a project that teaches Claude Code how to use Stele's flat memory and knowledge graph together")]
-    async fn bootstrap_project(&self, Parameters(params): Parameters<BootstrapProjectParams>) -> String {
+    #[tool(
+        description = "DEPRECATED: Use the Stele plugin's /stele:bootstrap skill instead. Generate a CLAUDE.md snippet for a project that teaches Claude Code how to use Stele's flat memory and knowledge graph together"
+    )]
+    async fn bootstrap_project(
+        &self,
+        Parameters(params): Parameters<BootstrapProjectParams>,
+    ) -> String {
         let scope = match &params.parent_scope {
             Some(parent) => format!("{parent}/{}", params.project_name),
             None => params.project_name.clone(),
@@ -493,20 +572,30 @@ impl SteleServer {
         let project_type = params.project_type.as_deref().unwrap_or("general");
 
         let entity_types = match project_type {
-            "web-app" | "frontend" => "component, page, service, store, api-endpoint, library, person",
+            "web-app" | "frontend" => {
+                "component, page, service, store, api-endpoint, library, person"
+            }
             "api" | "backend" => "service, endpoint, middleware, model, database, queue, person",
             "library" | "sdk" => "module, function, type, trait, interface, example, person",
             "monorepo" => "package, service, library, shared-module, pipeline, person",
-            "data-pipeline" | "ml" => "pipeline, model, dataset, feature, transform, scheduler, person",
+            "data-pipeline" | "ml" => {
+                "pipeline, model, dataset, feature, transform, scheduler, person"
+            }
             _ => "component, service, module, concept, person, tool, dependency",
         };
 
         let relation_types = match project_type {
             "web-app" | "frontend" => "imports, renders, calls, depends_on, owned_by, routes_to",
-            "api" | "backend" => "calls, depends_on, reads_from, writes_to, owned_by, authenticates",
-            "library" | "sdk" => "exports, depends_on, implements, extends, documented_in, owned_by",
+            "api" | "backend" => {
+                "calls, depends_on, reads_from, writes_to, owned_by, authenticates"
+            }
+            "library" | "sdk" => {
+                "exports, depends_on, implements, extends, documented_in, owned_by"
+            }
             "monorepo" => "depends_on, imports, publishes, consumes, owned_by, deployed_with",
-            "data-pipeline" | "ml" => "feeds_into, transforms, reads_from, writes_to, trains, owned_by",
+            "data-pipeline" | "ml" => {
+                "feeds_into, transforms, reads_from, writes_to, trains, owned_by"
+            }
             _ => "depends_on, calls, owns, uses, implements, extends",
         };
 
@@ -693,7 +782,11 @@ If this is a new project with no existing memories:
             project_type = project_type,
             scope = scope,
             top_scope = params.parent_scope.as_deref().unwrap_or(&scope),
-            scope_match = if params.parent_scope.is_some() { "Yes" } else { "N/A (top-level)" },
+            scope_match = if params.parent_scope.is_some() {
+                "Yes"
+            } else {
+                "N/A (top-level)"
+            },
             entity_types = entity_types,
             relation_types = relation_types,
             tag_suggestions = tag_suggestions,

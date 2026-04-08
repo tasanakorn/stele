@@ -105,7 +105,11 @@ impl eframe::App for SettingsApp {
             ui.heading("Bind Address");
             ui.add_space(8.0);
 
-            ui.radio_value(&mut self.mode, BindMode::Localhost, "127.0.0.1 (localhost only)");
+            ui.radio_value(
+                &mut self.mode,
+                BindMode::Localhost,
+                "127.0.0.1 (localhost only)",
+            );
             ui.radio_value(
                 &mut self.mode,
                 BindMode::AllInterfaces,
@@ -134,14 +138,17 @@ impl eframe::App for SettingsApp {
             ui.add_space(8.0);
 
             ui.horizontal(|ui| {
-                ui.with_layout(eframe::egui::Layout::right_to_left(eframe::egui::Align::Center), |ui| {
-                    if ui.button("Apply").clicked() {
-                        self.apply();
-                    }
-                    if ui.button("Cancel").clicked() {
-                        ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Close);
-                    }
-                });
+                ui.with_layout(
+                    eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
+                    |ui| {
+                        if ui.button("Apply").clicked() {
+                            self.apply();
+                        }
+                        if ui.button("Cancel").clicked() {
+                            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Close);
+                        }
+                    },
+                );
             });
         });
     }

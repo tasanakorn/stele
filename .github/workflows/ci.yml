@@ -104,7 +104,7 @@ jobs:
             plugins/steop/.claude-plugin/plugin.json \
             plugins/steop/skills/st-flow/SKILL.md \
             plugins/steop/skills/st-clarify/SKILL.md \
-            plugins/steop/skills/st-explore/SKILL.md \
+            plugins/steop/skills/st-research/SKILL.md \
             plugins/steop/skills/st-plan/SKILL.md \
             plugins/steop/skills/st-execute/SKILL.md \
             plugins/steop/skills/st-validate/SKILL.md \

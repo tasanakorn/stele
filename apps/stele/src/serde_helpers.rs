@@ -34,9 +34,7 @@ where
         Value::Array(_) => serde_json::from_value(value)
             .map(Some)
             .map_err(de::Error::custom),
-        Value::String(ref s) => serde_json::from_str(s)
-            .map(Some)
-            .map_err(de::Error::custom),
+        Value::String(ref s) => serde_json::from_str(s).map(Some).map_err(de::Error::custom),
         other => Err(de::Error::custom(format!(
             "expected array, string-encoded array, or null, got {}",
             value_type_name(&other)
