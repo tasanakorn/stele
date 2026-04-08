@@ -1,104 +1,55 @@
 # Stele
 
-Shared memory layer for [Claude Code](https://claude.ai/code). A single Rust binary that serves an [MCP](https://modelcontextprotocol.io/) interface over Streamable HTTP, backed by SQLite. Any Claude Code instance on the network can connect and share knowledge with the team.
+A suite of [Claude Code](https://claude.ai/code) plugins for shared memory and agentic workflows, backed by a lightweight Rust server.
 
-## Quick Start
+## Stele Marketplace
 
-### 1. Start the Server
+All plugins are distributed through the Stele marketplace. To add it:
 
-**macOS (desktop)** — download from [GitHub Releases](https://github.com/tasanakorn/stele/releases) or build from source:
+In Claude Code: `/plugin` → **Discover** → **Marketplaces** → **Add marketplace** → enter `tasanakorn/stele`
 
-```bash
-# Option A: Download the .app bundle
-# Download Stele-x.x.x-macos.dmg from GitHub Releases
-# Open the DMG and drag Stele.app to /Applications
-# Launch from Applications — it appears as a menu bar icon (no Dock icon)
+Then install any plugin: `/plugin` → **Discover** → select the plugin → **Install** → `/reload-plugins`
 
-# Option B: Build and run from source
-apps/stele/scripts/build-macos.sh           # builds apps/stele/target/release/Stele.app
-open apps/stele/target/release/Stele.app    # launch the menu bar app
+| Plugin    | Description                                                                | Docs                              |
+| --------- | -------------------------------------------------------------------------- | --------------------------------- |
+| **steop** | Agentic workflow pipeline with specialized agents                          | [README](plugins/steop/README.md) |
+| **stele** | Shared team memory — flat memories + knowledge graph via MCP               | [README](plugins/stele/README.md) |
 
-# Option C: Run the binary directly (no .app bundle)
-cd apps/stele
-cargo build --release
-./target/release/stele
-```
+## Steop — Agentic Workflow Pipeline
 
-The database is stored at `~/Library/Application Support/Stele/stele.db`.
-
-**Linux / Docker (headless):**
-
-```bash
-cd apps/stele
-cargo build --release --features headless --no-default-features
-./target/release/stele
-```
-
-**Docker:**
-
-```bash
-docker run -d -p 3100:3100 -v stele-data:/data ghcr.io/tasanakorn/stele
-```
-
-Stele is now listening on `127.0.0.1:3100`.
-
-### 2. Install the Plugin
-
-Add the Stele marketplace and install the plugin:
-
-```bash
-# Add the marketplace (one-time)
-claude plugin add tasanakorn/stele
-
-# In Claude Code, install the plugin from the marketplace
-/plugin
-# → Select "Discover" → find "stele" → Install
-# → Run /reload-plugins to activate
-```
-
-Or install directly within Claude Code:
+steop turns a task description into a structured pipeline — **clarify → research → plan → execute → validate** — with specialized agents handling each phase (Opus for architecture, Sonnet for review). Works completely standalone, no server required.
 
 ```
-/plugin
+/steop:st-flow <your task description>
 ```
 
-Navigate to **Discover** → **Marketplaces** → **Add marketplace** → enter `tasanakorn/stele` → then install the `stele` plugin.
+| Skill    | Command              | Description                                              |
+| -------- | -------------------- | -------------------------------------------------------- |
+| Flow     | `/steop:st-flow`     | Full pipeline end-to-end                                 |
+| Clarify  | `/steop:st-clarify`  | Analyze request, resolve ambiguities, produce task brief |
+| Research | `/steop:st-research` | Deep codebase investigation and context gathering        |
+| Plan     | `/steop:st-plan`     | Design implementation strategy and blueprint             |
+| Execute  | `/steop:st-execute`  | Implement code changes according to plan                 |
+| Validate | `/steop:st-validate` | Review changes for correctness and completeness          |
 
-The plugin provides skills and a subagent but does **not** auto-configure the MCP connection — run `/stele:install` to set it up.
+| Complexity | Pipeline                                            |
+| ---------- | --------------------------------------------------- |
+| Simple     | Clarify → Plan → Execute → Validate                 |
+| Standard   | Clarify → Research → Plan → Execute → Validate      |
+| Complex    | Clarify → Research → Plan → Execute → Validate      |
 
-### 3. Configure MCP Connection
+See the [steop README](plugins/steop/README.md) for agent details and configuration.
 
-```
-/stele:install
-```
+## Stele — Shared Team Memory
 
-This asks for your Stele server URL and where to install the config (user-level or project-level). **Restart Claude Code** after setup to activate the connection.
+The stele plugin gives Claude Code persistent, shared memory across sessions and machines. It connects to a running Stele server via MCP.
 
-### 4. Bootstrap Your Project
-
-```
-/stele:bootstrap
-```
-
-The bootstrap skill asks for your project name, scope, and type, then:
-- Creates a project entity in the knowledge graph
-- Stores conventions as shared memory
-- Writes a protocol section into your CLAUDE.md
-
-That's it. All Claude Code sessions in this project now share knowledge through Stele.
-
-## Usage
-
-### Skills
-
-The plugin provides four skills:
-
-| Skill      | Command            | Description                                                        |
-| ---------- | ------------------ | ------------------------------------------------------------------ |
-| Install    | `/stele:install`   | Check Stele MCP connection and help configure it                   |
-| Bootstrap  | `/stele:bootstrap` | Initialize a project — create scope, seed entities, generate CLAUDE.md |
-| Sync       | `/stele:sync`      | Pull latest shared team context into the current session           |
-| Checkpoint | `/stele:checkpoint`| Save session findings back to Stele                                |
+| Skill      | Command             | Description                                                            |
+| ---------- | ------------------- | ---------------------------------------------------------------------- |
+| Install    | `/stele:install`    | Check Stele MCP connection and help configure it                       |
+| Bootstrap  | `/stele:bootstrap`  | Initialize a project — create scope, seed entities, generate CLAUDE.md |
+| Sync       | `/stele:sync`       | Pull latest shared team context into the current session               |
+| Checkpoint | `/stele:checkpoint` | Save session findings back to Stele                                    |
 
 **Typical workflow:**
 
@@ -107,9 +58,9 @@ The plugin provides four skills:
 3. `/stele:sync` — start of each session, pull latest team knowledge
 4. `/stele:checkpoint` — end of session, save decisions and discoveries
 
-### Agent
+The **stele-librarian** is a read-only subagent (Sonnet) for searching memories and graph nodes, automatically available when the plugin is installed.
 
-The **stele-librarian** is a read-only subagent (Sonnet) for searching memories and graph nodes. It's automatically available when the plugin is installed. Claude Code will use it when it needs to look up shared knowledge without writing anything.
+See the [stele plugin README](plugins/stele/README.md) for full documentation.
 
 ### Manual MCP Setup (Without Plugin)
 
@@ -144,11 +95,38 @@ Bootstrap this project with stele, scope = "acme", this is a web app
 
 **Supported project types:** `web-app`, `frontend`, `api`, `backend`, `library`, `sdk`, `monorepo`, `data-pipeline`, `ml`, or `general` (default).
 
-## How It Works
+## Stele App
+
+The Stele server is a companion to the stele plugin. Single Rust binary, SQLite storage, no external dependencies. It serves [MCP](https://modelcontextprotocol.io/) over Streamable HTTP.
+
+### Quick Start
+
+**macOS (menu bar app):**
+
+```bash
+# Download Stele-x.x.x-macos.dmg from GitHub Releases, open and drag to /Applications
+# Or build from source:
+apps/stele/scripts/build-macos.sh
+open apps/stele/target/release/Stele.app
+```
+
+**Docker:**
+
+```bash
+docker run -d -p 3100:3100 -v stele-data:/data ghcr.io/tasanakorn/stele
+```
+
+**Build from source:**
+
+```bash
+cd apps/stele && cargo build --release && ./target/release/stele
+```
+
+### How It Works
 
 Stele provides two complementary memory systems:
 
-### Flat Memories
+#### Flat Memories
 
 Prose entries for decisions, conventions, troubleshooting notes, and references. Organized by **scope** and **tags**.
 
@@ -174,7 +152,7 @@ tags: ["auth", "vue"]      # union (any) or intersection (all)
 
 Both dimensions combine with full-text search on title and content.
 
-### Knowledge Graph
+#### Knowledge Graph
 
 Structured relationships between entities — services, components, people, dependencies. Three primitives:
 
@@ -184,23 +162,23 @@ Structured relationships between entities — services, components, people, depe
 
 Full-text search across entity names and observation content.
 
-### Memory Types
+#### Memory Types
 
 `knowledge`, `decision`, `convention`, `troubleshooting`, `reference`, `other`
 
-## Configuration
+### Configuration
 
-| Flag         | Env Var          | Default                                                              | Description                |
-| ------------ | ---------------- | -------------------------------------------------------------------- | -------------------------- |
-| `--bind`     | `STELE_BIND`     | `127.0.0.1:3100`                                                     | Address to listen on       |
-| `--db`       | `STELE_DB`       | `~/Library/Application Support/Stele/stele.db` (desktop) / `./stele.db` (headless) | SQLite database path |
-| `--mcp-path` | `STELE_MCP_PATH` | `/mcp`                                                               | HTTP path for MCP endpoint |
+| Flag         | Env Var          | Default                                                                                                          | Description                |
+| ------------ | ---------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `--bind`     | `STELE_BIND`     | `127.0.0.1:3100`                                                                                                 | Address to listen on       |
+| `--db`       | `STELE_DB`       | `~/Library/Application Support/Stele/stele.db` (desktop) / `./stele.db` (headless)                               | SQLite database path       |
+| `--mcp-path` | `STELE_MCP_PATH` | `/mcp`                                                                                                           | HTTP path for MCP endpoint |
 
 Set log level with `RUST_LOG` (e.g. `RUST_LOG=debug`).
 
-## MCP Tools
+### MCP Tools
 
-### Flat Memory (7 tools)
+#### Flat Memory (7 tools)
 
 | Tool              | Description                                 |
 | ----------------- | ------------------------------------------- |
@@ -212,7 +190,7 @@ Set log level with `RUST_LOG` (e.g. `RUST_LOG=debug`).
 | `list_scopes`     | List scopes with memory counts              |
 | `list_tags`       | List tags with memory counts                |
 
-### Knowledge Graph (9 tools)
+#### Knowledge Graph (9 tools)
 
 | Tool                  | Description                                                             |
 | --------------------- | ----------------------------------------------------------------------- |
@@ -226,11 +204,11 @@ Set log level with `RUST_LOG` (e.g. `RUST_LOG=debug`).
 | `search_nodes`        | FTS across entity names + observations                                  |
 | `open_nodes`          | Fetch entities + their direct neighbor relations                        |
 
-## REST API
+### REST API
 
 JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for browser access.
 
-### Flat Memory
+#### Flat Memory
 
 | Method | Path                 | Description             |
 | ------ | -------------------- | ----------------------- |
@@ -243,7 +221,7 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 | GET    | /api/v1/tags         | List tags with counts   |
 | GET    | /api/v1/stats        | Dashboard summary stats |
 
-### Knowledge Graph
+#### Knowledge Graph
 
 | Method | Path                                      | Description         |
 | ------ | ----------------------------------------- | ------------------- |
@@ -258,9 +236,9 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 | DELETE | /api/v1/graph/relations                   | Delete relations    |
 | GET    | /api/v1/graph/open?names=a,b&scope=       | Open specific nodes |
 
-## Installation Options
+### Installation Options
 
-### macOS .app Bundle
+#### macOS .app Bundle
 
 Download from [GitHub Releases](https://github.com/tasanakorn/stele/releases) or build locally:
 
@@ -274,7 +252,7 @@ apps/stele/scripts/build-dmg.sh      # creates apps/stele/target/release/Stele-x
 
 The app runs as a menu-bar-only utility (`LSUIElement=true`) — no Dock icon, just a tray icon. The database is stored at `~/Library/Application Support/Stele/stele.db`.
 
-### Docker
+#### Docker
 
 ```bash
 docker build -t stele apps/stele/
@@ -283,14 +261,14 @@ docker run -d -p 3100:3100 -v stele-data:/data stele
 
 The container uses the headless build. Database is stored at `/data/stele.db`.
 
-### Linux systemd Service
+#### Linux systemd Service
 
 ```bash
 sudo apps/stele/scripts/install-system.sh    # builds, creates stele user, installs service
 sudo systemctl start stele
 ```
 
-### Building from Source
+#### Building from Source
 
 Requires Rust 1.75+. SQLite is bundled (no system SQLite needed).
 

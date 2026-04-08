@@ -8,17 +8,12 @@ A Stele server must be running and accessible. See the [main README](../README.m
 
 ## Installation
 
-### From Marketplace
+Add the marketplace in Claude Code, then install the stele plugin:
 
-```bash
-claude plugin add tasanakorn/stele
 ```
-
-### Manual
-
-```bash
-git clone https://github.com/tasanakorn/stele.git
-claude plugin install ./stele/plugins/stele
+/plugin → Discover → Marketplaces → Add marketplace → tasanakorn/stele
+/plugin → Discover → stele → Install
+/reload-plugins
 ```
 
 ## Getting Started

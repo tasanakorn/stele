@@ -6,16 +6,12 @@ steop provides a structured multi-phase workflow using specialized agents for cl
 
 ## Install
 
-**Marketplace:**
+Add the marketplace in Claude Code, then install the steop plugin:
 
 ```
-tasanakorn/stele/steop
-```
-
-**Manual:**
-
-```
-./stele/plugins/steop
+/plugin → Discover → Marketplaces → Add marketplace → tasanakorn/stele
+/plugin → Discover → steop → Install
+/reload-plugins
 ```
 
 ## Skills
