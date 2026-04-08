@@ -18,7 +18,7 @@ claude plugin add tasanakorn/stele
 
 ```bash
 git clone https://github.com/tasanakorn/stele.git
-claude plugin install ./stele/plugin
+claude plugin install ./stele/plugins/stele
 ```
 
 ## Getting Started

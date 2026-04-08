@@ -1,17 +1,23 @@
 {
-  "name": "stele-plugins",
+  "name": "stele-marketplace",
   "owner": {
     "name": "tasanakorn"
   },
   "metadata": {
-    "description": "Shared team memory for Claude Code"
+    "description": "Shared memory and agentic workflow plugins for Claude Code"
   },
   "plugins": [
     {
       "name": "stele",
-      "source": "./plugin",
+      "source": "./plugins/stele",
       "description": "Shared team memory for Claude Code — flat memories + knowledge graph via MCP",
       "version": "0.2.0"
+    },
+    {
+      "name": "steop",
+      "source": "./plugins/steop",
+      "description": "Agentic workflow pipeline for Claude Code",
+      "version": "0.1.0"
     }
   ]
 }

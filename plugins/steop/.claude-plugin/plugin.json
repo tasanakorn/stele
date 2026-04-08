@@ -1,0 +1,10 @@
+{
+  "name": "steop",
+  "version": "0.1.0",
+  "description": "Agentic workflow pipeline for Claude Code",
+  "author": {
+    "name": "tasanakorn"
+  },
+  "homepage": "https://github.com/tasanakorn/stele",
+  "license": "MIT"
+}

@@ -36,8 +36,11 @@ eframe = { version = "0.33", optional = true, default-features = false, features
 
 [profile.dev]
 debug = 0
+incremental = false
 
 [profile.release]
 debug = 0
 strip = true
 lto = true
+codegen-units = 1
+opt-level = "s"

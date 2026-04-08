@@ -10,6 +10,9 @@ jobs:
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/stele
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -20,21 +23,31 @@ jobs:
   clippy:
     name: Clippy (headless)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/stele
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/stele
       - run: cargo clippy --features headless --no-default-features -- -D warnings
 
   check-desktop:
     name: Check (desktop, macOS)
     runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/stele
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/stele
       - run: cargo check
 
   validate-plugin:
@@ -46,28 +59,28 @@ jobs:
       - name: Check required files
         run: |
           for f in \
-            plugin/.claude-plugin/plugin.json \
-            plugin/skills/install/SKILL.md \
-            plugin/skills/bootstrap/SKILL.md \
-            plugin/skills/sync/SKILL.md \
-            plugin/skills/checkpoint/SKILL.md \
-            plugin/skills/bootstrap/references/claude-md-template.md \
-            plugin/agents/stele-librarian.md \
-            plugin/README.md; do
+            plugins/stele/.claude-plugin/plugin.json \
+            plugins/stele/skills/install/SKILL.md \
+            plugins/stele/skills/bootstrap/SKILL.md \
+            plugins/stele/skills/sync/SKILL.md \
+            plugins/stele/skills/checkpoint/SKILL.md \
+            plugins/stele/skills/bootstrap/references/claude-md-template.md \
+            plugins/stele/agents/stele-librarian.md \
+            plugins/stele/README.md; do
             [ -f "$f" ] || { echo "Missing: $f"; exit 1; }
           done
           echo "All plugin files present."
 
       - name: Validate JSON files
         run: |
-          python3 -c "import json; json.load(open('plugin/.claude-plugin/plugin.json'))"
+          python3 -c "import json; json.load(open('plugins/stele/.claude-plugin/plugin.json'))"
           python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"
 
       - name: Check version sync
         run: |
-          CARGO_VER=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          PLUGIN_VER=$(python3 -c "import json; print(json.load(open('plugin/.claude-plugin/plugin.json'))['version'])")
-          MARKET_VER=$(python3 -c "import json; print(json.load(open('.claude-plugin/marketplace.json'))['plugins'][0]['version'])")
+          CARGO_VER=$(grep '^version' apps/stele/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PLUGIN_VER=$(python3 -c "import json; print(json.load(open('plugins/stele/.claude-plugin/plugin.json'))['version'])")
+          MARKET_VER=$(python3 -c "import json; print([p['version'] for p in json.load(open('.claude-plugin/marketplace.json'))['plugins'] if p['name']=='stele'][0])")
           OK=true
           if [ "$CARGO_VER" != "$PLUGIN_VER" ]; then
             echo "Version mismatch: Cargo.toml=$CARGO_VER plugin.json=$PLUGIN_VER"
@@ -78,3 +91,43 @@ jobs:
             OK=false
           fi
           $OK && echo "All versions match: $CARGO_VER" || exit 1
+
+  validate-steop-plugin:
+    name: Validate steop plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required files
+        run: |
+          for f in \
+            plugins/steop/.claude-plugin/plugin.json \
+            plugins/steop/skills/st-flow/SKILL.md \
+            plugins/steop/skills/st-clarify/SKILL.md \
+            plugins/steop/skills/st-explore/SKILL.md \
+            plugins/steop/skills/st-plan/SKILL.md \
+            plugins/steop/skills/st-execute/SKILL.md \
+            plugins/steop/skills/st-validate/SKILL.md \
+            plugins/steop/agents/consultant.md \
+            plugins/steop/agents/researcher.md \
+            plugins/steop/agents/architect.md \
+            plugins/steop/agents/executor.md \
+            plugins/steop/agents/reviewer.md \
+            plugins/steop/README.md; do
+            [ -f "$f" ] || { echo "Missing: $f"; exit 1; }
+          done
+          echo "All steop plugin files present."
+
+      - name: Validate JSON
+        run: |
+          python3 -c "import json; json.load(open('plugins/steop/.claude-plugin/plugin.json'))"
+
+      - name: Check version sync
+        run: |
+          STEOP_PLUGIN_VER=$(python3 -c "import json; print(json.load(open('plugins/steop/.claude-plugin/plugin.json'))['version'])")
+          STEOP_MARKET_VER=$(python3 -c "import json; print([p['version'] for p in json.load(open('.claude-plugin/marketplace.json'))['plugins'] if p['name']=='steop'][0])")
+          if [ "$STEOP_PLUGIN_VER" != "$STEOP_MARKET_VER" ]; then
+            echo "Version mismatch: steop plugin.json=$STEOP_PLUGIN_VER marketplace.json=$STEOP_MARKET_VER"
+            exit 1
+          fi
+          echo "Steop versions match: $STEOP_PLUGIN_VER"

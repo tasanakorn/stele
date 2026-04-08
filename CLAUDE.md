@@ -6,14 +6,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Stele is a shared memory server for Claude Code. It exposes an MCP (Model Context Protocol) interface over Streamable HTTP so multiple Claude Code instances across different machines can store and retrieve shared knowledge. Single Rust binary, SQLite storage, no external dependencies.
 
+## Repository Layout
+
+Monorepo with apps and plugins at the top level:
+
+```
+stele/
+├── apps/stele/          # Rust server application
+│   ├── Cargo.toml
+│   ├── src/
+│   ├── assets/
+│   ├── macos/
+│   ├── scripts/
+│   ├── systemd/
+│   └── Dockerfile
+├── plugins/
+│   ├── stele/           # Claude Code plugin (shared memory)
+│   └── steop/          # Claude Code plugin (agentic workflow)
+├── .claude-plugin/      # Marketplace definition
+├── CLAUDE.md
+└── README.md
+```
+
 ## Build & Run
 
-Two build modes controlled by feature flags:
+All build commands run from the `apps/stele/` directory:
 
 ```bash
+cd apps/stele
+
 # Desktop / Menu Bar (default on macOS)
-cargo build                # dev build — tray icon + menu bar
-cargo build --release      # release build
+cargo build                # release build (default profile, see .cargo/config.toml)
 cargo run                  # menu bar app, DB at ~/Library/Application Support/Stele/
 
 # Headless daemon (Linux/Docker)
@@ -26,11 +49,15 @@ cargo run -- --bind 0.0.0.0:3100 --db /path/to/stele.db --mcp-path /mcp
 
 All CLI flags have env var equivalents: `STELE_BIND`, `STELE_DB`, `STELE_MCP_PATH`.
 
+Build profiles are configured in `Cargo.toml` to minimize disk usage (`incremental = false`, `codegen-units = 1`, `opt-level = "s"`). The default build profile is set to `release` via `.cargo/config.toml`.
+
 There are no tests yet. No linter or formatter is configured beyond standard `cargo clippy` / `cargo fmt`.
 
 ## Architecture
 
 The server is a single async process: axum serves HTTP, rmcp handles MCP protocol framing, SQLite stores everything.
+
+All source files are under `apps/stele/src/`.
 
 - **`main.rs`** — Dual entry point. Desktop mode (`#[cfg(feature = "desktop")]`) runs the tray app on the main thread and the server on a background thread. Headless mode (`#[cfg(not(feature = "desktop"))]`) uses `#[tokio::main]`. Shared `run_server()` function handles axum/rmcp setup. Graceful shutdown via `CancellationToken`.
 - **`tray.rs`** — macOS menu bar module (`#[cfg(feature = "desktop")]`). `TrayApp` creates a tray icon with status label, "Open Dashboard", and "Quit Stele" menu items. Uses `tray-icon` + `muda` crates.
@@ -162,7 +189,7 @@ Standard tags: `#active`, `#todo`, `#contract`, `#breaking`, `#wisdom`, `#confli
 
 ## Claude Code Plugin
 
-The `plugin/` directory contains a Claude Code marketplace plugin that provides skills and a subagent for working with Stele.
+The `plugins/stele/` directory contains a Claude Code marketplace plugin that provides skills and a subagent for working with Stele.
 
 ### Skills
 
@@ -178,32 +205,67 @@ The `plugin/` directory contains a Claude Code marketplace plugin that provides 
 ### Plugin Structure
 
 ```
-plugin/
+plugins/stele/
 ├── .claude-plugin/plugin.json
 ├── skills/{install,bootstrap,sync,checkpoint}/SKILL.md
 ├── agents/stele-librarian.md
 └── README.md
 ```
 
-The plugin version in `plugin/.claude-plugin/plugin.json` must match `Cargo.toml` version. CI validates this.
+The plugin version in `plugins/stele/.claude-plugin/plugin.json` must match `apps/stele/Cargo.toml` version. CI validates this.
+
+## Steop Plugin (Agentic Workflow)
+
+The `plugins/steop/` directory contains an agentic workflow pipeline plugin for Claude Code.
+
+### Skills
+
+- **`/steop:st-flow`** — Full pipeline: clarify -> explore -> plan -> execute -> validate (explore skipped for simple tasks)
+- **`/steop:st-clarify`** — Clarify phase: analyze request, scope, complexity assessment
+- **`/steop:st-explore`** — Explore phase: deep codebase investigation
+- **`/steop:st-plan`** — Plan phase: implementation blueprint
+- **`/steop:st-execute`** — Execute phase: implement changes per plan
+- **`/steop:st-validate`** — Validate phase: review correctness and completeness
+
+### Agents (5)
+
+consultant (Opus), researcher (inherit), architect (Opus), executor (inherit), reviewer (Sonnet)
+
+### Plugin Structure
+
+```
+plugins/steop/
+├── .claude-plugin/plugin.json
+├── skills/{st-flow,st-clarify,st-explore,st-plan,st-execute,st-validate}/SKILL.md
+├── agents/{consultant,researcher,architect,executor,reviewer}.md
+└── README.md
+```
 
 ## macOS .app Bundle
 
 Shell-script-based packaging using only macOS built-ins (`sips`, `iconutil`, `hdiutil`). No `cargo-bundle` dependency.
 
 ```bash
-./scripts/build-macos.sh          # builds target/release/Stele.app
-./scripts/build-dmg.sh            # creates target/release/Stele-0.1.0-macos.dmg
+apps/stele/scripts/build-macos.sh          # builds apps/stele/target/release/Stele.app
+apps/stele/scripts/build-dmg.sh            # creates apps/stele/target/release/Stele-0.1.0-macos.dmg
 ```
 
-- **`assets/AppIcon.png`** — 1024×1024 source icon (menu bar icon is separate: `assets/icon.png` at 22×22).
-- **`macos/Info.plist`** — Bundle metadata template. `__VERSION__` is substituted from `Cargo.toml` at build time. `LSUIElement=true` hides from Dock.
-- **`scripts/build-macos.sh`** — Runs `cargo build --release`, generates `.icns` via `sips`+`iconutil`, assembles `.app` directory layout.
-- **`scripts/build-dmg.sh`** — Wraps `Stele.app` in a compressed DMG with `/Applications` symlink.
+- **`apps/stele/assets/AppIcon.png`** — 1024×1024 source icon (menu bar icon is separate: `assets/icon.png` at 22×22).
+- **`apps/stele/macos/Info.plist`** — Bundle metadata template. `__VERSION__` is substituted from `Cargo.toml` at build time. `LSUIElement=true` hides from Dock.
+- **`apps/stele/scripts/build-macos.sh`** — Runs `cargo build --release`, generates `.icns` via `sips`+`iconutil`, assembles `.app` directory layout.
+- **`apps/stele/scripts/build-dmg.sh`** — Wraps `Stele.app` in a compressed DMG with `/Applications` symlink.
 
 ## Docker
 
 ```bash
-docker build -t stele .                              # uses headless feature
+docker build -t stele apps/stele/                    # uses headless feature
 docker run -v stele-data:/data -p 3100:3100 stele
 ```
+
+## Plugin Marketplace Troubleshooting
+
+When registering this repo as a local marketplace (`/plugin marketplace add <path>`), stale state can cause "Marketplace not found" errors. Known failure modes:
+
+1. **Stale `extraKnownMarketplaces` in `~/.claude/settings.json`** — If the marketplace was previously registered under a different name (e.g. `stele-plugins` → `stele-marketplace`), the old entry in `settings.json` persists and conflicts. Fix: remove the old entry from `extraKnownMarketplaces` before re-adding.
+2. **Orphaned plugin cache** — `~/.claude/plugins/cache/<marketplace-name>/` may contain `.orphaned_at` marker files from a previous failed resolution. Fix: `rm -rf ~/.claude/plugins/cache/<marketplace-name>` then re-add.
+3. **Resolution order** — Remove marketplace fully (`/plugin marketplace remove`), clear cache, then re-add. Running `/plugin` to install individual plugins only works after the marketplace resolves cleanly.

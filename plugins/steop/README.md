@@ -1,0 +1,72 @@
+# steop
+
+Agentic workflow pipeline for Claude Code.
+
+steop provides a structured multi-phase workflow using specialized agents for clarification, exploration, planning, execution, and validation.
+
+## Install
+
+**Marketplace:**
+
+```
+tasanakorn/stele/steop
+```
+
+**Manual:**
+
+```
+./stele/plugins/steop
+```
+
+## Skills
+
+| Skill    | Command             | Description                                                              |
+| -------- | ------------------- | ------------------------------------------------------------------------ |
+| Flow     | `/steop:st-flow`   | Full pipeline: clarify -> [explore] -> plan -> execute -> validate       |
+| Clarify  | `/steop:st-clarify` | Analyze request, resolve ambiguities, produce task brief                |
+| Explore  | `/steop:st-explore` | Deep codebase investigation and context gathering                       |
+| Plan     | `/steop:st-plan`   | Design implementation strategy and blueprint                             |
+| Execute  | `/steop:st-execute` | Implement code changes according to plan                                |
+| Validate | `/steop:st-validate` | Review changes for correctness and completeness                        |
+
+## Agents
+
+| Agent      | Model   | Role                                    |
+| ---------- | ------- | --------------------------------------- |
+| consultant | opus    | Requirements analysis and scoping       |
+| researcher | inherit | Codebase investigation and mapping      |
+| architect  | opus    | Implementation design and planning      |
+| executor   | inherit | Code implementation                     |
+| reviewer   | sonnet  | Change validation and quality checks    |
+
+## Usage
+
+### Full pipeline
+
+```
+/steop:st-flow <task description>
+```
+
+Runs the full workflow from clarify to validate, adapting the pipeline based on complexity.
+
+### Individual phases
+
+Run phases independently when you need granular control:
+
+```
+/steop:st-clarify <task description>
+/steop:st-explore <what to investigate>
+/steop:st-plan <task with prior context>
+/steop:st-execute implement the approved plan
+/steop:st-validate check the changes we just made
+```
+
+## Pipeline
+
+| Complexity | Pipeline                                        |
+| ---------- | ----------------------------------------------- |
+| Simple     | Clarify -> Plan -> Execute -> Validate          |
+| Standard   | Clarify -> Explore -> Plan -> Execute -> Validate |
+| Complex    | Clarify -> Explore -> Plan -> Execute -> Validate |
+
+The Clarify phase determines complexity, which controls pipeline shape and model selection for all subsequent phases.

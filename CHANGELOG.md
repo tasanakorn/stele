@@ -5,7 +5,7 @@ Maintained with the help of AI tooling. Each entry references the git hash it co
 ## 0.2.0 — 2026-03-21 `428b106`
 
 ### Added
-- Claude Code plugin at `plugin/` for marketplace distribution with four skills (`/stele:install`, `/stele:bootstrap`, `/stele:sync`, `/stele:checkpoint`) and a read-only `stele-librarian` subagent (`4bed4f2`)
+- Claude Code plugin at `plugins/stele/` for marketplace distribution with four skills (`/stele:install`, `/stele:bootstrap`, `/stele:sync`, `/stele:checkpoint`) and a read-only `stele-librarian` subagent (`4bed4f2`)
 - `.claude-plugin/marketplace.json` for Claude Code marketplace discovery (`4bed4f2`)
 - GitHub Actions CI workflow: rustfmt, clippy (headless), cargo check (desktop/macOS), plugin structure validation with version sync check (`4bed4f2`)
 - GitHub Actions release workflow: macOS binaries (aarch64 + x86_64, desktop + headless), Docker image to ghcr.io, GitHub Release with sha256 checksums (`4bed4f2`)

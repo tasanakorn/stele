@@ -15,10 +15,11 @@ Shared memory layer for [Claude Code](https://claude.ai/code). A single Rust bin
 # Launch from Applications — it appears as a menu bar icon (no Dock icon)
 
 # Option B: Build and run from source
-./scripts/build-macos.sh           # builds target/release/Stele.app
-open target/release/Stele.app      # launch the menu bar app
+apps/stele/scripts/build-macos.sh           # builds apps/stele/target/release/Stele.app
+open apps/stele/target/release/Stele.app    # launch the menu bar app
 
 # Option C: Run the binary directly (no .app bundle)
+cd apps/stele
 cargo build --release
 ./target/release/stele
 ```
@@ -28,6 +29,7 @@ The database is stored at `~/Library/Application Support/Stele/stele.db`.
 **Linux / Docker (headless):**
 
 ```bash
+cd apps/stele
 cargo build --release --features headless --no-default-features
 ./target/release/stele
 ```
@@ -263,8 +265,8 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 Download from [GitHub Releases](https://github.com/tasanakorn/stele/releases) or build locally:
 
 ```bash
-./scripts/build-macos.sh    # builds target/release/Stele.app
-./scripts/build-dmg.sh      # creates Stele-x.x.x-macos.dmg
+apps/stele/scripts/build-macos.sh    # builds apps/stele/target/release/Stele.app
+apps/stele/scripts/build-dmg.sh      # creates apps/stele/target/release/Stele-x.x.x-macos.dmg
 ```
 
 - **Stele.app** — double-click to launch, or drag to `/Applications`
@@ -275,7 +277,7 @@ The app runs as a menu-bar-only utility (`LSUIElement=true`) — no Dock icon, j
 ### Docker
 
 ```bash
-docker build -t stele .
+docker build -t stele apps/stele/
 docker run -d -p 3100:3100 -v stele-data:/data stele
 ```
 
@@ -284,7 +286,7 @@ The container uses the headless build. Database is stored at `/data/stele.db`.
 ### Linux systemd Service
 
 ```bash
-sudo ./scripts/install-system.sh    # builds, creates stele user, installs service
+sudo apps/stele/scripts/install-system.sh    # builds, creates stele user, installs service
 sudo systemctl start stele
 ```
 
@@ -293,6 +295,8 @@ sudo systemctl start stele
 Requires Rust 1.75+. SQLite is bundled (no system SQLite needed).
 
 ```bash
+cd apps/stele
+
 # Desktop (default on macOS)
 cargo build --release
 
