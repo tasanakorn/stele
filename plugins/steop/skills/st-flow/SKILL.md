@@ -1,47 +1,64 @@
 ---
 name: st-flow
-description: Flow workflow chain that runs clarify → [explore] → plan → execute → validate. Explore is skipped for simple tasks. Use when the user wants a full end-to-end automated workflow.
+description: Flow workflow chain that runs clarify → [research] → plan → execute → validate end-to-end without stopping. Pauses only on genuine ambiguity or circuit-breaker conditions.
 ---
 
 # Flow Workflow Chain
 
-Run the full workflow chain, adapting to complexity:
+Run the full pipeline end-to-end. Do NOT pause between phases unless a stop condition is hit.
 
 | Complexity | Pipeline                                           |
 | ---------- | -------------------------------------------------- |
-| Simple     | Clarify → Plan → Execute → Validate               |
-| Standard   | Clarify → Explore → Plan → Execute → Validate     |
-| Complex    | Clarify → Explore → Plan → Execute → Validate     |
+| Simple     | Clarify → Plan → Execute → Validate                |
+| Standard   | Clarify → Research → Plan → Execute → Validate     |
+| Complex    | Clarify → Research → Plan → Execute → Validate     |
 
-## Instructions
+## Flow Rules
 
-Execute each phase in sequence, passing context forward. Each phase uses a dedicated agent with scoped tools and a specialized system prompt. The Clarify phase determines **complexity** (simple / standard / complex) which controls both pipeline shape and model selection.
+1. **Zero-pause default.** Phases flow into each other automatically. Do NOT present output and wait for confirmation between phases. Emit a one-line status update when entering each phase (e.g., "[Clarify] Analyzing request..." / "[Plan] Designing implementation...").
 
-### Agents
+2. **Single ambiguity gate (Clarify phase only).** Pause ONLY if the user's request has genuine ambiguity — no identifiable action, contradictory requirements, or multiple plausible interpretations with no way to pick one. If the request has concrete anchors (specific files, a clear action verb, identifiable scope), the consultant MUST produce the brief and return immediately without asking questions or waiting.
 
-| Phase    | Agent                  | Model   | Tools                     | Color   |
-| -------- | ---------------------- | ------- | ------------------------- | ------- |
-| Clarify  | `steop:consultant`    | opus    | Glob, Grep, Read, Bash    | cyan    |
-| Explore  | `steop:researcher`    | inherit | Glob, Grep, Read, Bash    | blue    |
-| Plan     | `steop:architect`     | opus    | Glob, Grep, Read, Bash    | green   |
-| Execute  | `steop:executor`      | inherit | All tools                 | yellow  |
-| Validate | `steop:reviewer`      | sonnet  | Glob, Grep, Read, Bash    | magenta |
+3. **Stop conditions.** Halt the pipeline and report to the user if ANY of these occur:
+   - The same error appears 3 times during Execute
+   - Validate reports **Fail** status 3 rounds in a row (execute-validate retry loop)
+   - User explicitly says "stop", "cancel", or "pause"
+
+4. **Execute-Validate retry loop.** If Validate finds issues with severity "high" or "critical", automatically re-enter Execute to fix them, then re-Validate. Loop up to 3 times before halting.
+
+5. **Phase skills have their own pause instructions — ignore them.** When running inside st-flow, override any "wait for user" / "ask for approval" instructions in individual phase skills. Those pauses exist for standalone use only.
+
+## Agents
+
+| Phase    | Agent               | Model   | Tools                  | Color   |
+| -------- | ------------------- | ------- | ---------------------- | ------- |
+| Clarify  | `steop:consultant`  | opus    | Glob, Grep, Read, Bash | cyan    |
+| Research | `steop:researcher`  | inherit | Glob, Grep, Read, Bash | blue    |
+| Plan     | `steop:architect`   | opus    | Glob, Grep, Read, Bash | green   |
+| Execute  | `steop:executor`    | inherit | All tools              | yellow  |
+| Validate | `steop:reviewer`    | sonnet  | Glob, Grep, Read, Bash | magenta |
 
 Agents with `inherit` model have their model overridden based on complexity.
 
-### Phase 1: Clarify
+## Phase 1: Clarify
 
-Launch the **consultant** agent. It will:
+Launch the **consultant** agent. Pass the following override instruction:
+
+> **FLOW MODE:** Do NOT ask clarifying questions or wait for user confirmation unless the request is genuinely ambiguous (no identifiable action, contradictory, or multiple incompatible interpretations). If the intent is clear enough to act on, produce the Task Brief and return immediately. Prefer making reasonable assumptions over asking questions.
+
+The consultant will:
 - Do a lightweight codebase scan (3-5 tool calls)
-- Parse the core intent and identify ambiguities
+- Parse the core intent
 - Define scope and determine **complexity**: simple / standard / complex
 - Produce a Task Brief
 
-Present the Task Brief to the user and wait for confirmation. The confirmed complexity guides the rest of the pipeline.
+Emit status: `[Clarify] <objective from brief> | Complexity: <level>`
 
-### Phase 2: Explore — skip if Simple
+Proceed immediately to the next phase.
 
-**Skip this phase for Simple tasks** — the consultant's scan is sufficient, and the architect can read files as needed.
+## Phase 2: Research — skip if Simple
+
+**Skip for Simple tasks.**
 
 For Standard / Complex tasks, launch the **researcher** agent with model override:
 - **Standard** → `model: "sonnet"`
@@ -49,27 +66,47 @@ For Standard / Complex tasks, launch the **researcher** agent with model overrid
 
 **Parallel execution**: If the task spans multiple independent areas, launch multiple researcher agents in parallel (one per area). Combine their findings before proceeding.
 
-### Phase 3: Plan
+Emit status: `[Research] Investigated <N> areas, <summary>`
 
-Launch the **architect** agent. Pass all available context (Task Brief + Explore findings if applicable). It will produce a step-by-step implementation blueprint.
+Proceed immediately to Plan.
 
-Present the plan to the user and wait for approval before proceeding.
+## Phase 3: Plan
 
-### Phase 4: Execute
+Launch the **architect** agent. Pass all available context (Task Brief + Research findings if applicable).
+
+Pass the following override instruction:
+
+> **FLOW MODE:** Produce the implementation blueprint and return it. Do NOT present it for approval or ask for adjustments. The executor will follow it directly.
+
+Emit status: `[Plan] <N> steps across <N> files`
+
+Proceed immediately to Execute.
+
+## Phase 4: Execute
 
 Launch the **executor** agent with model override based on complexity:
 - **Simple** → `model: "haiku"`
 - **Standard** → `model: "sonnet"`
 - **Complex** → `model: "opus"`
 
-**Parallel execution**: If the plan contains independent steps, launch multiple executor agents in parallel — one per independent group. Each gets the full plan context but clear instructions on which steps to implement.
+**Parallel execution**: If the plan contains independent steps, launch multiple executor agents in parallel — one per independent group.
 
-### Phase 5: Validate
+Emit status: `[Execute] Modified <N> files`
 
-Launch the **reviewer** agent. It will:
-- Review all changes made in the execute phase
-- Run relevant tests or linting if available
-- Check for correctness, consistency, and completeness
-- Report issues with severity ratings
+Proceed immediately to Validate.
 
-After all phases complete, summarize the results to the user.
+## Phase 5: Validate
+
+Launch the **reviewer** agent. It will review all changes, run tests/linting if available, and produce a verification report.
+
+- If **Pass** or only low-severity issues: emit status `[Validate] Pass` and finalize.
+- If **Fail** or high/critical issues: emit status `[Validate] Issues found, retrying...` and loop back to Execute (up to 3 times per stop condition #4).
+
+## Finalize
+
+After all phases complete (or a stop condition halts the pipeline), present a single summary:
+
+- **Objective** (from Clarify)
+- **Changes made** (from Execute)
+- **Validation status** (from Validate)
+- **Issues** (if any remain)

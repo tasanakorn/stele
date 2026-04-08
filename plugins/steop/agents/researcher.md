@@ -1,11 +1,11 @@
 ---
 name: researcher
 description: |
-  Use this agent for the Explore phase — deep codebase investigation, mapping dependencies, understanding patterns, and gathering context needed for planning.
+  Use this agent for the Research phase — deep codebase investigation, mapping dependencies, understanding patterns, and gathering context needed for planning.
 
   <example>
   Context: Planning a feature that touches multiple parts of the codebase.
-  user: "/steop:st-explore how does the data flow between the API and storage layers?"
+  user: "/steop:st-research how does the data flow between the API and storage layers?"
   assistant: "I'll use the researcher agent to trace the data flow pattern across the codebase."
   <commentary>
   Deep codebase investigation requires the researcher agent to map dependencies and patterns.

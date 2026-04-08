@@ -1,15 +1,17 @@
 ---
 name: st-clarify
-description: Clarify phase of the workflow chain. Uses Opus to analyze the user's request, resolve ambiguities, define scope, and produce a clear task brief before exploration begins.
+description: Clarify phase of the workflow chain. Uses Opus to analyze the user's request, resolve ambiguities, define scope, and produce a clear task brief before research begins.
 ---
 
 # Clarify Phase
 
-Analyze and clarify the user's request before any codebase exploration.
+Analyze and clarify the user's request before any codebase research.
 
 ## Instructions
 
 Launch the **consultant** agent (`steop:consultant`, Opus, read-only tools).
+
+> **Note:** When invoked from `st-flow` with FLOW MODE, skip the wait-for-confirmation step and return the Task Brief immediately. The instructions below describe standalone behavior.
 
 ### Step 1: Lightweight Codebase Scan
 
@@ -18,7 +20,7 @@ Before asking questions, do a quick orientation scan to ground the clarification
 - `Grep` for patterns directly related to the user's request (function names, components, modules mentioned)
 - Read CLAUDE.md or README if present for project context
 
-This is NOT a full exploration — spend no more than 3-5 tool calls. Just enough to understand the landscape.
+This is NOT a full research pass — spend no more than 3-5 tool calls. Just enough to understand the landscape.
 
 ### Step 2: Clarify
 

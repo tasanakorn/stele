@@ -35,7 +35,7 @@ Before asking questions, do a quick orientation (3-5 tool calls max):
 - Grep for patterns directly related to the user's request
 - Read CLAUDE.md or README if present for project context
 
-This is NOT a full exploration — just enough to ground your questions in the actual codebase.
+This is NOT a full research pass — just enough to ground your questions in the actual codebase.
 
 **2. Analyze the Request**
 - Parse the core intent and identify what the user actually wants

@@ -21,7 +21,7 @@ Launch the **executor** agent (`steop:executor`, full tool access). Override mod
 If the plan contains independent steps (changes to separate files or modules with no cross-dependencies), launch multiple Execute agents in parallel — one per independent group. Each agent should receive:
 - The full plan context (so it understands the bigger picture)
 - Clear instructions on which specific steps to implement
-- Any exploration context available
+- Any research context available
 
 ### Execution Goals
 

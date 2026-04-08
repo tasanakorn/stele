@@ -220,9 +220,9 @@ The `plugins/steop/` directory contains an agentic workflow pipeline plugin for 
 
 ### Skills
 
-- **`/steop:st-flow`** — Full pipeline: clarify -> explore -> plan -> execute -> validate (explore skipped for simple tasks)
+- **`/steop:st-flow`** — Full pipeline: clarify -> research -> plan -> execute -> validate (research skipped for simple tasks)
 - **`/steop:st-clarify`** — Clarify phase: analyze request, scope, complexity assessment
-- **`/steop:st-explore`** — Explore phase: deep codebase investigation
+- **`/steop:st-research`** — Research phase: deep codebase investigation
 - **`/steop:st-plan`** — Plan phase: implementation blueprint
 - **`/steop:st-execute`** — Execute phase: implement changes per plan
 - **`/steop:st-validate`** — Validate phase: review correctness and completeness
@@ -236,7 +236,7 @@ consultant (Opus), researcher (inherit), architect (Opus), executor (inherit), r
 ```
 plugins/steop/
 ├── .claude-plugin/plugin.json
-├── skills/{st-flow,st-clarify,st-explore,st-plan,st-execute,st-validate}/SKILL.md
+├── skills/{st-flow,st-clarify,st-research,st-plan,st-execute,st-validate}/SKILL.md
 ├── agents/{consultant,researcher,architect,executor,reviewer}.md
 └── README.md
 ```

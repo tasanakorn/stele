@@ -11,7 +11,9 @@ Design the implementation strategy for the user's task.
 
 Launch the **architect** agent (`steop:architect`, Opus, read-only tools).
 
-Provide the agent with all available context from prior exploration (if any) plus the user's task description.
+> **Note:** When invoked from `st-flow` with FLOW MODE, produce the blueprint and return it immediately without asking for approval. The instructions below describe standalone behavior.
+
+Provide the agent with all available context from prior research (if any) plus the user's task description.
 
 The planning agent should produce:
 - **Goal** — clear statement of what will be achieved
