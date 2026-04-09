@@ -11,6 +11,7 @@ use config::{resolve_connection, CliArgs};
 #[derive(Parser)]
 #[command(
     name = "stele",
+    version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), ")"),
     about = "CLI client for the Stele shared memory server"
 )]
 struct Cli {

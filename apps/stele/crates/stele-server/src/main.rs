@@ -39,12 +39,14 @@ async fn run_server(
         let service = StreamableHttpService::new(
             move || Ok(SteleServer::new(mcp_pool.clone())),
             Arc::new(LocalSessionManager::default()),
-            StreamableHttpServerConfig {
-                stateful_mode: true,
-                sse_keep_alive: None,
-                sse_retry: None,
-                json_response: false,
-                cancellation_token: child_ct.clone(),
+            {
+                let mut cfg = StreamableHttpServerConfig::default();
+                cfg.stateful_mode = true;
+                cfg.sse_keep_alive = None;
+                cfg.sse_retry = None;
+                cfg.json_response = false;
+                cfg.cancellation_token = child_ct.clone();
+                cfg
             },
         );
 

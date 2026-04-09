@@ -239,7 +239,11 @@ plugins/stele/
 └── README.md
 ```
 
-The plugin version in `plugins/stele/.claude-plugin/plugin.json` must match `apps/stele/Cargo.toml` version. CI validates this.
+The plugin version in `plugins/stele/.claude-plugin/plugin.json` must match `apps/stele/Cargo.toml` workspace version. CI validates this.
+
+## Versioning
+
+SemVer. Bump `apps/stele/Cargo.toml` (`[workspace.package].version`) and `plugins/stele/.claude-plugin/plugin.json` (`"version"`) together, then `cargo update --workspace`. Major = breaking MCP/API/DB changes, minor = new features, patch = fixes and docs.
 
 ## Steop Plugin (Agentic Workflow)
 

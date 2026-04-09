@@ -18,7 +18,7 @@ The MCP connection is **automatically registered** when this plugin is installed
 uname -s
 ```
 
-Store the result — macOS (`Darwin`) or Linux (`Linux`). This determines which server options are available later.
+Store the result — macOS (`Darwin`) or Linux (`Linux`). This determines the installation path: macOS always installs Stele.app; Linux offers build-from-source or Docker.
 
 ### Step 2: Check Prerequisites
 
@@ -110,15 +110,6 @@ Ask the user:
 
 #### macOS
 
-Ask the user:
-
-> Which server mode do you prefer?
->
-> 1. **Desktop app** (recommended) — Menu bar app with system tray icon. Data stored in `~/Library/Application Support/Stele/`.
-> 2. **Headless daemon** — Background process with no UI, suitable for automation or launchd.
-
-**Desktop app (recommended):**
-
 > Building the Stele desktop app. This compiles from source and may take several minutes.
 
 ```bash
@@ -146,22 +137,6 @@ open /Applications/Stele.app
 ```
 
 Tell the user: Stele is now running in the menu bar. Data is stored at `~/Library/Application Support/Stele/stele.db`.
-
-**Headless daemon:**
-
-> Building the Stele server (headless mode). This compiles from source and may take several minutes.
-
-```bash
-cargo install --path /tmp/stele-build/apps/stele/crates/stele-server --no-default-features --features headless
-```
-
-After install, start it:
-
-```bash
-stele-server &
-```
-
-Tell the user: The server is listening on `http://127.0.0.1:3100` by default. Use `--bind` to change the address.
 
 #### Linux
 
@@ -205,8 +180,8 @@ stele status
 
 If it fails, wait 5 seconds and retry once. If it still fails:
 
-- Check if the process is running: `ps aux | grep stele-server`
-- On macOS desktop: check if the app launched with `ps aux | grep 'Stele.app/Contents/MacOS/stele'`
+- On macOS: check if the app launched with `ps aux | grep 'Stele.app/Contents/MacOS/stele'`
+- On Linux: check if the process is running with `ps aux | grep stele-server`
 - Ensure port 3100 is not in use by another process: `lsof -i :3100`
 - Check logs for errors
 
@@ -255,11 +230,18 @@ This should report the server as reachable. If it fails:
 - Check the server URL in `stele config show`
 - Check firewall / network access for remote servers
 
-### Step 9: Next Steps
+### Step 9: Cleanup
+
+Remove the temporary build directory to free disk space:
+
+```bash
+rm -rf /tmp/stele-build
+```
+
+### Step 10: Next Steps
 
 Tell the user:
 
 - The MCP connection is provided by the plugin automatically — no action needed
 - If they changed the connection profile, they should **restart Claude Code** so the MCP proxy picks up the new settings
-- The `/tmp/stele-build` directory can be removed to free disk space: `rm -rf /tmp/stele-build`
 - Suggest running `/stele:bootstrap` to initialize the current project with Stele
