@@ -70,19 +70,6 @@ For a remote server:
 
 If `.mcp.json` already exists with other servers, merge the `stele` entry — do not overwrite other entries.
 
-**Alternative (direct HTTP, no CLI needed):** If the `stele` CLI is not available, use Streamable HTTP:
-
-```json
-{
-  "mcpServers": {
-    "stele": {
-      "type": "http",
-      "url": "<url>/mcp"
-    }
-  }
-}
-```
-
 ### Step 4: Inform User
 
 Tell the user:
