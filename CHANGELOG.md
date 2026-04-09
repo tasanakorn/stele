@@ -2,6 +2,18 @@
 
 Maintained with the help of AI tooling. Each entry references the git hash it covers through.
 
+## 2026-04-09 18:21:46 `ae04b95`
+
+### Added
+- Bundled `.mcp.json` in the stele plugin — MCP server is auto-registered on plugin install, no manual setup needed (`ae04b95`)
+
+### Changed
+- `/stele:install` skill repurposed from MCP setup to CLI connection profile configuration via `stele config` (`ae04b95`)
+- Updated all docs (README, CLAUDE.md, deployment.md, plugin README, bootstrap skill) to reflect auto-registered MCP and profile-based install flow (`ae04b95`)
+
+### Removed
+- Direct HTTP transport fallback from install skill (`fd13fcf`)
+
 ## 2026-04-09 16:31:59 `fd13fcf`
 
 ### Added
