@@ -12,21 +12,9 @@ Then install any plugin: `/plugin` → **Discover** → select the plugin → **
 
 | Plugin      | Description                                                  | Docs                                |
 | ----------- | ------------------------------------------------------------ | ----------------------------------- |
-| **stelite** | Lightweight inline workflow pipeline                         | [README](plugins/stelite/README.md) |
 | **steop**   | Agentic workflow pipeline with specialized agents            | [README](plugins/steop/README.md)   |
 | **stele**   | Shared team memory — flat memories + knowledge graph via MCP | [README](plugins/stele/README.md)   |
-
-## Stelite — Lightweight Inline Workflow
-
-> **Note:** stelite is a snapshot of steop's pipeline taken before steop grows into a more feature-rich plugin. It is not actively maintained or validated — use steop for production workflows.
-
-stelite provides the same clarify → research → plan → execute → validate pipeline as steop, but executes all phases inline — the current model does the work directly without spawning subagents. Lower overhead, best for focused single-area tasks.
-
-```
-/stelite:st-flow <your task description>
-```
-
-See the [stelite README](plugins/stelite/README.md) for skills and a comparison with steop.
+| **stelite** | Lightweight inline workflow pipeline (snapshot)              | [README](plugins/stelite/README.md) |
 
 ## Steop — Agentic Workflow Pipeline
 
@@ -107,6 +95,18 @@ Bootstrap this project with stele, scope = "acme", this is a web app
 ```
 
 **Supported project types:** `web-app`, `frontend`, `api`, `backend`, `library`, `sdk`, `monorepo`, `data-pipeline`, `ml`, or `general` (default).
+
+## Stelite — Lightweight Inline Workflow
+
+> **Note:** stelite is a snapshot of steop's pipeline taken before steop grows into a more feature-rich plugin. It is not actively maintained or validated — use steop for production workflows.
+
+stelite provides the same clarify → research → plan → execute → validate pipeline as steop, but executes all phases inline — the current model does the work directly without spawning subagents. Lower overhead, best for focused single-area tasks.
+
+```
+/stelite:st-flow <your task description>
+```
+
+See the [stelite README](plugins/stelite/README.md) for skills and a comparison with steop.
 
 ## Stele App
 
