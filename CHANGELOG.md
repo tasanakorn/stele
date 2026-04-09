@@ -2,6 +2,21 @@
 
 Maintained with the help of AI tooling. Each entry references the git hash it covers through.
 
+## 2026-04-08 18:04:17 `ddfe39d`
+
+### Added
+- Steop agentic workflow plugin at `plugins/steop/` with five-phase pipeline: clarify, research, plan, execute, validate — includes `/steop:st-flow` for end-to-end runs and individual phase skills (`05938e1`)
+- Monorepo structure with `apps/` and `plugins/` top-level directories, separating the Rust server (`apps/stele/`) from Claude Code plugins (`plugins/stele/`, `plugins/steop/`) (`05938e1`)
+
+### Changed
+- Removed hardcoded `.mcp.json` from the repo — MCP connection is now configured exclusively via the `/stele:install` skill (`1b2283c`)
+- Bootstrap CLAUDE.md template slimmed down, deferring procedural details to plugin skills (`c4011c5`)
+- Renamed steop Explore phase to Research (`st-explore` → `st-research`) and redesigned `st-flow` as an auto-continuing pipeline that only pauses on genuine ambiguity (`d095155`)
+- README restructured around marketplace installation and plugin promotion (`c061e9a`)
+
+### Fixed
+- CI workflow updated to reference `st-research` instead of removed `st-explore` skill (`ddfe39d`)
+
 ## 0.2.0 — 2026-03-21 `428b106`
 
 ### Added

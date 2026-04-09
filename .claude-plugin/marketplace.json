@@ -18,6 +18,12 @@
       "source": "./plugins/steop",
       "description": "Agentic workflow pipeline for Claude Code",
       "version": "0.1.0"
+    },
+    {
+      "name": "stelite",
+      "source": "./plugins/stelite",
+      "description": "Lightweight inline workflow pipeline for Claude Code",
+      "version": "0.1.0"
     }
   ]
 }

@@ -10,10 +10,30 @@ In Claude Code: `/plugin` → **Discover** → **Marketplaces** → **Add market
 
 Then install any plugin: `/plugin` → **Discover** → select the plugin → **Install** → `/reload-plugins`
 
-| Plugin    | Description                                                                | Docs                              |
-| --------- | -------------------------------------------------------------------------- | --------------------------------- |
-| **steop** | Agentic workflow pipeline with specialized agents                          | [README](plugins/steop/README.md) |
-| **stele** | Shared team memory — flat memories + knowledge graph via MCP               | [README](plugins/stele/README.md) |
+| Plugin      | Description                                                  | Docs                                |
+| ----------- | ------------------------------------------------------------ | ----------------------------------- |
+| **stelite** | Lightweight inline workflow pipeline                         | [README](plugins/stelite/README.md) |
+| **steop**   | Agentic workflow pipeline with specialized agents            | [README](plugins/steop/README.md)   |
+| **stele**   | Shared team memory — flat memories + knowledge graph via MCP | [README](plugins/stele/README.md)   |
+
+## Stelite — Lightweight Inline Workflow
+
+stelite provides the same clarify → research → plan → execute → validate pipeline as steop, but executes all phases inline — the current model does the work directly without spawning subagents. Lower overhead, best for focused single-area tasks.
+
+```
+/stelite:st-flow <your task description>
+```
+
+| Skill    | Command                | Description                                              |
+| -------- | ---------------------- | -------------------------------------------------------- |
+| Flow     | `/stelite:st-flow`     | Full pipeline end-to-end                                 |
+| Clarify  | `/stelite:st-clarify`  | Analyze request, resolve ambiguities, produce task brief |
+| Research | `/stelite:st-research` | Deep codebase investigation and context gathering        |
+| Plan     | `/stelite:st-plan`     | Design implementation strategy and blueprint             |
+| Execute  | `/stelite:st-execute`  | Implement code changes according to plan                 |
+| Validate | `/stelite:st-validate` | Review changes for correctness and completeness          |
+
+See the [stelite README](plugins/stelite/README.md) for a comparison with steop.
 
 ## Steop — Agentic Workflow Pipeline
 
