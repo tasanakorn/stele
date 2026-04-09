@@ -23,11 +23,11 @@ Then try it:
 
 ## Plugins
 
-| Plugin | What it does | Docs |
-| --- | --- | --- |
-| **[steop](#steop--agentic-workflow-pipeline)** | Structured workflow pipeline with specialized agents | [README](plugins/steop/README.md) |
-| **[stele](#stele--shared-team-memory)** | Persistent shared memory — flat memories + knowledge graph via MCP | [README](plugins/stele/README.md) |
-| **[stelite](plugins/stelite/README.md)** | Lightweight inline variant of steop (unmaintained snapshot) | [README](plugins/stelite/README.md) |
+| Plugin | What it does | Prerequisites | Docs |
+| --- | --- | --- | --- |
+| **steop** | Structured workflow pipeline with specialized agents | None — works out of the box | [README](plugins/steop/README.md) |
+| **stele** | Persistent shared memory — flat memories + knowledge graph via MCP | Git, [Rust toolchain](https://rustup.rs/) — `/stele:install` builds and installs everything | [README](plugins/stele/README.md) |
+| **stelite** | Lightweight inline variant of steop (unmaintained snapshot) | None — works out of the box | [README](plugins/stelite/README.md) |
 
 ---
 

@@ -2,6 +2,19 @@
 
 Maintained with the help of AI tooling. Each entry references the git hash it covers through.
 
+## 2026-04-09 22:32:41 `a2dd409`
+
+### Added
+- Git commit hash in `--version` output for both CLI and server via `build.rs` (`a2dd409`)
+- SemVer versioning guide in CLAUDE.md (`a2dd409`)
+
+### Changed
+- Bumped to v0.3.2 — Cargo workspace and plugin version now in sync (`a2dd409`)
+- `/stele:install` skill rewritten for end-to-end setup: clone source, build from local tree, auto-cleanup `/tmp/stele-build` on completion (`122de31`, `9d92d82`, `a2dd409`)
+- macOS install flow simplified — always installs Stele.app desktop mode, removed headless option (`a2dd409`)
+- Stelite plugin converted to exact copy of steop with subagents (`a3b54a8`)
+- `StreamableHttpServerConfig` init switched to `Default` + field assignment for rmcp forward compatibility (`a2dd409`)
+
 ## 2026-04-09 18:21:46 `ae04b95`
 
 ### Added
