@@ -2,19 +2,32 @@
 
 ## Overview
 
-Stele exposes 17 MCP tools over Streamable HTTP:
+Stele exposes 17 MCP tools:
 
 - 7 flat memory tools
 - 9 knowledge graph tools
 - 1 deprecated bootstrap tool
 
-The MCP endpoint is served at a configurable path (default `/mcp`). Configure Claude Code to connect:
+The server's MCP endpoint is served over Streamable HTTP at a configurable path (default `/mcp`). The recommended way to connect Claude Code is via the `stele mcp` stdio proxy:
 
 ```json
 {
   "mcpServers": {
     "stele": {
-      "type": "streamableHttp",
+      "command": "stele",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Alternatively, connect directly over Streamable HTTP (no CLI needed):
+
+```json
+{
+  "mcpServers": {
+    "stele": {
+      "type": "http",
       "url": "http://localhost:3100/mcp"
     }
   }

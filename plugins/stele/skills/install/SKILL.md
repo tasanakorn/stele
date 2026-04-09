@@ -21,10 +21,12 @@ If already configured at either level, report the current URL and scope. Ask the
 
 ### Step 2: Ask for Server URL
 
-Ask the user for the Stele server URL.
+Ask the user for the Stele server URL (the base URL, not the `/mcp` path).
 
-- Default: `http://127.0.0.1:3100/mcp`
-- For remote servers: `http://<host>:<port>/mcp`
+- Default: `http://127.0.0.1:3100`
+- For remote servers: `http://<host>:<port>`
+
+The `stele mcp` CLI proxy will append `/mcp` automatically.
 
 ### Step 3: Ask for Scope and Write Config
 
@@ -33,7 +35,11 @@ Ask the user where to install the MCP connection:
 **User scope** — available in all projects, good for personal machines:
 
 ```bash
-claude mcp add --scope user stele --transport http <url>
+# Local server (default URL)
+claude mcp add --scope user stele -- stele mcp
+
+# Remote server
+claude mcp add --scope user stele -- stele --server-url <url> mcp
 ```
 
 **Project scope** — shared via version control, good for team projects. Write `.mcp.json` in the project root:
@@ -42,14 +48,40 @@ claude mcp add --scope user stele --transport http <url>
 {
   "mcpServers": {
     "stele": {
-      "type": "http",
-      "url": "<url>"
+      "command": "stele",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+For a remote server:
+
+```json
+{
+  "mcpServers": {
+    "stele": {
+      "command": "stele",
+      "args": ["--server-url", "<url>", "mcp"]
     }
   }
 }
 ```
 
 If `.mcp.json` already exists with other servers, merge the `stele` entry — do not overwrite other entries.
+
+**Alternative (direct HTTP, no CLI needed):** If the `stele` CLI is not available, use Streamable HTTP:
+
+```json
+{
+  "mcpServers": {
+    "stele": {
+      "type": "http",
+      "url": "<url>/mcp"
+    }
+  }
+}
+```
 
 ### Step 4: Inform User
 

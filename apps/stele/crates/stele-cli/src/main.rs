@@ -1,6 +1,7 @@
 mod client;
 mod commands;
 mod config;
+mod mcp_proxy;
 mod output;
 
 use clap::{Parser, Subcommand};
@@ -265,7 +266,8 @@ fn main() {
     }
 
     if let Commands::Mcp = &cli.command {
-        println!("MCP proxy not yet implemented");
+        let (url, key) = resolve_connection(&cli_args);
+        mcp_proxy::run(url, key);
         return;
     }
 

@@ -7,7 +7,7 @@ Stele is a shared memory server for Claude Code. It exposes an MCP (Model Contex
 The workspace produces two binaries:
 
 - `stele-server` — the full server (MCP + REST API, optional macOS tray)
-- `stele` — a sync CLI client for interacting with a running server over REST
+- `stele` — a sync CLI client and MCP stdio proxy for interacting with a running server
 
 ## Workspace Structure
 
@@ -23,7 +23,7 @@ MCP and REST server. Dependencies include axum, rmcp, rusqlite (bundled), and to
 
 ### `stele-cli`
 
-Sync CLI client. Uses `ureq` for HTTP, `clap` for argument parsing, and TOML config profiles for storing server addresses. Binary name: `stele`.
+Sync CLI client and MCP stdio proxy. Uses `ureq` for HTTP, `clap` for argument parsing, and TOML config profiles for storing server addresses. The `stele mcp` command bridges stdin/stdout JSON-RPC to the server's Streamable HTTP endpoint. Binary name: `stele`.
 
 ## Crate Dependency Diagram
 
@@ -37,8 +37,9 @@ graph TD
 
 ```mermaid
 graph LR
-    CC1["Claude Code (MCP)"] -- "Streamable HTTP" --> Server
-    CC2["Claude Code (MCP)"] -- "Streamable HTTP" --> Server
+    CC1["Claude Code"] -- "stdio" --> Proxy["stele mcp"]
+    Proxy -- "Streamable HTTP" --> Server
+    CC2["Claude Code"] -- "Streamable HTTP" --> Server
     CLI["stele CLI"] -- "REST API" --> Server
     Browser -- "REST API" --> Server
     Server --> SQLite["SQLite (WAL)"]

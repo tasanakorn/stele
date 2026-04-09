@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Stele
 
-Stele is a shared memory server for Claude Code. It exposes an MCP (Model Context Protocol) interface over Streamable HTTP so multiple Claude Code instances across different machines can store and retrieve shared knowledge. Two Rust binaries — `stele-server` (full server) and `stele` (CLI client + MCP stdio proxy) — SQLite storage, no external dependencies.
+Stele is a shared memory server for Claude Code. It exposes an MCP (Model Context Protocol) interface so multiple Claude Code instances across different machines can store and retrieve shared knowledge. Two Rust binaries — `stele-server` (full server with Streamable HTTP) and `stele` (CLI client + MCP stdio-to-HTTP proxy) — SQLite storage, no external dependencies. Claude Code connects via `stele mcp` (stdio transport, recommended) or directly over Streamable HTTP.
 
 ## Repository Layout
 
@@ -93,6 +93,7 @@ CLI source in `apps/stele/crates/stele-cli/src/`:
 - **`main.rs`** — Clap-based CLI with subcommands for memory CRUD, graph operations, and MCP proxy.
 - **`config.rs`** — Multi-profile config file (`~/.config/stele/config.toml`). Named connection profiles with server URL and auth key.
 - **`client.rs`** — `SteleClient` wrapping ureq HTTP agent. All methods map 1:1 to REST API endpoints. Auth via `X-Stele-Key` header.
+- **`mcp_proxy.rs`** — MCP stdio-to-Streamable-HTTP proxy. Reads JSON-RPC from stdin, POSTs to server's `/mcp`, parses SSE responses, writes to stdout. Tracks `mcp-session-id` for session continuity.
 - **`commands/`** — Command handlers split by domain: `memory.rs`, `info.rs`, `graph.rs`, `config_cmd.rs`.
 
 ## Data Model

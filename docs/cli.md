@@ -218,11 +218,40 @@ All commands support `--json` for machine-readable output. Useful for piping to 
 stele --json recall "auth" --scope myproject | jq '.[].title'
 ```
 
-## MCP Proxy (Planned)
+## MCP Proxy
 
 ```
 stele mcp
 stele --profile team mcp
+stele --server-url http://remote:3100 mcp
 ```
 
-Not yet implemented. Will act as a stdio-to-HTTP bridge, allowing Claude Code to connect to Stele via the standard `command`/`args` MCP config format instead of requiring direct Streamable HTTP support.
+Acts as a stdio-to-Streamable-HTTP bridge. Claude Code launches `stele mcp` as a child process, sends JSON-RPC messages over stdin (one per line), and receives responses on stdout. The proxy POSTs each message to the server's `/mcp` endpoint, parses SSE responses, and writes JSON-RPC back.
+
+Session tracking is automatic -- the proxy captures the `mcp-session-id` header from the server's response and includes it on all subsequent requests. On stdin EOF (Claude Code disconnect), the proxy sends a DELETE to terminate the MCP session cleanly.
+
+Configure Claude Code to use the proxy:
+
+```json
+{
+  "mcpServers": {
+    "stele": {
+      "command": "stele",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+For a remote server or named profile:
+
+```json
+{
+  "mcpServers": {
+    "stele-team": {
+      "command": "stele",
+      "args": ["--profile", "team", "mcp"]
+    }
+  }
+}
+```

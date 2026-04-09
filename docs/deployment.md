@@ -112,26 +112,36 @@ This creates `~/.config/stele/config.toml` with a `local` profile pointing to `h
 
 ## Claude Code Integration
 
-### Direct HTTP (Streamable HTTP)
+### Via CLI stdio proxy (recommended)
 
-```json
-{
-  "mcpServers": {
-    "stele": {
-      "type": "streamableHttp",
-      "url": "http://localhost:3100/mcp"
-    }
-  }
-}
-```
-
-### Via CLI stdio proxy (planned)
+The `stele mcp` command bridges stdio to Streamable HTTP. Claude Code launches it as a child process:
 
 ```json
 {
   "mcpServers": {
     "stele": { "command": "stele", "args": ["mcp"] },
     "stele-team": { "command": "stele", "args": ["--profile", "team", "mcp"] }
+  }
+}
+```
+
+Or via the CLI:
+
+```bash
+claude mcp add --scope user stele -- stele mcp
+```
+
+### Direct HTTP (Streamable HTTP)
+
+If the `stele` CLI is not installed, Claude Code can connect directly (requires Streamable HTTP transport support):
+
+```json
+{
+  "mcpServers": {
+    "stele": {
+      "type": "http",
+      "url": "http://localhost:3100/mcp"
+    }
   }
 }
 ```

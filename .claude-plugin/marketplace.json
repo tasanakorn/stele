@@ -11,7 +11,7 @@
       "name": "stele",
       "source": "./plugins/stele",
       "description": "Shared team memory for Claude Code — flat memories + knowledge graph via MCP",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "name": "steop",

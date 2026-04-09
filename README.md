@@ -81,17 +81,43 @@ See the [stele plugin README](plugins/stele/README.md) for full documentation.
 
 ### Manual MCP Setup (Without Plugin)
 
-If you prefer not to use the plugin, connect Claude Code directly:
+If you prefer not to use the plugin, connect Claude Code via the CLI stdio proxy:
 
 ```bash
 # User scope (available in all projects)
-claude mcp add --scope user stele --transport http http://localhost:3100/mcp
+claude mcp add --scope user stele -- stele mcp
 
 # Project scope (shared via .mcp.json)
-claude mcp add stele --transport http http://localhost:3100/mcp
+claude mcp add stele -- stele mcp
 ```
 
 Or add to `~/.claude/settings.json` (user) or `.mcp.json` (project):
+
+```json
+{
+  "mcpServers": {
+    "stele": {
+      "command": "stele",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+For remote servers, pass the URL as a flag:
+
+```json
+{
+  "mcpServers": {
+    "stele": {
+      "command": "stele",
+      "args": ["--server-url", "http://remote:3100", "mcp"]
+    }
+  }
+}
+```
+
+**Alternative (direct HTTP, no CLI needed):**
 
 ```json
 {
