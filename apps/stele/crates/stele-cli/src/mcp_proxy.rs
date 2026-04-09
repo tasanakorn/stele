@@ -30,7 +30,7 @@ pub fn run(server_url: String, auth_key: Option<String>) {
         let mut req = agent
             .post(&mcp_url)
             .set("Content-Type", "application/json")
-            .set("Accept", "text/event-stream");
+            .set("Accept", "application/json, text/event-stream");
 
         if let Some(ref sid) = session_id {
             req = req.set("mcp-session-id", sid);
