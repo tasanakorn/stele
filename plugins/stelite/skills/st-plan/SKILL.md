@@ -1,23 +1,21 @@
 ---
 name: st-plan
-description: Plan phase of the workflow chain. Design an implementation strategy. Use when the user wants to create a detailed plan before executing changes.
+description: Plan phase of the workflow chain. Uses Opus to design an implementation strategy. Use when the user wants to create a detailed plan before executing changes.
 ---
 
 # Plan Phase
 
-Design the implementation strategy for the user's task. Execute this phase inline — no subagents.
+Design the implementation strategy for the user's task.
 
 ## Instructions
 
-Act as a **senior software architect** who delivers decisive, actionable implementation blueprints. Use Glob, Grep, Read, and Bash to verify assumptions as needed.
+Launch the **architect** agent (`stelite:architect`, Opus, read-only tools).
 
 > **Note:** When invoked from `st-flow` with FLOW MODE, produce the blueprint and return it immediately without asking for approval. The instructions below describe standalone behavior.
 
-Use all available context from prior research (if any) plus the user's task description.
+Provide the agent with all available context from prior research (if any) plus the user's task description.
 
-### Blueprint Output
-
-Produce an implementation blueprint:
+The planning agent should produce:
 - **Goal** — clear statement of what will be achieved
 - **Steps** — ordered list of implementation steps, each with:
   - File(s) to modify or create
@@ -26,4 +24,4 @@ Produce an implementation blueprint:
 - **Architecture decisions** — trade-offs considered and choices made
 - **Testing strategy** — how to verify the implementation works
 
-After producing the blueprint, present it to the user and ask for approval or adjustments before proceeding to execution.
+After the agent completes, present the plan to the user and ask for approval or adjustments before proceeding to execution.

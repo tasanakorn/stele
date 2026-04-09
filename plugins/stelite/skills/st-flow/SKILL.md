@@ -5,7 +5,7 @@ description: Flow workflow chain that runs clarify → [research] → plan → e
 
 # Flow Workflow Chain
 
-Run the full pipeline end-to-end. Do NOT pause between phases unless a stop condition is hit. Execute all phases inline — no subagents.
+Run the full pipeline end-to-end. Do NOT pause between phases unless a stop condition is hit.
 
 | Complexity | Pipeline                                           |
 | ---------- | -------------------------------------------------- |
@@ -15,27 +15,42 @@ Run the full pipeline end-to-end. Do NOT pause between phases unless a stop cond
 
 ## Flow Rules
 
-1. **Zero-pause default.** Phases flow into each other automatically. Do NOT present output and wait for confirmation between phases. Emit a one-line status update when entering each phase (e.g., "`[Clarify]` Analyzing request..." / "`[Plan]` Designing implementation...").
+1. **Zero-pause default.** Phases flow into each other automatically. Do NOT present output and wait for confirmation between phases. Emit a one-line status update when entering each phase (e.g., "[Clarify] Analyzing request..." / "[Plan] Designing implementation...").
 
-2. **Single ambiguity gate (Clarify phase only).** Pause ONLY if the user's request has genuine ambiguity — no identifiable action, contradictory requirements, or multiple plausible interpretations with no way to pick one. If the request has concrete anchors (specific files, a clear action verb, identifiable scope), produce the brief and proceed immediately without asking questions.
+2. **Single ambiguity gate (Clarify phase only).** Pause ONLY if the user's request has genuine ambiguity — no identifiable action, contradictory requirements, or multiple plausible interpretations with no way to pick one. If the request has concrete anchors (specific files, a clear action verb, identifiable scope), the consultant MUST produce the brief and return immediately without asking questions or waiting.
 
 3. **Stop conditions.** Halt the pipeline and report to the user if ANY of these occur:
    - The same error appears 3 times during Execute
    - Validate reports **Fail** status 3 rounds in a row (execute-validate retry loop)
    - User explicitly says "stop", "cancel", or "pause"
 
-4. **Execute-Validate retry loop.** If Validate finds issues with severity "high" or "critical", re-enter Execute to fix them, then re-Validate. Loop up to 3 times before halting.
+4. **Execute-Validate retry loop.** If Validate finds issues with severity "high" or "critical", automatically re-enter Execute to fix them, then re-Validate. Loop up to 3 times before halting.
 
 5. **Phase skills have their own pause instructions — ignore them.** When running inside st-flow, override any "wait for user" / "ask for approval" instructions in individual phase skills. Those pauses exist for standalone use only.
 
+## Agents
+
+| Phase    | Agent               | Model   | Tools                  | Color   |
+| -------- | ------------------- | ------- | ---------------------- | ------- |
+| Clarify  | `stelite:consultant`  | opus    | Glob, Grep, Read, Bash | cyan    |
+| Research | `stelite:researcher`  | inherit | Glob, Grep, Read, Bash | blue    |
+| Plan     | `stelite:architect`   | opus    | Glob, Grep, Read, Bash | green   |
+| Execute  | `stelite:executor`    | inherit | All tools              | yellow  |
+| Validate | `stelite:reviewer`    | sonnet  | Glob, Grep, Read, Bash | magenta |
+
+Agents with `inherit` model have their model overridden based on complexity.
+
 ## Phase 1: Clarify
 
-Act as a **senior technical consultant**. Do NOT ask clarifying questions or wait for user confirmation unless the request is genuinely ambiguous.
+Launch the **consultant** agent. Pass the following override instruction:
 
+> **FLOW MODE:** Do NOT ask clarifying questions or wait for user confirmation unless the request is genuinely ambiguous (no identifiable action, contradictory, or multiple incompatible interpretations). If the intent is clear enough to act on, produce the Task Brief and return immediately. Prefer making reasonable assumptions over asking questions.
+
+The consultant will:
 - Do a lightweight codebase scan (3-5 tool calls)
 - Parse the core intent
 - Define scope and determine **complexity**: simple / standard / complex
-- Produce a Task Brief (Objective, Scope, Complexity, Assumptions, Open questions)
+- Produce a Task Brief
 
 Emit status: `[Clarify] <objective from brief> | Complexity: <level>`
 
@@ -45,16 +60,11 @@ Proceed immediately to the next phase.
 
 **Skip for Simple tasks.**
 
-For Standard / Complex tasks, act as a **senior codebase researcher**. Use Glob, Grep, Read, and Bash to investigate the codebase thoroughly.
+For Standard / Complex tasks, launch the **researcher** agent with model override:
+- **Standard** → `model: "sonnet"`
+- **Complex** → `model: "sonnet"`
 
-If the task spans multiple independent areas, investigate each area sequentially.
-
-Research goals:
-- Identify all files relevant to the task
-- Understand existing patterns and conventions
-- Map dependencies and relationships
-- Note any constraints or potential issues
-- Gather code snippets and context needed for planning
+**Parallel execution**: If the task spans multiple independent areas, launch multiple researcher agents in parallel (one per area). Combine their findings before proceeding.
 
 Emit status: `[Research] Investigated <N> areas, <summary>`
 
@@ -62,13 +72,11 @@ Proceed immediately to Plan.
 
 ## Phase 3: Plan
 
-Act as a **senior software architect**. Produce the implementation blueprint directly — do NOT present it for approval.
+Launch the **architect** agent. Pass all available context (Task Brief + Research findings if applicable).
 
-Use all available context (Task Brief + Research findings if applicable) to produce:
-- **Goal** — clear statement of what will be achieved
-- **Steps** — ordered list with file(s), changes, and risks per step
-- **Architecture decisions** — trade-offs considered and choices made
-- **Testing strategy** — how to verify the implementation
+Pass the following override instruction:
+
+> **FLOW MODE:** Produce the implementation blueprint and return it. Do NOT present it for approval or ask for adjustments. The executor will follow it directly.
 
 Emit status: `[Plan] <N> steps across <N> files`
 
@@ -76,12 +84,12 @@ Proceed immediately to Execute.
 
 ## Phase 4: Execute
 
-Act as a **senior software engineer**. Implement the changes according to the plan.
+Launch the **executor** agent with model override based on complexity:
+- **Simple** → `model: "haiku"`
+- **Standard** → `model: "sonnet"`
+- **Complex** → `model: "opus"`
 
-- Follow the plan step by step
-- Make all necessary code changes
-- Keep changes focused and minimal — implement what was planned, nothing more
-- Report what was changed after completion
+**Parallel execution**: If the plan contains independent steps, launch multiple executor agents in parallel — one per independent group.
 
 Emit status: `[Execute] Modified <N> files`
 
@@ -89,13 +97,7 @@ Proceed immediately to Validate.
 
 ## Phase 5: Validate
 
-Act as a **senior code reviewer**. Review all changes using read-only tools (Glob, Grep, Read, Bash for tests/linting).
-
-1. Review changes — read all modified/created files and verify they match the plan
-2. Check correctness — look for bugs, typos, logic errors, missing edge cases
-3. Run tests — execute any available test suites or linting tools
-4. Check consistency — ensure changes follow existing codebase patterns
-5. Check completeness — verify nothing was missed from the plan
+Launch the **reviewer** agent. It will review all changes, run tests/linting if available, and produce a verification report.
 
 - If **Pass** or only low-severity issues: emit status `[Validate] Pass` and finalize.
 - If **Fail** or high/critical issues: emit status `[Validate] Issues found, retrying...` and loop back to Execute (up to 3 times per stop condition #4).

@@ -1,15 +1,15 @@
 ---
 name: st-clarify
-description: Clarify phase of the workflow chain. Analyze the user's request, resolve ambiguities, define scope, and produce a clear task brief before research begins.
+description: Clarify phase of the workflow chain. Uses Opus to analyze the user's request, resolve ambiguities, define scope, and produce a clear task brief before research begins.
 ---
 
 # Clarify Phase
 
-Analyze and clarify the user's request before any codebase research. Execute this phase inline — no subagents.
+Analyze and clarify the user's request before any codebase research.
 
 ## Instructions
 
-Act as a **senior technical consultant** who excels at understanding requirements, asking the right questions, and defining clear scope.
+Launch the **consultant** agent (`stelite:consultant`, Opus, read-only tools).
 
 > **Note:** When invoked from `st-flow` with FLOW MODE, skip the wait-for-confirmation step and return the Task Brief immediately. The instructions below describe standalone behavior.
 
@@ -24,7 +24,7 @@ This is NOT a full research pass — spend no more than 3-5 tool calls. Just eno
 
 ### Step 2: Clarify
 
-With codebase context in hand:
+With codebase context in hand, the agent should:
 - Parse the user's request and identify the core intent
 - Spot ambiguities, missing details, or implicit assumptions
 - Define the scope — what's in and what's out
@@ -36,7 +36,7 @@ With codebase context in hand:
 After clarification, present a structured brief:
 - **Objective** — one-sentence statement of what will be done
 - **Scope** — explicit boundaries (what's included, what's excluded)
-- **Complexity** — simple / standard / complex (this guides pipeline selection in later phases)
+- **Complexity** — simple / standard / complex (this guides model selection in later phases)
 - **Assumptions** — anything assumed that wasn't explicitly stated
 - **Open questions** — any remaining questions for the user (if none, state "None")
 

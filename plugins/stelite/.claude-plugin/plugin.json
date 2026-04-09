@@ -1,7 +1,7 @@
 {
   "name": "stelite",
   "version": "0.1.0",
-  "description": "Lightweight inline workflow pipeline for Claude Code",
+  "description": "Agentic workflow pipeline for Claude Code",
   "author": {
     "name": "tasanakorn"
   },
