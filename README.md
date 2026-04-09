@@ -18,22 +18,15 @@ Then install any plugin: `/plugin` → **Discover** → select the plugin → **
 
 ## Stelite — Lightweight Inline Workflow
 
+> **Note:** stelite is a snapshot of steop's pipeline taken before steop grows into a more feature-rich plugin. It is not actively maintained or validated — use steop for production workflows.
+
 stelite provides the same clarify → research → plan → execute → validate pipeline as steop, but executes all phases inline — the current model does the work directly without spawning subagents. Lower overhead, best for focused single-area tasks.
 
 ```
 /stelite:st-flow <your task description>
 ```
 
-| Skill    | Command                | Description                                              |
-| -------- | ---------------------- | -------------------------------------------------------- |
-| Flow     | `/stelite:st-flow`     | Full pipeline end-to-end                                 |
-| Clarify  | `/stelite:st-clarify`  | Analyze request, resolve ambiguities, produce task brief |
-| Research | `/stelite:st-research` | Deep codebase investigation and context gathering        |
-| Plan     | `/stelite:st-plan`     | Design implementation strategy and blueprint             |
-| Execute  | `/stelite:st-execute`  | Implement code changes according to plan                 |
-| Validate | `/stelite:st-validate` | Review changes for correctness and completeness          |
-
-See the [stelite README](plugins/stelite/README.md) for a comparison with steop.
+See the [stelite README](plugins/stelite/README.md) for skills and a comparison with steop.
 
 ## Steop — Agentic Workflow Pipeline
 
