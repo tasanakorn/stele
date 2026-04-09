@@ -2,6 +2,14 @@
 
 Maintained with the help of AI tooling. Each entry references the git hash it covers through.
 
+## 2026-04-09 09:05:32 `3f63426`
+
+### Added
+- Stelite plugin at `plugins/stelite/` — lightweight, skills-only clone of steop that executes all phases inline without subagents (`4a63ede`)
+
+### Changed
+- README updated to position stelite as an unmaintained snapshot of steop, moved below steop and stele sections (`c16a3d0`, `3f63426`)
+
 ## 2026-04-08 18:04:17 `ddfe39d`
 
 ### Added
