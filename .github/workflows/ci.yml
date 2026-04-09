@@ -52,6 +52,23 @@ jobs:
       - run: cargo check -p stele-server
       - run: cargo check -p stele-cli
 
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/stele
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/stele
+      - name: Build binaries
+        run: cargo build -p stele-server --features headless --no-default-features -p stele-cli
+      - name: Run e2e tests
+        run: python3 ../../tests/e2e_test.py --no-build
+
   validate-plugin:
     name: Validate plugin
     runs-on: ubuntu-latest
