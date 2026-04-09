@@ -1,0 +1,6 @@
+{
+  "stele": {
+    "command": "stele",
+    "args": ["mcp"]
+  }
+}

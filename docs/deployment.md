@@ -148,7 +148,7 @@ If the `stele` CLI is not installed, Claude Code can connect directly (requires 
 
 ### Via Plugin
 
-Install the Stele plugin from the Claude Code marketplace, then run `/stele:install` to configure the MCP connection at user or project level.
+Install the Stele plugin from the Claude Code marketplace. The MCP connection is auto-registered by the plugin. Run `/stele:install` to configure the connection profile if using a remote server.
 
 ## Plugins
 

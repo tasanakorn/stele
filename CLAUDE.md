@@ -220,7 +220,7 @@ The `plugins/stele/` directory contains a Claude Code marketplace plugin that pr
 
 ### Skills
 
-- **`/stele:install`** — Configure Stele MCP connection at user or project level. The plugin does not ship with a hardcoded MCP config — this skill is the way to set it up.
+- **`/stele:install`** — Configure Stele connection profile for your server. The plugin ships `.mcp.json` so MCP is auto-registered on install; this skill handles CLI profile setup for remote servers or auth keys.
 - **`/stele:bootstrap`** — Initialize a project with Stele: creates scope, seeds entities in the knowledge graph, generates CLAUDE.md protocol section. Replaces the deprecated `bootstrap_project` MCP tool.
 - **`/stele:sync`** — Pull latest shared team context (flat memories + knowledge graph) into the current session.
 - **`/stele:checkpoint`** — Save session findings (decisions, bugs, conventions) back to Stele.

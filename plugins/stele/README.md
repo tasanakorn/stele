@@ -18,13 +18,9 @@ Add the marketplace in Claude Code, then install the stele plugin:
 
 ## Getting Started
 
-After installing the plugin, run `/stele:install` to configure the MCP connection:
+The MCP connection is automatically registered when the plugin is installed — no manual MCP configuration needed.
 
-```
-/stele:install
-```
-
-This will ask for your Stele server URL and where to install the config (user-level or project-level). Restart Claude Code after setup to activate.
+If connecting to a remote server, run `/stele:install` to configure your connection profile.
 
 Then bootstrap your project:
 
@@ -36,7 +32,7 @@ Then bootstrap your project:
 
 | Skill      | Command            | Description                                                          |
 | ---------- | ------------------ | -------------------------------------------------------------------- |
-| Install    | `/stele:install`   | Configure Stele MCP connection at user or project level              |
+| Install    | `/stele:install`   | Configure Stele connection profile for your server                   |
 | Bootstrap  | `/stele:bootstrap` | Initialize a project — create scope, seed entities, generate CLAUDE.md |
 | Sync       | `/stele:sync`      | Pull latest shared team context into the current session             |
 | Checkpoint | `/stele:checkpoint`| Save session findings, decisions, and discoveries back to Stele      |

@@ -1,79 +1,78 @@
 ---
 name: install
-description: Configure Stele MCP connection at user or project level
+description: Configure Stele connection profile for your server
 user-invocable: true
 ---
 
-# Install Stele MCP Connection
+# Configure Stele Connection
 
-Configure the Stele MCP server connection so Claude Code can access shared team memory.
+Set up the connection profile so the Stele CLI and MCP proxy can reach your server.
+
+The MCP server is **automatically registered** when this plugin is installed — no manual MCP configuration is needed.
+
+## Prerequisites
+
+The `stele` CLI binary must be installed and available on your PATH. Verify with:
+
+```bash
+stele --help
+```
 
 ## Procedure
 
-### Step 1: Check Existing Configuration
+### Step 1: Check Current Configuration
 
-Check if Stele MCP is already configured:
-
-1. **Project-level:** Look for a `stele` entry in `.mcp.json` in the project root
-2. **User-level:** Look for a `stele` entry in `~/.claude/settings.json` under `mcpServers`
-
-If already configured at either level, report the current URL and scope. Ask the user if they want to reconfigure or keep the current setup. If keeping, skip to Step 4.
-
-### Step 2: Ask for Server URL
-
-Ask the user for the Stele server URL (the base URL, not the `/mcp` path).
-
-- Default: `http://127.0.0.1:3100`
-- For remote servers: `http://<host>:<port>`
-
-The `stele mcp` CLI proxy will append `/mcp` automatically.
-
-### Step 3: Ask for Scope and Write Config
-
-Ask the user where to install the MCP connection:
-
-**User scope** — available in all projects, good for personal machines:
+Run the following to see if a config file already exists:
 
 ```bash
-# Local server (default URL)
-claude mcp add --scope user stele -- stele mcp
-
-# Remote server
-claude mcp add --scope user stele -- stele --server-url <url> mcp
+stele config show
 ```
 
-**Project scope** — shared via version control, good for team projects. Write `.mcp.json` in the project root:
+If this shows a valid config with the correct server URL, skip to Step 3.
 
-```json
-{
-  "mcpServers": {
-    "stele": {
-      "command": "stele",
-      "args": ["mcp"]
-    }
-  }
-}
+If no config file exists, the default profile (`local` at `http://127.0.0.1:3100`) is used automatically. This is correct for a local Stele server with default settings.
+
+### Step 2: Create or Edit Profile
+
+**For a local server with default settings** — no config file is needed. The defaults work out of the box.
+
+**For a remote server or custom port**, initialize the config and edit it:
+
+```bash
+stele config init
 ```
 
-For a remote server:
+This creates `~/.config/stele/config.toml`. Edit it with the server URL and (optionally) auth key:
 
-```json
-{
-  "mcpServers": {
-    "stele": {
-      "command": "stele",
-      "args": ["--server-url", "<url>", "mcp"]
-    }
-  }
-}
+```toml
+default_profile = "local"
+
+[profiles.local]
+server_url = "http://127.0.0.1:3100"
+
+[profiles.remote]
+server_url = "https://stele.example.com:3100"
+auth_key = "your-auth-key-here"
 ```
 
-If `.mcp.json` already exists with other servers, merge the `stele` entry — do not overwrite other entries.
+To switch the active profile, set `default_profile` to the desired profile name, or use the `--profile` flag / `STELE_PROFILE` env var per-invocation.
 
-### Step 4: Inform User
+### Step 3: Verify Connection
+
+```bash
+stele status
+```
+
+This should report the server as reachable. If it fails:
+
+- Confirm the Stele server is running
+- Check the server URL in `stele config show`
+- Check firewall / network access for remote servers
+
+### Step 4: Next Steps
 
 Tell the user:
-- Where the config was written (user-level or project-level)
-- They need to **restart Claude Code** for the MCP connection to take effect
-- After restart, all 17 Stele MCP tools will be available
-- Suggest running `/stele:bootstrap` to set up the current project if it doesn't have a Stele protocol section in CLAUDE.md yet
+
+- The MCP connection is provided by the plugin automatically — no restart needed for MCP setup
+- If they changed the connection profile, they should **restart Claude Code** so the MCP proxy picks up the new settings
+- Suggest running `/stele:bootstrap` to initialize the current project with Stele if it does not have a protocol section in CLAUDE.md yet

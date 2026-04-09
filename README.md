@@ -63,14 +63,14 @@ The stele plugin gives Claude Code persistent, shared memory across sessions and
 
 **Typical workflow:**
 
-1. `/stele:install` — first time only, verify server is reachable and MCP is configured
+1. `/stele:install` — first time only, configure connection profile (MCP is auto-registered by the plugin)
 2. `/stele:bootstrap` — once per project, set up scope and conventions
 3. `/stele:sync` — start of each session, pull latest team knowledge
 4. `/stele:checkpoint` — end of session, save decisions and discoveries
 
 | Skill | Command | Description |
 | --- | --- | --- |
-| Install | `/stele:install` | Check Stele MCP connection and help configure it |
+| Install | `/stele:install` | Configure connection profile for your server      |
 | Bootstrap | `/stele:bootstrap` | Initialize a project — create scope, seed entities, generate CLAUDE.md |
 | Sync | `/stele:sync` | Pull latest shared team context into the current session |
 | Checkpoint | `/stele:checkpoint` | Save session findings back to Stele |

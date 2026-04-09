@@ -2,6 +2,22 @@
 
 Maintained with the help of AI tooling. Each entry references the git hash it covers through.
 
+## 2026-04-09 16:31:59 `fd13fcf`
+
+### Added
+- MCP stdio proxy (`stele mcp`) — stdio-to-Streamable-HTTP bridge as the primary transport for Claude Code, with session tracking via `mcp-session-id` (`58ce579`)
+- CLI client (`stele-cli`) with multi-profile config, memory/graph commands, and MCP proxy (`599adb2`)
+- Cargo workspace split: `stele-common` (shared types), `stele-server`, `stele-cli` as separate crates (`599adb2`)
+- End-to-end integration test suite — 68 tests covering REST API and MCP transport (`797a687`)
+- Architecture docs: `docs/architecture.md`, `docs/cli.md`, `docs/data-model.md`, `docs/deployment.md`, `docs/mcp-tools.md`, `docs/rest-api.md`, `docs/server.md` (`599adb2`)
+
+### Changed
+- README restructured around marketplace installation and plugin-first developer experience (`a0905d0`)
+- Install skill no longer offers direct HTTP transport fallback — stdio via `stele mcp` is the sole documented transport (`fd13fcf`)
+
+### Fixed
+- MCP proxy Accept header now includes both `application/json` and `text/event-stream` content types (`3c63389`)
+
 ## 2026-04-09 09:05:32 `3f63426`
 
 ### Added
@@ -17,7 +33,7 @@ Maintained with the help of AI tooling. Each entry references the git hash it co
 - Monorepo structure with `apps/` and `plugins/` top-level directories, separating the Rust server (`apps/stele/`) from Claude Code plugins (`plugins/stele/`, `plugins/steop/`) (`05938e1`)
 
 ### Changed
-- Removed hardcoded `.mcp.json` from the repo — MCP connection is now configured exclusively via the `/stele:install` skill (`1b2283c`)
+- Re-added `.mcp.json` to the stele plugin — MCP connection is now auto-registered on plugin install; `/stele:install` skill repurposed for CLI connection profile configuration (`1b2283c`)
 - Bootstrap CLAUDE.md template slimmed down, deferring procedural details to plugin skills (`c4011c5`)
 - Renamed steop Explore phase to Research (`st-explore` → `st-research`) and redesigned `st-flow` as an auto-continuing pipeline that only pauses on genuine ambiguity (`d095155`)
 - README restructured around marketplace installation and plugin promotion (`c061e9a`)

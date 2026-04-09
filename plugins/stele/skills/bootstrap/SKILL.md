@@ -127,4 +127,4 @@ Tell the user:
 - The entity and memory that were seeded
 - Where the CLAUDE.md section was written
 - Remind them to commit the CLAUDE.md changes
-- If Stele MCP is not yet configured, suggest running `/stele:install` to set it up
+- If the CLI connection profile needs configuration (e.g. remote server), suggest running `/stele:install`
