@@ -23,6 +23,7 @@ impl MemoryType {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "knowledge" => Self::Knowledge,
@@ -107,7 +108,7 @@ pub struct RecentMemorySummary {
     pub updated_at: String,
 }
 
-// ── Knowledge Graph types ──
+// -- Knowledge Graph types --
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entity {

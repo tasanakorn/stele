@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
 use crate::db::{self, DbPool};
-use crate::models::{Memory, MemoryType};
-use crate::query::SearchParams;
+use stele_common::models::{Memory, MemoryType};
+use stele_common::query::SearchParams;
 
 pub fn router(db: DbPool) -> Router {
     Router::new()

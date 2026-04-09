@@ -18,7 +18,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: cargo fmt --check
+      - run: cargo fmt --all --check
 
   clippy:
     name: Clippy (headless)
@@ -34,7 +34,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/stele
-      - run: cargo clippy --features headless --no-default-features -- -D warnings
+      - run: cargo clippy -p stele-server --features headless --no-default-features -- -D warnings
+      - run: cargo clippy -p stele-cli -- -D warnings
 
   check-desktop:
     name: Check (desktop, macOS)
@@ -48,7 +49,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/stele
-      - run: cargo check
+      - run: cargo check -p stele-server
+      - run: cargo check -p stele-cli
 
   validate-plugin:
     name: Validate plugin

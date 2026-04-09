@@ -1,0 +1,36 @@
+[package]
+name = "stele-server"
+version.workspace = true
+edition.workspace = true
+description = "Shared memory layer for Claude Code via MCP"
+
+[features]
+default = ["desktop"]
+desktop = ["tray-icon", "muda", "image", "dirs", "winit", "eframe"]
+headless = []
+
+[dependencies]
+stele-common = { path = "../stele-common" }
+rmcp = { version = "1", features = ["server", "macros", "transport-streamable-http-server"] }
+tokio = { workspace = true }
+axum = "0.8"
+rusqlite = { version = "0.34", features = ["bundled", "column_decltype"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = "1"
+tokio-util = "0.7"
+ulid = "1"
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+tower-http = { version = "0.6", features = ["cors"] }
+toml = "0.8"
+
+# Desktop-only deps
+tray-icon = { version = "0.19", optional = true }
+muda = { version = "0.15", optional = true }
+image = { version = "0.25", optional = true }
+dirs = { version = "6", optional = true }
+winit = { version = "0.30", optional = true }
+eframe = { version = "0.33", optional = true, default-features = false, features = ["default_fonts", "glow"] }

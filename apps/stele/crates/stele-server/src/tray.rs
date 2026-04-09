@@ -187,7 +187,7 @@ pub fn run(
     menu.append(&quit)?;
 
     // Load icon
-    let icon_bytes = include_bytes!("../assets/icon.png");
+    let icon_bytes = include_bytes!("../../../assets/icon.png");
     let img = image::load_from_memory(icon_bytes)?.into_rgba8();
     let (w, h) = img.dimensions();
     let icon = tray_icon::Icon::from_rgba(img.into_raw(), w, h)?;

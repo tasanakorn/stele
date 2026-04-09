@@ -1,8 +1,6 @@
 mod api;
 mod config;
 mod db;
-mod models;
-mod query;
 mod serde_helpers;
 mod server;
 #[cfg_attr(not(feature = "desktop"), allow(dead_code))]

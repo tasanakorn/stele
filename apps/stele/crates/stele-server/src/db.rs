@@ -2,11 +2,11 @@ use rusqlite::{params, Connection};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::models::{
+use stele_common::models::{
     Entity, EntitySearchResult, Graph, Memory, MemoryType, Observation, RecentMemorySummary,
     Relation, ScopeInfo, SearchResult, Stats, TagInfo,
 };
-use crate::query::SearchParams;
+use stele_common::query::SearchParams;
 
 pub type DbPool = Arc<Mutex<Connection>>;
 

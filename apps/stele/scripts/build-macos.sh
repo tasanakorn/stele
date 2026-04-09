@@ -4,15 +4,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Extract version from Cargo.toml
+# Extract version from workspace Cargo.toml
 VERSION=$(grep '^version' "$ROOT_DIR/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
 echo "Building Stele v${VERSION} .app bundle..."
 
 # 1. Build release binary
 echo "→ Compiling release binary..."
-cargo build --release --manifest-path "$ROOT_DIR/Cargo.toml"
+cargo build --release -p stele-server --manifest-path "$ROOT_DIR/Cargo.toml"
 
-BINARY="$ROOT_DIR/target/release/stele"
+BINARY="$ROOT_DIR/target/release/stele-server"
 if [ ! -f "$BINARY" ]; then
     echo "Error: Release binary not found at $BINARY"
     exit 1

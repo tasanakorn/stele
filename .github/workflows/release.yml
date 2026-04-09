@@ -29,25 +29,39 @@ jobs:
           key: release-${{ matrix.target }}
 
       - name: Build desktop
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release -p stele-server --target ${{ matrix.target }}
+        working-directory: apps/stele
 
       - name: Package desktop binary
+        working-directory: apps/stele
         run: |
-          cp target/${{ matrix.target }}/release/stele stele-${{ matrix.suffix }}-apple-darwin-desktop
-          shasum -a 256 stele-${{ matrix.suffix }}-apple-darwin-desktop > stele-${{ matrix.suffix }}-apple-darwin-desktop.sha256
+          cp target/${{ matrix.target }}/release/stele-server stele-server-${{ matrix.suffix }}-apple-darwin-desktop
+          shasum -a 256 stele-server-${{ matrix.suffix }}-apple-darwin-desktop > stele-server-${{ matrix.suffix }}-apple-darwin-desktop.sha256
 
       - name: Build headless
-        run: cargo build --release --target ${{ matrix.target }} --features headless --no-default-features
+        run: cargo build --release -p stele-server --target ${{ matrix.target }} --features headless --no-default-features
+        working-directory: apps/stele
 
       - name: Package headless binary
+        working-directory: apps/stele
         run: |
-          cp target/${{ matrix.target }}/release/stele stele-${{ matrix.suffix }}-apple-darwin-headless
-          shasum -a 256 stele-${{ matrix.suffix }}-apple-darwin-headless > stele-${{ matrix.suffix }}-apple-darwin-headless.sha256
+          cp target/${{ matrix.target }}/release/stele-server stele-server-${{ matrix.suffix }}-apple-darwin-headless
+          shasum -a 256 stele-server-${{ matrix.suffix }}-apple-darwin-headless > stele-server-${{ matrix.suffix }}-apple-darwin-headless.sha256
+
+      - name: Build CLI
+        run: cargo build --release -p stele-cli --target ${{ matrix.target }}
+        working-directory: apps/stele
+
+      - name: Package CLI binary
+        working-directory: apps/stele
+        run: |
+          cp target/${{ matrix.target }}/release/stele stele-${{ matrix.suffix }}-apple-darwin
+          shasum -a 256 stele-${{ matrix.suffix }}-apple-darwin > stele-${{ matrix.suffix }}-apple-darwin.sha256
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.suffix }}
-          path: stele-*
+          path: apps/stele/stele*
 
   docker:
     name: Docker image
@@ -69,7 +83,7 @@ jobs:
             type=raw,value=latest
       - uses: docker/build-push-action@v5
         with:
-          context: .
+          context: apps/stele
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

@@ -6,12 +6,12 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::db::{self, DbPool};
-use crate::models::{Memory, MemoryType};
-use crate::query::SearchParams;
 use crate::serde_helpers::{
     string_or_string_vec, string_or_string_vec_opt, string_or_vec, string_or_vec_opt,
 };
 use serde::Serialize;
+use stele_common::models::{Memory, MemoryType};
+use stele_common::query::SearchParams;
 
 #[derive(Clone)]
 pub struct SteleServer {

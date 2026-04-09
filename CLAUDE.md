@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Stele
 
-Stele is a shared memory server for Claude Code. It exposes an MCP (Model Context Protocol) interface over Streamable HTTP so multiple Claude Code instances across different machines can store and retrieve shared knowledge. Single Rust binary, SQLite storage, no external dependencies.
+Stele is a shared memory server for Claude Code. It exposes an MCP (Model Context Protocol) interface over Streamable HTTP so multiple Claude Code instances across different machines can store and retrieve shared knowledge. Two Rust binaries — `stele-server` (full server) and `stele` (CLI client + MCP stdio proxy) — SQLite storage, no external dependencies.
 
 ## Repository Layout
 
@@ -12,18 +12,24 @@ Monorepo with apps and plugins at the top level:
 
 ```
 stele/
-├── apps/stele/          # Rust server application
-│   ├── Cargo.toml
-│   ├── src/
+├── apps/stele/                    # Cargo workspace root
+│   ├── Cargo.toml                 # [workspace] manifest
+│   ├── crates/
+│   │   ├── stele-common/          # Shared types library
+│   │   │   └── src/ (models.rs, query.rs)
+│   │   ├── stele-server/          # Server binary (MCP + REST + tray)
+│   │   │   └── src/ (main.rs, server.rs, api.rs, db.rs, ...)
+│   │   └── stele-cli/             # CLI binary (client + MCP proxy)
+│   │       └── src/ (main.rs, client.rs, config.rs, commands/)
 │   ├── assets/
 │   ├── macos/
 │   ├── scripts/
 │   ├── systemd/
 │   └── Dockerfile
 ├── plugins/
-│   ├── stele/           # Claude Code plugin (shared memory)
-│   └── steop/          # Claude Code plugin (agentic workflow)
-├── .claude-plugin/      # Marketplace definition
+│   ├── stele/                     # Claude Code plugin (shared memory)
+│   └── steop/                     # Claude Code plugin (agentic workflow)
+├── .claude-plugin/                # Marketplace definition
 ├── CLAUDE.md
 └── README.md
 ```
@@ -35,39 +41,59 @@ All build commands run from the `apps/stele/` directory:
 ```bash
 cd apps/stele
 
-# Desktop / Menu Bar (default on macOS)
-cargo build                # release build (default profile, see .cargo/config.toml)
-cargo run                  # menu bar app, DB at ~/Library/Application Support/Stele/
+# Server — Desktop / Menu Bar (default on macOS)
+cargo build -p stele-server        # release build (default profile, see .cargo/config.toml)
+cargo run -p stele-server          # menu bar app, DB at ~/Library/Application Support/Stele/
 
-# Headless daemon (Linux/Docker)
-cargo build --features headless --no-default-features
-cargo run --features headless --no-default-features
+# Server — Headless daemon (Linux/Docker)
+cargo build -p stele-server --features headless --no-default-features
+cargo run -p stele-server --features headless --no-default-features
 
-# CLI flags (both modes)
-cargo run -- --bind 0.0.0.0:3100 --db /path/to/stele.db --mcp-path /mcp
+# CLI client
+cargo build -p stele-cli           # builds 'stele' binary
+cargo run -p stele-cli -- recall "search query" --scope myproject
+
+# Server CLI flags
+cargo run -p stele-server -- --bind 0.0.0.0:3100 --db /path/to/stele.db --mcp-path /mcp
 ```
 
-All CLI flags have env var equivalents: `STELE_BIND`, `STELE_DB`, `STELE_MCP_PATH`.
+Server CLI flags have env var equivalents: `STELE_BIND`, `STELE_DB`, `STELE_MCP_PATH`.
 
-Build profiles are configured in `Cargo.toml` to minimize disk usage (`incremental = false`, `codegen-units = 1`, `opt-level = "s"`). The default build profile is set to `release` via `.cargo/config.toml`.
+Build profiles are configured in the workspace `Cargo.toml` to minimize disk usage (`incremental = false`, `codegen-units = 1`, `opt-level = "s"`).
 
 There are no tests yet. No linter or formatter is configured beyond standard `cargo clippy` / `cargo fmt`.
 
 ## Architecture
 
-The server is a single async process: axum serves HTTP, rmcp handles MCP protocol framing, SQLite stores everything.
+The server is a single async process: axum serves HTTP, rmcp handles MCP protocol framing, SQLite stores everything. The CLI is a sync binary using ureq to talk to the server's REST API.
 
-All source files are under `apps/stele/src/`.
+### Workspace Crates
+
+- **`stele-common`** — Shared types library. Contains `models.rs` (Memory, Entity, Graph, etc.) and `query.rs` (SearchParams).
+- **`stele-server`** — Server binary. All MCP tools, REST API, SQLite, and optional desktop tray.
+- **`stele-cli`** — CLI binary (named `stele`). HTTP client, multi-profile config, CLI commands, MCP stdio proxy.
+
+All server source files are under `apps/stele/crates/stele-server/src/`.
 
 - **`main.rs`** — Dual entry point. Desktop mode (`#[cfg(feature = "desktop")]`) runs the tray app on the main thread and the server on a background thread. Headless mode (`#[cfg(not(feature = "desktop"))]`) uses `#[tokio::main]`. Shared `run_server()` function handles axum/rmcp setup. Graceful shutdown via `CancellationToken`.
 - **`tray.rs`** — macOS menu bar module (`#[cfg(feature = "desktop")]`). `TrayApp` creates a tray icon with status label, "Open Dashboard", and "Quit Stele" menu items. Uses `tray-icon` + `muda` crates.
 - **`server.rs`** — `SteleServer` implements rmcp's `ServerHandler`. Tools are defined with rmcp's `#[tool_router]` / `#[tool_handler]` macros. Each tool method locks the DB mutex, calls into `db.rs`, and returns a JSON string. Tool parameter structs must derive `schemars::JsonSchema` (v1, not v0.8 — rmcp requires schemars v1).
 - **`db.rs`** — SQLite schema init (tables + FTS5 + triggers), all CRUD functions. `DbPool` is `Arc<Mutex<Connection>>` (tokio mutex). SQL is built dynamically in `search_memories` using helper functions that append scope/tag filter clauses with positional parameter tracking (`?N` style).
 - **`api.rs`** — REST API router mounted at `/api`. Axum handlers with JSON request/response, CORS via `tower-http`. Reuses `db.rs` functions directly.
-- **`models.rs`** — Domain types: `Memory`, `SearchResult`, `MemoryType` enum, `ScopeInfo`, `TagInfo`, `Stats`, plus knowledge graph types: `Entity`, `Observation`, `Relation`, `Graph`, `EntitySearchResult`.
 - **`serde_helpers.rs`** — Lenient deserialization helpers. `string_or_vec`/`string_or_vec_opt` handle JSON-encoded arrays in strings. `string_or_string_vec`/`string_or_string_vec_opt` handle bare strings or arrays of strings (used for multi-scope parameters).
-- **`query.rs`** — `SearchParams` struct used to pass search criteria from server to db layer. `scope` is `Option<Vec<String>>` to support multi-scope queries.
 - **`config.rs`** — Clap derive struct with env var fallbacks. Desktop feature adds `with_desktop_defaults()` to relocate DB to `~/Library/Application Support/Stele/`.
+
+Shared types in `apps/stele/crates/stele-common/src/`:
+
+- **`models.rs`** — Domain types: `Memory`, `SearchResult`, `MemoryType` enum, `ScopeInfo`, `TagInfo`, `Stats`, plus knowledge graph types: `Entity`, `Observation`, `Relation`, `Graph`, `EntitySearchResult`.
+- **`query.rs`** — `SearchParams` struct used to pass search criteria from server to db layer. `scope` is `Option<Vec<String>>` to support multi-scope queries.
+
+CLI source in `apps/stele/crates/stele-cli/src/`:
+
+- **`main.rs`** — Clap-based CLI with subcommands for memory CRUD, graph operations, and MCP proxy.
+- **`config.rs`** — Multi-profile config file (`~/.config/stele/config.toml`). Named connection profiles with server URL and auth key.
+- **`client.rs`** — `SteleClient` wrapping ureq HTTP agent. All methods map 1:1 to REST API endpoints. Auth via `X-Stele-Key` header.
+- **`commands/`** — Command handlers split by domain: `memory.rs`, `info.rs`, `graph.rs`, `config_cmd.rs`.
 
 ## Data Model
 
@@ -258,8 +284,8 @@ apps/stele/scripts/build-dmg.sh            # creates apps/stele/target/release/S
 ## Docker
 
 ```bash
-docker build -t stele apps/stele/                    # uses headless feature
-docker run -v stele-data:/data -p 3100:3100 stele
+docker build -t stele apps/stele/                          # uses headless feature
+docker run -v stele-data:/data -p 3100:3100 stele-server
 ```
 
 ## Plugin Marketplace Troubleshooting
