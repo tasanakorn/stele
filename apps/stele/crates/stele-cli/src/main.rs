@@ -6,7 +6,7 @@ mod output;
 
 use clap::{Parser, Subcommand};
 use client::SteleClient;
-use config::{resolve_connection, CliArgs};
+use config::{load_config, resolve_connection, CliArgs};
 
 #[derive(Parser)]
 #[command(
@@ -245,6 +245,22 @@ enum ConfigCommands {
     Show,
     #[command(about = "Print config file path")]
     Path,
+    #[command(about = "Add or update a connection profile")]
+    Set {
+        #[arg(help = "Profile name")]
+        name: String,
+        #[arg(long, required = true, help = "Server URL")]
+        url: String,
+        #[arg(long, help = "Auth key")]
+        key: Option<String>,
+        #[arg(long, help = "Set as default profile")]
+        default: bool,
+    },
+    #[command(about = "Remove a connection profile")]
+    Remove {
+        #[arg(help = "Profile name")]
+        name: String,
+    },
 }
 
 fn main() {
@@ -262,13 +278,25 @@ fn main() {
             ConfigCommands::Init => commands::config_cmd::handle_config_init(),
             ConfigCommands::Show => commands::config_cmd::handle_config_show(),
             ConfigCommands::Path => commands::config_cmd::handle_config_path(),
+            ConfigCommands::Set {
+                name,
+                url,
+                key,
+                default,
+            } => commands::config_cmd::handle_config_set(name, url, key.clone(), *default),
+            ConfigCommands::Remove { name } => commands::config_cmd::handle_config_remove(name),
         }
         return;
     }
 
     if let Commands::Mcp = &cli.command {
-        let (url, key) = resolve_connection(&cli_args);
-        mcp_proxy::run(url, key);
+        let config = load_config();
+        let default_profile = cli_args
+            .profile
+            .clone()
+            .or_else(|| std::env::var("STELE_PROFILE").ok())
+            .unwrap_or_else(|| config.default_profile.clone());
+        mcp_proxy::run(config, default_profile);
         return;
     }
 

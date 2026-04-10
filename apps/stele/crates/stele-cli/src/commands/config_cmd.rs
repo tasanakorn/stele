@@ -1,4 +1,4 @@
-use crate::config::{config_path, load_config, save_config, SteleConfig};
+use crate::config::{config_path, load_config, save_config, Profile, SteleConfig};
 
 pub fn handle_config_init() {
     let path = config_path();
@@ -29,4 +29,52 @@ pub fn handle_config_show() {
 
 pub fn handle_config_path() {
     println!("{}", config_path().display());
+}
+
+pub fn handle_config_set(name: &str, url: &str, key: Option<String>, set_default: bool) {
+    let mut config = load_config();
+    config.profiles.insert(
+        name.to_string(),
+        Profile {
+            server_url: url.to_string(),
+            auth_key: key,
+        },
+    );
+    if set_default {
+        config.default_profile = name.to_string();
+    }
+    match save_config(&config) {
+        Ok(()) => println!("Profile '{}' saved ({})", name, url),
+        Err(e) => {
+            eprintln!("Error saving config: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn handle_config_remove(name: &str) {
+    let mut config = load_config();
+    if config.profiles.remove(name).is_none() {
+        eprintln!("Profile '{}' not found", name);
+        std::process::exit(1);
+    }
+    if config.default_profile == name {
+        config.default_profile = config
+            .profiles
+            .keys()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| "local".to_string());
+        eprintln!(
+            "Default profile was '{}', changed to '{}'",
+            name, config.default_profile
+        );
+    }
+    match save_config(&config) {
+        Ok(()) => println!("Profile '{}' removed", name),
+        Err(e) => {
+            eprintln!("Error saving config: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
