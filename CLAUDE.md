@@ -251,6 +251,7 @@ The `plugins/steop/` directory contains an agentic workflow pipeline plugin for 
 
 ### Skills
 
+- **`/steop:install`** — Build and install the `steop` companion binary to `~/.local/bin`. Required after installing the plugin so hooks can find `steop` on `PATH`.
 - **`/steop:st-flow`** — Full pipeline: clarify -> research -> plan -> execute -> validate (research skipped for simple tasks)
 - **`/steop:st-clarify`** — Clarify phase: analyze request, scope, complexity assessment
 - **`/steop:st-research`** — Research phase: deep codebase investigation
@@ -267,10 +268,13 @@ consultant (Opus), researcher (inherit), architect (Opus), executor (inherit), r
 ```
 plugins/steop/
 ├── .claude-plugin/plugin.json
-├── skills/{st-flow,st-clarify,st-research,st-plan,st-execute,st-validate}/SKILL.md
+├── hooks/hooks.json
+├── skills/{install,st-flow,st-clarify,st-research,st-plan,st-execute,st-validate}/SKILL.md
 ├── agents/{consultant,researcher,architect,executor,reviewer}.md
 └── README.md
 ```
+
+The steop plugin hooks invoke a bare `steop` command, built from `apps/steop/` and installed to `~/.local/bin/steop` by `/steop:install`. The binary is not shipped with the plugin.
 
 ## macOS .app Bundle
 

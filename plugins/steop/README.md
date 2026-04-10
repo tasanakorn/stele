@@ -14,16 +14,25 @@ Add the marketplace in Claude Code, then install the steop plugin:
 /reload-plugins
 ```
 
+### Companion binary
+
+The steop plugin ships Claude Code hooks that invoke a `steop` companion binary which must be on your `PATH`. After installing the plugin, run:
+
+`/steop:install`
+
+This builds the Go source from a fresh clone and installs the binary to `~/.local/bin/steop`. Requires Git and Go 1.22+. Make sure `~/.local/bin` is on your `PATH`.
+
 ## Skills
 
-| Skill    | Command             | Description                                                              |
-| -------- | ------------------- | ------------------------------------------------------------------------ |
-| Flow     | `/steop:st-flow`     | Full pipeline: clarify -> [research] -> plan -> execute -> validate     |
-| Clarify  | `/steop:st-clarify`  | Analyze request, resolve ambiguities, produce task brief               |
-| Research | `/steop:st-research` | Deep codebase investigation and context gathering                      |
-| Plan     | `/steop:st-plan`   | Design implementation strategy and blueprint                             |
-| Execute  | `/steop:st-execute` | Implement code changes according to plan                                |
-| Validate | `/steop:st-validate` | Review changes for correctness and completeness                        |
+| Skill    | Command              | Description                                                              |
+| -------- | -------------------- | ------------------------------------------------------------------------ |
+| Install  | `/steop:install`     | Build and install the steop companion binary to ~/.local/bin             |
+| Flow     | `/steop:st-flow`     | Full pipeline: clarify -> [research] -> plan -> execute -> validate      |
+| Clarify  | `/steop:st-clarify`  | Analyze request, resolve ambiguities, produce task brief                 |
+| Research | `/steop:st-research` | Deep codebase investigation and context gathering                        |
+| Plan     | `/steop:st-plan`     | Design implementation strategy and blueprint                             |
+| Execute  | `/steop:st-execute`  | Implement code changes according to plan                                 |
+| Validate | `/steop:st-validate` | Review changes for correctness and completeness                          |
 
 ## Agents
 

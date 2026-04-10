@@ -11,8 +11,12 @@ It talks HTTP to `stele-server`'s `/api/v1/steop/*` endpoints.
 ./scripts/build.sh
 ```
 
-The build script produces a statically-linked binary at
-`plugins/steop/bin/steop` (relative to the repo root).
+The build script produces a statically-linked binary at `~/.local/bin/steop`
+by default. Override the output directory with the `OUT_DIR` env var:
+
+```bash
+OUT_DIR=/custom/path ./scripts/build.sh
+```
 
 Manual build:
 

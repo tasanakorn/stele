@@ -17,7 +17,7 @@ Steop is an agentic workflow pipeline for Claude Code. Markdown skills and subag
 Three layers:
 
 1. **Plugin content** (`plugins/steop/`) — markdown skills (`st-flow`, `st-clarify`, `st-research`, `st-plan`, `st-execute`, `st-validate`) and subagents (`consultant`, `researcher`, `architect`, `executor`, `reviewer`). This is the part Claude Code loads and reads; it drives the pipeline.
-2. **Go runtime** (`apps/steop/`) — a single `steop` binary with subcommands `hook`, `state`, `storage`, `hud`, `version`. Compiled to `plugins/steop/bin/steop` by `apps/steop/scripts/build.sh`. The binary is the target of every hook invocation and of any CLI call the skills make.
+2. **Go runtime** (`apps/steop/`) — a single `steop` binary with subcommands `hook`, `state`, `storage`, `hud`, `version`. Installed to `~/.local/bin/steop` by `/steop:install` (or by `apps/steop/scripts/build.sh` for developers). The binary must be on the user's `PATH`; hooks invoke it as a bare `steop` command. It is the target of every hook invocation and of any CLI call the skills make.
 3. **Stele server API** (`/api/v1/steop/*`) — REST endpoints on the existing stele-server process. New tables live alongside existing `memories`, `entities`, `relations`, etc. The server is the single source of truth.
 
 ```
@@ -27,7 +27,7 @@ Three layers:
  hooks/hooks.json  (PreToolUse/PostToolUse)
      |
      v
- plugins/steop/bin/steop  (Go)
+ steop  (Go, on PATH — installed to ~/.local/bin)
      |   HTTP + X-Stele-Key
      v
  stele-server  (Rust / axum)
@@ -132,11 +132,11 @@ Hook smoke tests (local, no server required):
 
 ```bash
 echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' \
-  | plugins/steop/bin/steop hook PreToolUse
+  | steop hook PreToolUse
 # => {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",...}}
 
 echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls -la"}}' \
-  | plugins/steop/bin/steop hook PreToolUse
+  | steop hook PreToolUse
 # => {}
 ```
 

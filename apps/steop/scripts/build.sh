@@ -3,8 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STEOP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-REPO_ROOT="$(cd "$STEOP_DIR/../.." && pwd)"
-OUT_DIR="$REPO_ROOT/plugins/steop/bin"
+OUT_DIR="${OUT_DIR:-$HOME/.local/bin}"
 
 mkdir -p "$OUT_DIR"
 
