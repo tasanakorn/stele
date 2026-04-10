@@ -155,11 +155,46 @@ On Linux, only headless mode is available. Ask the user:
 cargo install --path /tmp/stele-build/apps/stele/crates/stele-server --no-default-features --features headless
 ```
 
-After install, start it:
+After install, set up a systemd user service so the server starts automatically and can be managed with `systemctl`.
+
+Create the service directory if needed:
 
 ```bash
-stele-server &
+mkdir -p ~/.config/systemd/user
 ```
+
+Write the unit file at `~/.config/systemd/user/stele.service`:
+
+```ini
+[Unit]
+Description=Stele shared memory server
+After=network.target
+
+[Service]
+Type=simple
+Environment=STELE_BIND=127.0.0.1:3100
+Environment=STELE_DB=%h/.local/share/stele/stele.db
+Environment=STELE_MCP_PATH=/mcp
+Environment=RUST_LOG=info
+ExecStartPre=/bin/mkdir -p %h/.local/share/stele
+ExecStart=%h/.cargo/bin/stele-server
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+Enable and start the service:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now stele.service
+```
+
+Tell the user: Stele server is now running as a systemd user service. Data is stored at `~/.local/share/stele/stele.db`.
+
+Optionally mention: to keep the server running after logout, run `loginctl enable-linger $USER`.
 
 **Docker:**
 
@@ -181,9 +216,9 @@ stele status
 If it fails, wait 5 seconds and retry once. If it still fails:
 
 - On macOS: check if the app launched with `ps aux | grep 'Stele.app/Contents/MacOS/stele'`
-- On Linux: check if the process is running with `ps aux | grep stele-server`
-- Ensure port 3100 is not in use by another process: `lsof -i :3100`
-- Check logs for errors
+- On Linux: check service status and logs with `systemctl --user status stele` and `journalctl --user -u stele --no-pager -n 20`
+- Ensure port 3100 is not in use by another process: `ss -tlnp | grep 3100`
+- Manage the service with `systemctl --user {start,stop,restart,status} stele`
 
 ### Step 7: Configure Connection Profile
 
