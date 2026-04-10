@@ -20,21 +20,20 @@ The steop plugin ships Claude Code hooks that invoke a `steop` companion binary 
 
 `/steop:install`
 
-This builds the Go source from a fresh clone and installs the binary to `~/.local/bin/steop`. Requires Git and Go 1.22+. Make sure `~/.local/bin` is on your `PATH`.
+This runs `go install github.com/tasanakorn/stele/apps/steop@main` under the hood, dropping the binary into `~/.local/bin/steop`. Requires Go 1.22+ (Git is **not** required — the source is fetched via the Go module proxy). Make sure `~/.local/bin` is on your `PATH`. The human-facing version reported by `steop version` comes from `apps/steop/version.go`; Go's build metadata records the pseudo-version derived from the `main` commit.
 
 ## Skills
 
-| Skill       | Command               | Description                                                              |
-| ----------- | --------------------- | ------------------------------------------------------------------------ |
-| Install     | `/steop:install`      | Build and install the steop companion binary to ~/.local/bin             |
-| Flow        | `/steop:st-flow`      | Full pipeline: clarify -> [research] -> plan -> execute -> validate      |
-| Clarify     | `/steop:st-clarify`   | Analyze request, resolve ambiguities, produce task brief                 |
-| Research    | `/steop:st-research`  | Deep codebase investigation and context gathering                        |
-| Plan        | `/steop:st-plan`      | Design implementation strategy and blueprint                             |
-| Execute     | `/steop:st-execute`   | Implement code changes according to plan                                 |
-| Validate    | `/steop:st-validate`  | Review changes for correctness and completeness                          |
-| HUD         | `/steop:hud`          | Live terminal status panel showing phase, step, and counters             |
-| HUD Install | `/steop:hud-install`  | Verify HUD works and optionally wire into tmux status-right or an alias  |
+| Skill              | Command                      | Description                                                                 |
+| ------------------ | ---------------------------- | --------------------------------------------------------------------------- |
+| Install            | `/steop:install`             | Build and install the steop companion binary to ~/.local/bin                |
+| Flow               | `/steop:st-flow`             | Full pipeline: clarify -> [research] -> plan -> execute -> validate         |
+| Clarify            | `/steop:st-clarify`          | Analyze request, resolve ambiguities, produce task brief                    |
+| Research           | `/steop:st-research`         | Deep codebase investigation and context gathering                           |
+| Plan               | `/steop:st-plan`             | Design implementation strategy and blueprint                                |
+| Execute            | `/steop:st-execute`          | Implement code changes according to plan                                    |
+| Validate           | `/steop:st-validate`         | Review changes for correctness and completeness                             |
+| Statusline Install | `/steop:statusline-install`  | Wire `steop statusline` into Claude Code's native status bar via settings.json |
 
 ## Agents
 

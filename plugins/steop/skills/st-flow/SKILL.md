@@ -28,9 +28,9 @@ Run the full pipeline end-to-end. Do NOT pause between phases unless a stop cond
 
 5. **Phase skills have their own pause instructions — ignore them.** When running inside st-flow, override any "wait for user" / "ask for approval" instructions in individual phase skills. Those pauses exist for standalone use only.
 
-## HUD State Updates
+## Statusline State Updates
 
-At the start of each phase, write the current phase into session state so `/steop:hud` reflects live progress. The session id is discovered from the most recently updated session (hooks create one on the first tool call).
+At the start of each phase, write the current phase into session state so the Claude Code statusline (see `/steop:statusline-install`) reflects live progress. The session id is discovered from the most recently updated session (hooks create one on the first tool call).
 
 ```bash
 SID="$(steop monitor --json --limit=1 2>/dev/null | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*"([^"]+)"$/\1/')"
@@ -57,7 +57,7 @@ Agents with `inherit` model have their model overridden based on complexity.
 
 ## Phase 1: Clarify
 
-Update HUD state: write `{"mode":"flow","phase":"clarify"}` via the HUD State Updates helper above.
+Update statusline state: write `{"mode":"flow","phase":"clarify"}` via the Statusline State Updates helper above.
 
 Launch the **consultant** agent. Pass the following override instruction:
 
@@ -75,7 +75,7 @@ Proceed immediately to the next phase.
 
 ## Phase 2: Research — skip if Simple
 
-Update HUD state: write `{"mode":"flow","phase":"research"}` via the HUD State Updates helper above.
+Update statusline state: write `{"mode":"flow","phase":"research"}` via the Statusline State Updates helper above.
 
 **Skip for Simple tasks.**
 
@@ -91,7 +91,7 @@ Proceed immediately to Plan.
 
 ## Phase 3: Plan
 
-Update HUD state: write `{"mode":"flow","phase":"plan"}` via the HUD State Updates helper above.
+Update statusline state: write `{"mode":"flow","phase":"plan"}` via the Statusline State Updates helper above.
 
 Launch the **architect** agent. Pass all available context (Task Brief + Research findings if applicable).
 
@@ -105,7 +105,7 @@ Proceed immediately to Execute.
 
 ## Phase 4: Execute
 
-Update HUD state: write `{"mode":"flow","phase":"execute"}` via the HUD State Updates helper above.
+Update statusline state: write `{"mode":"flow","phase":"execute"}` via the Statusline State Updates helper above.
 
 Launch the **executor** agent with model override based on complexity:
 - **Simple** → `model: "haiku"`
@@ -120,7 +120,7 @@ Proceed immediately to Validate.
 
 ## Phase 5: Validate
 
-Update HUD state: write `{"mode":"flow","phase":"validate"}` via the HUD State Updates helper above.
+Update statusline state: write `{"mode":"flow","phase":"validate"}` via the Statusline State Updates helper above.
 
 Launch the **reviewer** agent. It will review all changes, run tests/linting if available, and produce a verification report.
 

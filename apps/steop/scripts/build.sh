@@ -8,11 +8,13 @@ OUT_DIR="${OUT_DIR:-$HOME/.local/bin}"
 mkdir -p "$OUT_DIR"
 
 cd "$STEOP_DIR"
-VERSION="$(grep -E '^const Version' version.go | sed -E 's/.*"([^"]+)".*/\1/')"
 
+# Version comes from the `const Version` in version.go. We do not pass it via
+# `-ldflags -X` because `-X` only overrides string vars, not consts, so it
+# would be a no-op.
 CGO_ENABLED=0 go build \
     -trimpath \
-    -ldflags="-s -w -X main.Version=${VERSION}" \
+    -ldflags="-s -w" \
     -o "$OUT_DIR/steop" \
     .
 

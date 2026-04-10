@@ -2,7 +2,10 @@ package client
 
 import "net/http"
 
-type HudStatus struct {
+// Status is the statusline read projection returned by /api/v1/steop/status/:id.
+// The endpoint never 404s — when no row exists the server returns a defaulted
+// Status so callers can render unconditionally.
+type Status struct {
 	SessionID string `json:"session_id"`
 	Mode      string `json:"mode"`
 	Phase     string `json:"phase"`
@@ -13,8 +16,8 @@ type HudStatus struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-func (c *Client) StatusGet(sessionID string) (*HudStatus, error) {
-	var out HudStatus
+func (c *Client) StatusGet(sessionID string) (*Status, error) {
+	var out Status
 	if err := c.do(http.MethodGet, "/api/v1/steop/status/"+sessionID, nil, nil, &out); err != nil {
 		return nil, err
 	}

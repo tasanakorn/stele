@@ -7,7 +7,7 @@ Steop is an agentic workflow pipeline for Claude Code. Markdown skills and subag
 ## 2. Non-goals
 
 - No `.steop/` or `.cerbrix/` directory. Session state lives in stele-server's SQLite.
-- No web HUD. Status is a REST read projection; rendering is a future CLI/TUI concern.
+- No web HUD and no standalone TUI panel. Live progress surfaces through Claude Code's native `statusLine` setting, rendered by a one-shot `steop statusline` subcommand.
 - No tmux team coordination.
 - No feature-flag DSL or config schema language.
 - No rewrite of stele itself in Go. Stele stays Rust; steop talks to it over HTTP.
@@ -17,7 +17,7 @@ Steop is an agentic workflow pipeline for Claude Code. Markdown skills and subag
 Three layers:
 
 1. **Plugin content** (`plugins/steop/`) — markdown skills (`st-flow`, `st-clarify`, `st-research`, `st-plan`, `st-execute`, `st-validate`) and subagents (`consultant`, `researcher`, `architect`, `executor`, `reviewer`). This is the part Claude Code loads and reads; it drives the pipeline.
-2. **Go runtime** (`apps/steop/`) — a single `steop` binary with subcommands `hook`, `state`, `storage`, `hud`, `version`. Installed to `~/.local/bin/steop` by `/steop:install` (or by `apps/steop/scripts/build.sh` for developers). The binary must be on the user's `PATH`; hooks invoke it as a bare `steop` command. It is the target of every hook invocation and of any CLI call the skills make.
+2. **Go runtime** (`apps/steop/`) — a single `steop` binary with subcommands `hook`, `state`, `storage`, `statusline`, `monitor`, `version`. Installed to `~/.local/bin/steop` by `/steop:install` (or by `apps/steop/scripts/build.sh` for developers). The binary must be on the user's `PATH`; hooks invoke it as a bare `steop` command, and Claude Code invokes `steop statusline` every couple of seconds if `/steop:statusline-install` has been run. It is the target of every hook invocation and of any CLI call the skills make.
 3. **Stele server API** (`/api/v1/steop/*`) — REST endpoints on the existing stele-server process. New tables live alongside existing `memories`, `entities`, `relations`, etc. The server is the single source of truth.
 
 ```
@@ -42,7 +42,7 @@ Three resource groups, all namespaced under `/api/v1/steop/`.
 
 - **Storage** — generic blob KV keyed by `(scope, key)`. Used for plans, snapshots, inboxes, arbitrary workflow blobs. Value is an opaque JSON document.
 - **State** — per-session state keyed by `session_id`. One row per session holding a JSON `data` object plus atomic integer `counters`. The counters map supports atomic increment and reset so hooks can bump them without racing the skill logic.
-- **Status** — HUD read projection keyed by `session_id`. Never 404s: when absent it returns a defaulted row so the status readers can render without special-casing.
+- **Status** — statusline read projection keyed by `session_id`. Never 404s: when absent it returns a defaulted row so the status readers can render without special-casing.
 
 Endpoint table:
 
@@ -57,7 +57,7 @@ Endpoint table:
 | POST   | /api/v1/steop/state/:session_id/incr       | body `{"counter":"tool_calls","delta":1}`               | Atomic counter increment                         |
 | POST   | /api/v1/steop/state/:session_id/reset      | body `{"counter":"loop_count","value":0}`               | Reset counter to value                           |
 | DELETE | /api/v1/steop/state/:session_id            | —                                                       | Delete session state row (cascades counters)     |
-| GET    | /api/v1/steop/status/:session_id           | —                                                       | Read HUD projection (never 404s)                 |
+| GET    | /api/v1/steop/status/:session_id           | —                                                       | Read statusline projection (never 404s)         |
 
 - **Notify** (`POST /api/v1/steop/notify`) — fire-and-forget native OS notification. Desktop builds render via `notify-rust`; headless builds return 501. The Stop hook calls this with `title` = `"Claude Code · <cwd basename>"` and `body` = truncated `last_assistant_message`. The call is non-blocking: the Go handler swallows errors so Claude Code always stops cleanly. Note: macOS may prompt for notification permission on first fire — this is a runtime UX quirk, not solved in v1.
 
@@ -81,9 +81,27 @@ v1 hook wiring lives in `plugins/steop/hooks/hooks.json`. The Go runtime reads t
 
 ## 7. Versioning
 
-The plugin version in `plugins/steop/.claude-plugin/plugin.json` and the Go `const Version` in `apps/steop/version.go` must match. CI enforces this.
+The plugin version in `plugins/steop/.claude-plugin/plugin.json` and the Go `const Version` in `apps/steop/version.go` must match. CI enforces this. Together they are the **single source of truth** for the human-facing steop version — what `steop version` prints, what the plugin marketplace displays.
 
 The REST contract under `/api/v1/steop/*` is frozen at v1. Additive changes (new fields, new endpoints) are allowed. Any breaking change requires a new `/api/v2/steop/*` prefix; v1 must keep working.
+
+**No separate Go module tags.** `apps/steop/` is a subdirectory Go module inside this monorepo. Go's proxy expects such modules to be tagged with a subdirectory prefix (`apps/steop/vX.Y.Z`), which would fork the tag namespace and create churn every time steop moves independently of stele-server. We deliberately do **not** maintain that parallel tag stream.
+
+Instead, `/steop:install` installs from the `main` branch tip:
+
+```bash
+go install github.com/tasanakorn/stele/apps/steop@main
+```
+
+This records a Go pseudo-version (e.g. `v0.0.0-20260410133000-abc123def456`) in the binary's build metadata — visible via `go version -m $(which steop)` — while `steop version` still prints the human-facing version from `version.go`. Pseudo-versions are the commit the user actually got; the const is the release they think they got. In practice the two should agree because `main` is the only shipping branch.
+
+If we ever need independent release tagging for steop (for reproducible pins, a plugin marketplace that wants semver, or a detached release cadence from stele-server), options in order of preference:
+
+1. **Publish prebuilt binaries via GitHub Releases** and rewrite `/steop:install` to download them. No Go toolchain required on the user's machine, no tag pollution, reproducible artefacts.
+2. **Adopt `apps/steop/vX.Y.Z` tags** as Go's native multi-module convention. Cheap per-release but doubles the tag namespace.
+3. **Split `apps/steop/` into its own repository.** Clean but loses the monorepo coupling with `stele-server`.
+
+Until any of those become necessary, `@main` + the version const is deliberately enough.
 
 ## 8. Verifying v1 (smoke tests)
 

@@ -379,7 +379,7 @@ async fn notify_handler(Json(req): Json<NotifyRequest>) -> impl IntoResponse {
     }
 }
 
-// ── Status (HUD) ──
+// ── Status (statusline) ──
 
 #[derive(Serialize)]
 struct StatusResponse {

@@ -39,7 +39,7 @@ Status legend: **✓ v1** shipped · **v2** planned next · **v3+** later · **�
 | Companion CLI binary                   | Go binary dispatching hooks, state, HUD, team                       | **`apps/steop/` Go module** → `plugins/steop/bin/steop`              | C      | ✓ v1   | Reversed original "not recommended" decision              |
 | Project-local state directory          | `.cerbrix/` with config, plans, inbox, logs, state                  | **None and never will** — stele owns all steop state                | C      | n/a    | Core design invariant                                     |
 | XDG user config paths                  | `~/.config/cerbrix/`, `~/.local/share/...` (reserved)               | Reuses `~/.config/stele/config.toml` profile                         | B      | ✓ v1   | Zero new config files                                     |
-| Statusline / HUD                       | `statusline.sh` + `cerbrix hud render` shows mode/phase/N/M/L/R    | `/api/v1/steop/status/:id` live; `steop hud render` is a stub        | B      | v2     | Server projection ready; renderer deferred                |
+| Statusline / HUD                       | `statusline.sh` + `cerbrix hud render` shows mode/phase/N/M/L/R    | `steop statusline` one-shot renderer + `/steop:statusline-install` skill that patches `~/.claude/settings.json` | B      | ✓ v1   | Cerbrix-style integration: rendered by Claude Code itself |
 | Skill profiles (core/extended/lab)     | Filter for `cerbrix install --profile`                              | None                                                                 | B      | —      | Premature below ~10 skills                                |
 | Feature flags                          | `config.json` flags: team/hud/debug                                 | None                                                                 | B      | —      | Overkill for 6 skills                                     |
 | Install / init utilities               | `cb-install` builds Go binary; `cb-init` scaffolds state            | `apps/steop/scripts/build.sh` builds local binary                    | D / C  | ✓ v1   | No init — stele-server is the single source of truth     |
@@ -73,7 +73,7 @@ These were the real gaps. Status after v1:
 
 - **PostToolUse tool-call counter** — ✓ **v1**. Ships as part of the foundation because the state API proves out atomicity.
 - **XDG user config paths** — ✓ **v1** (via reuse of `~/.config/stele/config.toml`). No new config surface.
-- **Statusline / HUD** — **v2 renderer / ✓ v1 server projection**. `/api/v1/steop/status/:id` projects the HUD shape and never 404s. The `steop hud render` subcommand is a stub. Plugin-level statusline registration is uncertain per Claude Code docs and may slip to v3.
+- **Statusline / HUD** — ✓ **v1**. `/api/v1/steop/status/:id` projects the statusline shape and never 404s. `steop statusline` is a one-shot renderer that reads Claude Code's stdin payload and prints one line; it tolerates server-unreachable by printing `steop offline`. Integration is via the user's `~/.claude/settings.json` `statusLine` key, installed by the `/steop:statusline-install` skill (there is no plugin-level `statusLine` field in `plugin.json`).
 - **cb-cancel** — **v2** (trivial wrapper over `DELETE /api/v1/steop/state/:id`).
 - **Feature flags**, **skill profiles**, **cb-doctor**, **cb-config**, **tmux team mode** — **deferred**. Still premature.
 
@@ -110,7 +110,7 @@ These were "deliberately not recommended" in the original analysis because cerbr
 | 9   | Stand up `/api/v1/steop/*` storage/state/status REST API on stele-server      | High   | High   | ✓ v1    | New capability added during v1 planning; foundation for everything.      |
 | 10  | Ship a Go runtime (`apps/steop/`) building to `plugins/steop/bin/steop`       | High   | High   | ✓ v1    | Originally "not recommended"; reversed because stele replaces `.cerbrix/`. |
 | 11  | Stop / SessionEnd snapshot handler writing to `steop/sessions/<id>` storage   | Medium | Medium | v2      | API ready; only the hook handler and target scope convention are left.   |
-| 12  | `steop hud render` subcommand reading `/api/v1/steop/status/:id`              | Medium | Low    | v2      | Plugin-level statusline registration needs verification; may slip to v3. |
+| 12  | `steop statusline` one-shot renderer + settings.json install skill            | Medium | Low    | ✓ v1    | Reads Claude Code stdin JSON; installed via `/steop:statusline-install` (patches user's `~/.claude/settings.json`). |
 | 13  | Release-workflow binary distribution (darwin arm64 + amd64)                   | Medium | Low    | v3      | v1 uses local build; `/steop:install` skill triggers `build.sh`.         |
 | 14  | Optional MCP-tool mirrors of `/api/v1/steop/*` endpoints                      | Medium | Low    | v3      | Lets Claude read its own status without going through the Go binary.     |
 
