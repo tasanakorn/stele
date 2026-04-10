@@ -89,8 +89,18 @@ branch=$(git branch --show-current 2>/dev/null || true)
 [ -n "$branch" ] && line1+=("${C_BRANCH}${branch}${C_RESET}")
 
 # --- Segment: Context window ---
-# Bar color shifts green → yellow → red as the context fills up.
+# Bar fill + displayed % track `used_percentage` of the active context window.
+# Color thresholds, however, are in absolute tokens so they stay meaningful in
+# both 200K and 1M modes:
+#   red    — used ≥ 80% of context_window_size (hard limit for this model)
+#   yellow — used ≥ 160K  (= 80% × 200K; the efficiency soft limit holds even
+#            in 1M mode, where quality degrades past ~160K regardless of room)
+#   green  — otherwise
+# In a 200K session soft == hard (160K), so yellow and red collapse and the
+# bar behaves like the original "80%=hot" rule. In a 1M session you get a
+# yellow warning once you pass 160K (16%) and red only at 800K (80%).
 ctx_pct=$(jval '.context_window.used_percentage')
+ctx_size=$(jval '.context_window.context_window_size')
 if [ -n "$ctx_pct" ]; then
   width=8
   filled=$(awk "BEGIN {printf \"%d\", ($ctx_pct/100)*$width}")
@@ -99,12 +109,23 @@ if [ -n "$ctx_pct" ]; then
   bar=""
   i=0; while [ $i -lt "$filled" ]; do bar="${bar}█"; i=$((i+1)); done
   i=0; while [ $i -lt "$empty" ]; do bar="${bar}░"; i=$((i+1)); done
-  bar_color="$C_BAR_OK"
   pct_int=$(printf '%.0f' "$ctx_pct")
-  if [ "$pct_int" -ge 85 ]; then
-    bar_color="$C_BAR_HOT"
-  elif [ "$pct_int" -ge 60 ]; then
-    bar_color="$C_BAR_WARN"
+  bar_color="$C_BAR_OK"
+  if [ -n "$ctx_size" ] && [ "$ctx_size" -gt 0 ] 2>/dev/null; then
+    used_tokens=$(awk "BEGIN {printf \"%d\", ($ctx_pct/100)*$ctx_size}")
+    hard_tokens=$(awk "BEGIN {printf \"%d\", 0.8*$ctx_size}")
+    if [ "$used_tokens" -ge "$hard_tokens" ]; then
+      bar_color="$C_BAR_HOT"
+    elif [ "$used_tokens" -ge 160000 ]; then
+      bar_color="$C_BAR_WARN"
+    fi
+  else
+    # Fallback when context_window_size is missing: old percentage rule.
+    if [ "$pct_int" -ge 85 ]; then
+      bar_color="$C_BAR_HOT"
+    elif [ "$pct_int" -ge 60 ]; then
+      bar_color="$C_BAR_WARN"
+    fi
   fi
   line1+=("${bar_color}${bar}${C_RESET} ${C_PCT}${pct_int}%${C_RESET}")
 fi
