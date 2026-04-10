@@ -6,3 +6,7 @@
 *.app
 *.dmg
 *.icns
+
+# steop compiled binary (built by apps/steop/scripts/build.sh)
+plugins/steop/bin/steop
+plugins/steop/bin/steop-*

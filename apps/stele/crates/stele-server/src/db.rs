@@ -133,6 +133,35 @@ pub fn init_db(path: &str) -> rusqlite::Result<DbPool> {
             INSERT INTO observations_fts(rowid, content)
             VALUES (new.rowid, new.content);
         END;
+
+        -- Steop: generic blob KV
+        CREATE TABLE IF NOT EXISTS steop_storage (
+            scope       TEXT NOT NULL,
+            key         TEXT NOT NULL,
+            content     TEXT NOT NULL,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL,
+            PRIMARY KEY (scope, key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_steop_storage_scope ON steop_storage(scope);
+
+        -- Steop: structured session state (free-form JSON data)
+        CREATE TABLE IF NOT EXISTS steop_state (
+            session_id  TEXT PRIMARY KEY,
+            data        TEXT NOT NULL DEFAULT '{}',
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        );
+
+        -- Steop: atomic counters keyed by (session_id, name)
+        CREATE TABLE IF NOT EXISTS steop_counters (
+            session_id  TEXT NOT NULL REFERENCES steop_state(session_id) ON DELETE CASCADE,
+            name        TEXT NOT NULL,
+            value       INTEGER NOT NULL DEFAULT 0,
+            updated_at  TEXT NOT NULL,
+            PRIMARY KEY (session_id, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_steop_counters_session ON steop_counters(session_id);
         ",
     )?;
 
@@ -1163,4 +1192,295 @@ pub fn open_entities(
         entities,
         relations,
     })
+}
+
+// ── Steop: generic blob KV ──
+
+pub struct SteopBlob {
+    pub scope: String,
+    pub key: String,
+    pub content: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+pub struct SteopBlobMeta {
+    pub scope: String,
+    pub key: String,
+    pub updated_at: String,
+}
+
+pub struct SteopBlobListItem {
+    pub key: String,
+    pub updated_at: String,
+    pub size: i64,
+}
+
+pub struct SteopState {
+    pub session_id: String,
+    pub data: serde_json::Value,
+    pub counters: std::collections::BTreeMap<String, i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+pub fn steop_storage_put(
+    conn: &Connection,
+    scope: &str,
+    key: &str,
+    content: &str,
+) -> rusqlite::Result<SteopBlobMeta> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO steop_storage (scope, key, content, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)
+         ON CONFLICT(scope, key) DO UPDATE SET
+            content = excluded.content,
+            updated_at = excluded.updated_at",
+        params![scope, key, content, now],
+    )?;
+    Ok(SteopBlobMeta {
+        scope: scope.to_string(),
+        key: key.to_string(),
+        updated_at: now,
+    })
+}
+
+pub fn steop_storage_get(
+    conn: &Connection,
+    scope: &str,
+    key: &str,
+) -> rusqlite::Result<Option<SteopBlob>> {
+    use rusqlite::OptionalExtension;
+    let mut stmt = conn.prepare(
+        "SELECT scope, key, content, created_at, updated_at
+         FROM steop_storage WHERE scope = ?1 AND key = ?2",
+    )?;
+    let blob = stmt
+        .query_row(params![scope, key], |row| {
+            Ok(SteopBlob {
+                scope: row.get(0)?,
+                key: row.get(1)?,
+                content: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        })
+        .optional()?;
+    Ok(blob)
+}
+
+pub fn steop_storage_delete(conn: &Connection, scope: &str, key: &str) -> rusqlite::Result<bool> {
+    let rows = conn.execute(
+        "DELETE FROM steop_storage WHERE scope = ?1 AND key = ?2",
+        params![scope, key],
+    )?;
+    Ok(rows > 0)
+}
+
+pub fn steop_storage_list(
+    conn: &Connection,
+    scope: &str,
+) -> rusqlite::Result<Vec<SteopBlobListItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT key, updated_at, LENGTH(content) AS size
+         FROM steop_storage WHERE scope = ?1 ORDER BY key",
+    )?;
+    let items = stmt
+        .query_map(params![scope], |row| {
+            Ok(SteopBlobListItem {
+                key: row.get(0)?,
+                updated_at: row.get(1)?,
+                size: row.get(2)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(items)
+}
+
+// ── Steop: session state ──
+
+fn steop_state_load(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<SteopState>> {
+    use rusqlite::OptionalExtension;
+    let row = conn
+        .query_row(
+            "SELECT session_id, data, created_at, updated_at
+             FROM steop_state WHERE session_id = ?1",
+            params![session_id],
+            |row| {
+                let data_str: String = row.get(1)?;
+                Ok((
+                    row.get::<_, String>(0)?,
+                    data_str,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+
+    let (sid, data_str, created_at, updated_at) = match row {
+        Some(r) => r,
+        None => return Ok(None),
+    };
+
+    let data: serde_json::Value =
+        serde_json::from_str(&data_str).unwrap_or(serde_json::Value::Object(Default::default()));
+
+    let mut counters_stmt =
+        conn.prepare("SELECT name, value FROM steop_counters WHERE session_id = ?1 ORDER BY name")?;
+    let counters_iter = counters_stmt.query_map(params![session_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    let mut counters = std::collections::BTreeMap::new();
+    for pair in counters_iter {
+        let (name, value) = pair?;
+        counters.insert(name, value);
+    }
+
+    Ok(Some(SteopState {
+        session_id: sid,
+        data,
+        counters,
+        created_at,
+        updated_at,
+    }))
+}
+
+pub fn steop_state_get(
+    conn: &Connection,
+    session_id: &str,
+) -> rusqlite::Result<Option<SteopState>> {
+    steop_state_load(conn, session_id)
+}
+
+pub fn steop_state_put(
+    conn: &Connection,
+    session_id: &str,
+    data: serde_json::Value,
+    merge: bool,
+) -> rusqlite::Result<SteopState> {
+    use rusqlite::OptionalExtension;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT data FROM steop_state WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+
+    let final_data = if merge {
+        let existing_value: serde_json::Value = match existing.as_deref() {
+            Some(s) => {
+                serde_json::from_str(s).unwrap_or(serde_json::Value::Object(Default::default()))
+            }
+            None => serde_json::Value::Object(Default::default()),
+        };
+        match (existing_value, data) {
+            (serde_json::Value::Object(mut a), serde_json::Value::Object(b)) => {
+                for (k, v) in b {
+                    a.insert(k, v);
+                }
+                serde_json::Value::Object(a)
+            }
+            (_, other) => other,
+        }
+    } else {
+        data
+    };
+
+    let data_str = serde_json::to_string(&final_data).unwrap_or_else(|_| "{}".to_string());
+
+    conn.execute(
+        "INSERT INTO steop_state (session_id, data, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?3)
+         ON CONFLICT(session_id) DO UPDATE SET
+            data = excluded.data,
+            updated_at = excluded.updated_at",
+        params![session_id, data_str, now],
+    )?;
+
+    match steop_state_load(conn, session_id)? {
+        Some(state) => Ok(state),
+        None => Ok(SteopState {
+            session_id: session_id.to_string(),
+            data: final_data,
+            counters: std::collections::BTreeMap::new(),
+            created_at: now.clone(),
+            updated_at: now,
+        }),
+    }
+}
+
+pub fn steop_state_delete(conn: &Connection, session_id: &str) -> rusqlite::Result<bool> {
+    let rows = conn.execute(
+        "DELETE FROM steop_state WHERE session_id = ?1",
+        params![session_id],
+    )?;
+    Ok(rows > 0)
+}
+
+// ── Steop: counters ──
+
+fn steop_ensure_state_row(conn: &Connection, session_id: &str) -> rusqlite::Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO steop_state (session_id, data, created_at, updated_at)
+         VALUES (?1, '{}', ?2, ?2)
+         ON CONFLICT(session_id) DO NOTHING",
+        params![session_id, now],
+    )?;
+    Ok(())
+}
+
+pub fn steop_counter_incr(
+    conn: &Connection,
+    session_id: &str,
+    name: &str,
+    delta: i64,
+) -> rusqlite::Result<i64> {
+    steop_ensure_state_row(conn, session_id)?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let value: i64 = conn.query_row(
+        "INSERT INTO steop_counters (session_id, name, value, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(session_id, name) DO UPDATE SET
+            value = steop_counters.value + excluded.value,
+            updated_at = excluded.updated_at
+         RETURNING value",
+        params![session_id, name, delta, now],
+        |row| row.get(0),
+    )?;
+    conn.execute(
+        "UPDATE steop_state SET updated_at = ?1 WHERE session_id = ?2",
+        params![now, session_id],
+    )?;
+    Ok(value)
+}
+
+pub fn steop_counter_reset(
+    conn: &Connection,
+    session_id: &str,
+    name: &str,
+    value: i64,
+) -> rusqlite::Result<i64> {
+    steop_ensure_state_row(conn, session_id)?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let new_value: i64 = conn.query_row(
+        "INSERT INTO steop_counters (session_id, name, value, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(session_id, name) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at
+         RETURNING value",
+        params![session_id, name, value, now],
+        |row| row.get(0),
+    )?;
+    conn.execute(
+        "UPDATE steop_state SET updated_at = ?1 WHERE session_id = ?2",
+        params![now, session_id],
+    )?;
+    Ok(new_value)
 }

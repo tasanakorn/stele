@@ -8,7 +8,7 @@
     <key>CFBundleDisplayName</key>
     <string>Stele</string>
     <key>CFBundleIdentifier</key>
-    <string>com.stele.app</string>
+    <string>com.tasanakorn.stele.app</string>
     <key>CFBundleVersion</key>
     <string>__VERSION__</string>
     <key>CFBundleShortVersionString</key>

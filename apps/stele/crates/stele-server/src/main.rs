@@ -1,10 +1,12 @@
 mod api;
 mod config;
 mod db;
+mod notify;
 mod serde_helpers;
 mod server;
 #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
 mod settings;
+mod steop_api;
 #[cfg(feature = "desktop")]
 mod tray;
 
@@ -31,6 +33,11 @@ async fn run_server(
     ct: CancellationToken,
     bind_state: Arc<BindState>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Pin the notification bundle identifier so mac-notification-sys skips
+    // its default LaunchServices lookup (which pops a "Choose Application"
+    // dialog on macOS 13+ when resolving its "use_default" sentinel).
+    notify::init();
+
     loop {
         let bind_addr = bind_state.bind_addr.read().unwrap().clone();
 
@@ -53,7 +60,8 @@ async fn run_server(
         let mcp_path = config.mcp_path.clone();
         let app = axum::Router::new()
             .nest_service(&mcp_path, service)
-            .nest("/api", api::router(pool.clone()));
+            .nest("/api", api::router(pool.clone()))
+            .nest("/api/v1/steop", steop_api::router(pool.clone()));
 
         let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
             Ok(l) => l,

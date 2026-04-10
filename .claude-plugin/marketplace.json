@@ -11,13 +11,13 @@
       "name": "stele",
       "source": "./plugins/stele",
       "description": "Shared team memory for Claude Code — flat memories + knowledge graph via MCP",
-      "version": "0.3.0"
+      "version": "0.4.0"
     },
     {
       "name": "steop",
       "source": "./plugins/steop",
       "description": "Agentic workflow pipeline for Claude Code",
-      "version": "0.1.0"
+      "version": "0.4.0"
     },
     {
       "name": "stelite",

@@ -6,7 +6,7 @@ description = "Shared memory layer for Claude Code via MCP"
 
 [features]
 default = ["desktop"]
-desktop = ["tray-icon", "muda", "image", "dirs", "winit", "eframe"]
+desktop = ["tray-icon", "muda", "image", "dirs", "winit", "eframe", "notify-rust"]
 headless = []
 
 [dependencies]
@@ -34,3 +34,4 @@ image = { version = "0.25", optional = true }
 dirs = { version = "6", optional = true }
 winit = { version = "0.30", optional = true }
 eframe = { version = "0.33", optional = true, default-features = false, features = ["default_fonts", "glow"] }
+notify-rust = { version = "4", optional = true }

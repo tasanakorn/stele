@@ -1,10 +1,11 @@
 {
   "name": "steop",
-  "version": "0.1.0",
-  "description": "Agentic workflow pipeline for Claude Code",
+  "version": "0.4.0",
+  "description": "Agentic workflow pipeline for Claude Code with safety hooks and stele-backed state",
   "author": {
     "name": "tasanakorn"
   },
   "homepage": "https://github.com/tasanakorn/stele",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": ["workflow", "agentic", "hooks", "stele"]
 }

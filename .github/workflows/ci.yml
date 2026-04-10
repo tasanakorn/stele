@@ -132,7 +132,12 @@ jobs:
             plugins/steop/agents/architect.md \
             plugins/steop/agents/executor.md \
             plugins/steop/agents/reviewer.md \
-            plugins/steop/README.md; do
+            plugins/steop/hooks/hooks.json \
+            plugins/steop/docs/DESIGN.md \
+            plugins/steop/README.md \
+            apps/steop/go.mod \
+            apps/steop/main.go \
+            apps/steop/version.go; do
             [ -f "$f" ] || { echo "Missing: $f"; exit 1; }
           done
           echo "All steop plugin files present."
@@ -140,6 +145,7 @@ jobs:
       - name: Validate JSON
         run: |
           python3 -c "import json; json.load(open('plugins/steop/.claude-plugin/plugin.json'))"
+          python3 -c "import json; json.load(open('plugins/steop/hooks/hooks.json'))"
 
       - name: Check version sync
         run: |
@@ -150,3 +156,32 @@ jobs:
             exit 1
           fi
           echo "Steop versions match: $STEOP_PLUGIN_VER"
+
+      - name: Check Go version constant sync
+        run: |
+          PLUGIN_VER=$(python3 -c "import json; print(json.load(open('plugins/steop/.claude-plugin/plugin.json'))['version'])")
+          GO_VER=$(grep -E '^const Version' apps/steop/version.go | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ "$PLUGIN_VER" != "$GO_VER" ]; then
+            echo "Version mismatch: steop plugin.json=$PLUGIN_VER version.go=$GO_VER"
+            exit 1
+          fi
+          echo "Steop Go version matches: $GO_VER"
+
+  check-go:
+    name: Check Go (steop)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/steop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: apps/steop/go.sum
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: go build -o /tmp/steop .
+      - name: Test
+        run: go test ./...
