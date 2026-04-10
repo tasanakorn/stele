@@ -174,11 +174,17 @@ pub fn run(
         false,
         None,
     );
+    let version_item = MenuItem::new(
+        format!("Version {}", env!("CARGO_PKG_VERSION")),
+        false,
+        None,
+    );
     let settings_item = MenuItem::new("Settings\u{2026}", true, None);
     let dashboard = MenuItem::new("Open Dashboard", true, None);
     let quit = MenuItem::new("Quit Stele", true, None);
 
     menu.append(&status)?;
+    menu.append(&version_item)?;
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&settings_item)?;
     menu.append(&PredefinedMenuItem::separator())?;
