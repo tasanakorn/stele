@@ -2,6 +2,36 @@
 
 Maintained with the help of AI tooling. Each entry references the git hash it covers through.
 
+## 2026-04-10 22:58:20 `8071d2a`
+
+### Added
+- **steop v0.4 Go runtime** — single `steop` binary with hook (`PreToolUse` safety regexes, `PostToolUse` counter, non-blocking `Stop` desktop notify), `state`, `storage`, `statusline`, `monitor`, `inspect`, and `version` subcommands (`105763d`, `d088195`, `a9dd8cf`)
+- **steop REST surface** at `/api/v1/steop/*` — blob storage KV, per-session state with atomic counters, HUD/status projection, notify endpoint, sessions list/inspect, storage scopes (`105763d`, `d088195`)
+- Desktop notifications on the `Stop` hook via `notify-rust`, pinned to the `com.tasanakorn.stele.app` bundle identifier so macOS 13+ skips the "Choose Application" modal (`105763d`)
+- `/steop:install` skill — installs the `steop` binary to `~/.local/bin` (switched from `git clone + go build` to `go install github.com/tasanakorn/stele/apps/steop@main`, dropping the Git prerequisite) (`bc2b9b9`, `a9dd8cf`, `de0b0c5`)
+- `/steop:statusline-setup` skill + `plugins/steop/scripts/statusline.sh` template — installs a native two-line Claude Code statusline (line 1: model / project / git branch / context bar / rate limits or cost; line 2: `steop statusline` pipeline state) (`a9dd8cf`, `de0b0c5`)
+- Rate-limit segment in the statusline template showing `used%/elapsed%` per 5h and 7d window — turns yellow when quota burns faster than the clock, green otherwise; falls back to plain `used%` when `resets_at` is missing (`de0b0c5`)
+- VCS build info in `steop version` (commit sha / time / dirty flag) via `runtime/debug.ReadBuildInfo()`, discoverable even with a `const Version` string (`a9dd8cf`, `de0b0c5`)
+- Local MCP tool handling in `stele mcp` proxy: `list_profiles` tool answered without round-tripping to the server, optional per-call `profile` parameter on every tool for ad-hoc server routing, per-server session tracking with correct auth-key cleanup (`60d7a8b`)
+- `stele config set` / `stele config remove` subcommands and `apps/stele/scripts/sync-profiles.py` bidirectional profile sync helper (`60d7a8b`)
+- CI `check-go` job (vet / build / test on Go 1.22); `validate-steop-plugin` extended with required-files check, `hooks.json` JSON validation, and `version.go` ↔ `plugin.json` sync check (`105763d`)
+
+### Changed
+- Bumped Cargo workspace, stele plugin, and marketplace entries to **v0.4.0**; steop plugin + Go module bumped to **v0.4.8** over this range (`105763d` → `8071d2a`)
+- Statusline context bar now uses absolute-token thresholds: yellow at ≥160K tokens (80% × 200K — the efficiency soft limit that applies in 1M-context mode too), red at ≥80% of `context_window_size`. Behavior in 200K sessions is unchanged (`8071d2a`)
+- Statusline template palette tuned for dark-background legibility: bright (9x) colors only, no `dim`, exactly one bold per line (`de0b0c5`)
+- Linux `/stele:install` flow provisions a systemd user service instead of forking a background process (`413d703`)
+- macOS bundle identifier switched to `com.tasanakorn.stele.app` in `Info.plist` to match the notify-rust `set_application` pin (`105763d`)
+- README plugin table now carries a "Prerequisites" column (`f192c3d`)
+- `HudStatus` Go client type renamed to `Status`; the `/api/v1/steop/status/:id` REST contract is unchanged (`a9dd8cf`)
+
+### Fixed
+- `steop_api::status_get` returns 404 for unknown sessions instead of fabricating an idle stub (`d088195`)
+
+### Removed
+- Short-lived `steop hud` interactive TUI and its `/steop:hud` / `/steop:hud-install` skills — replaced by the one-shot `steop statusline` renderer wired into Claude Code's native `statusLine` setting (`a9dd8cf`)
+- Dead `-X main.Version=...` ldflag from `apps/steop/scripts/build.sh` — was a no-op because `Version` is a const, not a var (`a9dd8cf`, `de0b0c5`)
+
 ## 2026-04-09 22:32:41 `a2dd409`
 
 ### Added
