@@ -26,6 +26,7 @@ const (
 	statuslineBrightBlue    = "\x1b[94m"
 	statuslineBrightGreen   = "\x1b[92m"
 	statuslineBrightMagenta = "\x1b[95m"
+	statuslineBrightRed     = "\x1b[91m"
 )
 
 // Phase → ANSI color for the phase token. Matches the agent palette in
@@ -40,24 +41,20 @@ var statuslinePhaseColors = map[string]string{
 }
 
 type statuslineOpts struct {
-	session string
-	noColor bool
-	jsonOut bool
+	session   string
+	noColor   bool
+	jsonOut   bool
+	line2Only bool
 }
 
-// runStatusline implements `steop statusline` — a single-line renderer for
-// the steop pipeline state.
+// runStatusline implements `steop statusline` — a two-line renderer for the
+// Claude Code status bar.
 //
-// This command is designed to be **line 2** of a two-line Claude Code
-// statusline. Line 1 is owned by a user-editable shell script at
-// `~/.claude/statusline.sh` (cerbrix-installed, custom, or a minimal
-// fallback written by /steop:statusline-setup). That script reads Claude
-// Code's stdin JSON, prints line 1, then invokes this command to append
-// line 2.
-//
-// Separation of concerns:
-//   - line 1 = bash (user owns it, easy to customize, no Go rebuild)
-//   - line 2 = this binary (application-specific, deterministic)
+// When stdin contains Claude Code's session JSON (and neither --json nor
+// --line2-only is set), line 1 is printed first: model | project | git branch
+// | context bar | cost or rate limits. Line 2 is always printed: the steop
+// pipeline state fetched from the stele-server, or "idle"/"offline" on
+// fallback.
 //
 // Always exits 0 — a broken statusline must not stall a Claude Code session.
 func runStatusline(args []string) {
@@ -71,6 +68,8 @@ func runStatusline(args []string) {
 			opts.noColor = true
 		case a == "--json":
 			opts.jsonOut = true
+		case a == "--line2-only":
+			opts.line2Only = true
 		case strings.HasPrefix(a, "--session="):
 			opts.session = a[len("--session="):]
 		default:
@@ -81,6 +80,13 @@ func runStatusline(args []string) {
 
 	if os.Getenv("NO_COLOR") != "" {
 		opts.noColor = true
+	}
+
+	var sess *Session
+	if !opts.jsonOut && !opts.line2Only {
+		if s, ok := parseSession(os.Stdin); ok {
+			sess = s
+		}
 	}
 
 	var (
@@ -116,7 +122,13 @@ func runStatusline(args []string) {
 		return
 	}
 
-	fmt.Println(formatStatuslineLine(status, statusMsg, opts.noColor))
+	line2 := formatStatuslineLine(status, statusMsg, opts.noColor)
+	if sess != nil {
+		if line1 := formatStatuslineLine1(sess, opts.noColor); line1 != "" {
+			fmt.Println(line1)
+		}
+	}
+	fmt.Println(line2)
 }
 
 func resolveStatuslineSession(c *client.Client, wanted string) (string, error) {
@@ -187,17 +199,20 @@ func colorize(text, color string, noColor bool) string {
 }
 
 func printStatuslineUsage() {
-	fmt.Fprintln(os.Stderr, "usage: steop statusline [--session=<id>] [--json] [--no-color]")
+	fmt.Fprintln(os.Stderr, "usage: steop statusline [--session=<id>] [--json] [--no-color] [--line2-only]")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  One-line renderer for the steop pipeline state. Designed as the")
-	fmt.Fprintln(os.Stderr, "  second line of a two-line Claude Code statusline. Line 1 comes")
-	fmt.Fprintln(os.Stderr, "  from ~/.claude/statusline.sh (cerbrix-installed or a minimal")
-	fmt.Fprintln(os.Stderr, "  fallback); /steop:statusline-setup appends an invocation of this")
-	fmt.Fprintln(os.Stderr, "  command to that file.")
+	fmt.Fprintln(os.Stderr, "  Two-line renderer for the Claude Code status bar.")
+	fmt.Fprintln(os.Stderr, "  Configure in ~/.claude/settings.json:")
+	fmt.Fprintln(os.Stderr, `    "statusLine": {"type": "command", "command": "steop statusline"}`)
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "  When stdin contains Claude Code's session JSON:")
+	fmt.Fprintln(os.Stderr, "    Line 1: model | project | git branch | context bar | cost or rate limits")
+	fmt.Fprintln(os.Stderr, "    Line 2: steop pipeline state (phase/step/counters)")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "  Always exits 0 — a broken statusline must not stall a session.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "  --session=<id>  session to render (default: most recently updated)")
 	fmt.Fprintln(os.Stderr, "  --json          emit JSON instead of a formatted line")
 	fmt.Fprintln(os.Stderr, "  --no-color      disable ANSI colors (also honored via NO_COLOR env)")
+	fmt.Fprintln(os.Stderr, "  --line2-only    skip line 1 even when stdin has session JSON")
 }

@@ -18,7 +18,7 @@ The steop plugin ships skills, agents, and Claude Code hooks. The hooks call a `
 uname -s
 ```
 
-Store the result — macOS (`Darwin`) or Linux (`Linux`). Both are supported; Windows is not.
+Store the result — macOS (`Darwin`) or Linux (`Linux`). Windows users can install directly via `go install github.com/tasanakorn/stele/apps/steop@main` with `GOBIN` set to a directory on their `PATH`.
 
 ### Step 2: Check Prerequisites
 

@@ -2,6 +2,22 @@
 
 Maintained with the help of AI tooling. Each entry references the git hash it covers through.
 
+## 0.4.12
+
+### Added
+
+- Statusline is now rendered entirely by the `steop` Go binary. The shell script is gone.
+- Cross-platform (macOS, Linux, Windows), no `jq`/`bash` deps, ~5× faster (p95 ~20 ms vs ~100 ms).
+- `--line2-only` flag added to `steop statusline` for transitional back-compat.
+
+### Removed
+
+- `plugins/steop/scripts/statusline.sh` removed.
+
+### Changed
+
+- `/steop:statusline-setup` now points `~/.claude/settings.json` directly at `steop statusline`; no file copy.
+
 ## 2026-04-10 22:58:20 `8071d2a`
 
 ### Added

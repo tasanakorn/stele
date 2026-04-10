@@ -7,7 +7,7 @@ Steop is an agentic workflow pipeline for Claude Code. Markdown skills and subag
 ## 2. Non-goals
 
 - No `.steop/` or `.cerbrix/` directory. Session state lives in stele-server's SQLite.
-- No web HUD and no standalone TUI panel. Live progress surfaces through Claude Code's native `statusLine` setting as a two-line display: line 1 comes from `~/.claude/statusline.sh` (cerbrix-installed, custom, or a minimal fallback written by `/steop:statusline-setup`), and line 2 is rendered by the `steop statusline` subcommand. The setup skill appends an idempotent `steop statusline` invocation to the bottom of `~/.claude/statusline.sh` between sentinel markers; re-running refreshes the block, and the uninstall path removes it without touching the user's line 1.
+- No web HUD and no standalone TUI panel. Live progress surfaces through Claude Code's native `statusLine` setting as a two-line display: both lines are rendered by the `steop statusline` subcommand, which reads Claude Code's stdin JSON directly. Line 1 shows model / project / git branch / context bar / rate limits or cost; line 2 shows the steop pipeline state. `/steop:statusline-setup` patches `~/.claude/settings.json` to point `statusLine` directly at `steop statusline` — no shell script, no `jq` prerequisite.
 - No tmux team coordination.
 - No feature-flag DSL or config schema language.
 - No rewrite of stele itself in Go. Stele stays Rust; steop talks to it over HTTP.
