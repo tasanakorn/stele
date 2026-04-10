@@ -88,5 +88,5 @@ Tell the user:
 - The steop plugin hooks invoke `steop` as a bare command, so `~/.local/bin` **must** remain on your `PATH` whenever Claude Code runs. If it is not, the hooks will fail silently (Claude Code tolerates hook failures as advisory).
 - **Restart Claude Code** so newly-registered hooks pick up the freshly installed binary.
 - steop's runtime state is stored in the stele server. If you have not installed stele yet, run `/stele:install` — steop reuses stele's `~/.config/stele/config.toml` profile.
-- To see a live pipeline status in your Claude Code status bar, run `/steop:statusline-install` next.
+- To see a live pipeline status in your Claude Code status bar, run `/steop:statusline-setup` next.
 - To rebuild from a local checkout during development, run `apps/steop/scripts/build.sh` — it builds from your working tree instead of the Go proxy and installs to `~/.local/bin`.

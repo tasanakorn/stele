@@ -7,7 +7,7 @@ Steop is an agentic workflow pipeline for Claude Code. Markdown skills and subag
 ## 2. Non-goals
 
 - No `.steop/` or `.cerbrix/` directory. Session state lives in stele-server's SQLite.
-- No web HUD and no standalone TUI panel. Live progress surfaces through Claude Code's native `statusLine` setting, rendered by a one-shot `steop statusline` subcommand.
+- No web HUD and no standalone TUI panel. Live progress surfaces through Claude Code's native `statusLine` setting as a two-line display: line 1 comes from `~/.claude/statusline.sh` (cerbrix-installed, custom, or a minimal fallback written by `/steop:statusline-setup`), and line 2 is rendered by the `steop statusline` subcommand. The setup skill appends an idempotent `steop statusline` invocation to the bottom of `~/.claude/statusline.sh` between sentinel markers; re-running refreshes the block, and the uninstall path removes it without touching the user's line 1.
 - No tmux team coordination.
 - No feature-flag DSL or config schema language.
 - No rewrite of stele itself in Go. Stele stays Rust; steop talks to it over HTTP.
@@ -17,7 +17,7 @@ Steop is an agentic workflow pipeline for Claude Code. Markdown skills and subag
 Three layers:
 
 1. **Plugin content** (`plugins/steop/`) — markdown skills (`st-flow`, `st-clarify`, `st-research`, `st-plan`, `st-execute`, `st-validate`) and subagents (`consultant`, `researcher`, `architect`, `executor`, `reviewer`). This is the part Claude Code loads and reads; it drives the pipeline.
-2. **Go runtime** (`apps/steop/`) — a single `steop` binary with subcommands `hook`, `state`, `storage`, `statusline`, `monitor`, `version`. Installed to `~/.local/bin/steop` by `/steop:install` (or by `apps/steop/scripts/build.sh` for developers). The binary must be on the user's `PATH`; hooks invoke it as a bare `steop` command, and Claude Code invokes `steop statusline` every couple of seconds if `/steop:statusline-install` has been run. It is the target of every hook invocation and of any CLI call the skills make.
+2. **Go runtime** (`apps/steop/`) — a single `steop` binary with subcommands `hook`, `state`, `storage`, `statusline`, `monitor`, `version`. Installed to `~/.local/bin/steop` by `/steop:install` (or by `apps/steop/scripts/build.sh` for developers). The binary must be on the user's `PATH`; hooks invoke it as a bare `steop` command, and Claude Code invokes `steop statusline` every couple of seconds if `/steop:statusline-setup` has been run. It is the target of every hook invocation and of any CLI call the skills make.
 3. **Stele server API** (`/api/v1/steop/*`) — REST endpoints on the existing stele-server process. New tables live alongside existing `memories`, `entities`, `relations`, etc. The server is the single source of truth.
 
 ```

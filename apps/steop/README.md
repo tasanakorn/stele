@@ -31,7 +31,7 @@ go vet ./...
 - `steop hook <event>` — dispatch a Claude Code hook (reads JSON from stdin).
 - `steop state get|set|incr|reset|delete <session> ...` — session state + counters.
 - `steop storage put|get|delete|list <scope> [key] [content]` — scoped blobs.
-- `steop statusline [--session=<id>] [--json] [--no-color]` — one-shot renderer for Claude Code's native `statusLine` setting. Reads an optional JSON payload from stdin, prints one line describing the current steop session phase, step, and counters. Always exits 0.
+- `steop statusline [--session=<id>] [--json] [--no-color]` — one-line renderer for the steop pipeline state: `steop: [<mode>] <phase> <step>  loop=N tools=N retries=N`. Designed to be **line 2** of a two-line Claude Code statusline; line 1 comes from whatever renderer already owns `~/.claude/statusline.sh` (cerbrix-installed, custom, or a minimal template written by `/steop:statusline-setup` if the file does not yet exist). Always exits 0.
 - `steop monitor [--json] [--limit=<n>]` — list recent steop sessions on stele-server.
 - `steop version` — print the version constant.
 

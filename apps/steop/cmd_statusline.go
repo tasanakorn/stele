@@ -4,26 +4,39 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
 )
 
-// ANSI escape sequences used by the statusline renderer. The statusline is a
-// one-shot print — no cursor manipulation, no alternate screen.
+// ANSI escape sequences used by the statusline renderer. One-shot print only —
+// no cursor manipulation, no alternate screen.
+//
+// Bright set (9x) for dark-background legibility. We avoid dim (2m) and the
+// 3x normal-intensity codes because both render with too little contrast on
+// dark backgrounds.
 const (
-	statuslineReset = "\x1b[0m"
-	statuslineDim   = "\x1b[2m"
+	statuslineReset         = "\x1b[0m"
+	statuslineBold          = "\x1b[1m"
+	statuslineWhite         = "\x1b[37m" // secondary text
+	statuslineBrightWhite   = "\x1b[97m" // primary text
+	statuslineBrightYellow  = "\x1b[93m"
+	statuslineBrightCyan    = "\x1b[96m"
+	statuslineBrightBlue    = "\x1b[94m"
+	statuslineBrightGreen   = "\x1b[92m"
+	statuslineBrightMagenta = "\x1b[95m"
 )
 
+// Phase → ANSI color for the phase token. Matches the agent palette in
+// `plugins/steop/skills/st-flow/SKILL.md`, but uses bright variants for
+// legibility on dark backgrounds.
 var statuslinePhaseColors = map[string]string{
-	"clarify":  "\x1b[36m", // cyan
-	"research": "\x1b[34m", // blue
-	"plan":     "\x1b[32m", // green
-	"execute":  "\x1b[33m", // yellow
-	"validate": "\x1b[35m", // magenta
+	"clarify":  statuslineBrightCyan,
+	"research": statuslineBrightBlue,
+	"plan":     statuslineBrightGreen,
+	"execute":  statuslineBrightYellow,
+	"validate": statuslineBrightMagenta,
 }
 
 type statuslineOpts struct {
@@ -32,22 +45,21 @@ type statuslineOpts struct {
 	jsonOut bool
 }
 
-// claudeStdin is the payload Claude Code writes to the statusline command on
-// stdin. We currently do not use any fields, but draining stdin prevents the
-// caller from getting EPIPE, and keeping the struct documents the contract.
-type claudeStdin struct {
-	Model struct {
-		DisplayName string `json:"display_name"`
-	} `json:"model"`
-	Directory string `json:"directory"`
-}
-
-// runStatusline implements `steop statusline` — a one-shot renderer designed
-// for Claude Code's native `statusLine` setting. It reads an optional JSON
-// payload from stdin (Claude Code writes session context there), looks up the
-// most recently updated steop session on stele-server, and prints a single
-// line describing the current phase, step, and counters. It never exits
-// non-zero — a broken statusline must not stall a Claude Code session.
+// runStatusline implements `steop statusline` — a single-line renderer for
+// the steop pipeline state.
+//
+// This command is designed to be **line 2** of a two-line Claude Code
+// statusline. Line 1 is owned by a user-editable shell script at
+// `~/.claude/statusline.sh` (cerbrix-installed, custom, or a minimal
+// fallback written by /steop:statusline-setup). That script reads Claude
+// Code's stdin JSON, prints line 1, then invokes this command to append
+// line 2.
+//
+// Separation of concerns:
+//   - line 1 = bash (user owns it, easy to customize, no Go rebuild)
+//   - line 2 = this binary (application-specific, deterministic)
+//
+// Always exits 0 — a broken statusline must not stall a Claude Code session.
 func runStatusline(args []string) {
 	opts := statuslineOpts{}
 	for _, a := range args {
@@ -71,59 +83,40 @@ func runStatusline(args []string) {
 		opts.noColor = true
 	}
 
-	// Drain Claude Code's JSON payload so the caller sees a clean EOF.
-	_ = readClaudeStdin()
-
+	var (
+		status    *client.Status
+		statusMsg string
+	)
 	c, err := client.NewFromConfig()
 	if err != nil {
-		printStatuslineFallback(opts, "steop offline")
-		return
-	}
-
-	sid, err := resolveStatuslineSession(c, opts.session)
-	if err != nil {
-		printStatuslineFallback(opts, "steop idle")
-		return
-	}
-
-	status, err := c.StatusGet(sid)
-	if err != nil {
-		if errors.Is(err, client.ErrNotFound) {
-			printStatuslineFallback(opts, "steop idle")
-			return
+		statusMsg = "offline"
+	} else if sid, err := resolveStatuslineSession(c, opts.session); err != nil {
+		if strings.Contains(err.Error(), "no sessions") {
+			statusMsg = "idle"
+		} else {
+			statusMsg = "offline"
 		}
-		printStatuslineFallback(opts, "steop (error)")
-		return
+	} else if s, err := c.StatusGet(sid); err != nil {
+		if errors.Is(err, client.ErrNotFound) {
+			statusMsg = "idle"
+		} else {
+			statusMsg = "offline"
+		}
+	} else {
+		status = s
 	}
 
 	if opts.jsonOut {
-		b, _ := json.Marshal(status)
-		fmt.Println(string(b))
+		if status != nil {
+			b, _ := json.Marshal(status)
+			fmt.Println(string(b))
+			return
+		}
+		fmt.Printf("{\"fallback\":%q}\n", statusMsg)
 		return
 	}
-	fmt.Println(formatStatuslineLine(status, opts.noColor))
-}
 
-// readClaudeStdin reads Claude Code's stdin payload if stdin is a pipe. When
-// invoked from a TTY (manual smoke test) the function returns nil without
-// blocking.
-func readClaudeStdin() *claudeStdin {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return nil
-	}
-	if (fi.Mode() & os.ModeCharDevice) != 0 {
-		return nil
-	}
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil || len(data) == 0 {
-		return nil
-	}
-	var s claudeStdin
-	if json.Unmarshal(data, &s) != nil {
-		return nil
-	}
-	return &s
+	fmt.Println(formatStatuslineLine(status, statusMsg, opts.noColor))
 }
 
 func resolveStatuslineSession(c *client.Client, wanted string) (string, error) {
@@ -140,10 +133,27 @@ func resolveStatuslineSession(c *client.Client, wanted string) (string, error) {
 	return sessions[0].SessionID, nil
 }
 
-func formatStatuslineLine(s *client.Status, noColor bool) string {
+// formatStatuslineLine renders the single steop line.
+// Shape:  steop: [<mode>] <phase> <step>  loop=N tools=N retries=N
+// On fallback:  steop: <msg>  (msg ∈ {"idle", "offline", "error"})
+func formatStatuslineLine(s *client.Status, fallback string, noColor bool) string {
+	prefix := colorize("steop:", statuslineBrightWhite+statuslineBold, noColor)
+
+	if s == nil {
+		msg := fallback
+		if msg == "" {
+			msg = "idle"
+		}
+		color := statuslineWhite
+		if msg == "offline" || msg == "error" {
+			color = statuslineBrightYellow
+		}
+		return prefix + " " + colorize(msg, color, noColor)
+	}
+
 	mode := s.Mode
 	if mode == "" {
-		mode = "-"
+		mode = "idle"
 	}
 	phase := s.Phase
 	if phase == "" {
@@ -153,37 +163,39 @@ func formatStatuslineLine(s *client.Status, noColor bool) string {
 	if step == "" {
 		step = "-"
 	}
-	if noColor {
-		return fmt.Sprintf("[%s] %s %s loop=%d tools=%d retries=%d",
-			mode, phase, step, s.LoopCount, s.ToolCalls, s.StepRetry)
+
+	modeTok := colorize("["+mode+"]", statuslineWhite, noColor)
+	phaseColor := statuslinePhaseColors[strings.ToLower(phase)]
+	if phaseColor == "" {
+		phaseColor = statuslineBrightWhite
 	}
-	color := statuslinePhaseColors[strings.ToLower(phase)]
-	return fmt.Sprintf("%s[%s]%s %s%s%s %s %sloop=%d tools=%d retries=%d%s",
-		statuslineDim, mode, statuslineReset,
-		color, phase, statuslineReset,
-		step,
-		statuslineDim, s.LoopCount, s.ToolCalls, s.StepRetry, statuslineReset)
+	phaseTok := colorize(phase, phaseColor+statuslineBold, noColor)
+	stepTok := colorize(step, statuslineBrightWhite, noColor)
+	counters := fmt.Sprintf("loop=%d tools=%d retries=%d",
+		s.LoopCount, s.ToolCalls, s.StepRetry)
+	counterTok := colorize(counters, statuslineWhite, noColor)
+
+	return fmt.Sprintf("%s %s %s %s  %s",
+		prefix, modeTok, phaseTok, stepTok, counterTok)
 }
 
-func printStatuslineFallback(opts statuslineOpts, msg string) {
-	if opts.jsonOut {
-		fmt.Printf("{\"fallback\":%q}\n", msg)
-		return
+func colorize(text, color string, noColor bool) string {
+	if noColor || color == "" {
+		return text
 	}
-	if opts.noColor {
-		fmt.Println(msg)
-		return
-	}
-	fmt.Printf("%s%s%s\n", statuslineDim, msg, statuslineReset)
+	return color + text + statuslineReset
 }
 
 func printStatuslineUsage() {
 	fmt.Fprintln(os.Stderr, "usage: steop statusline [--session=<id>] [--json] [--no-color]")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  One-shot renderer for Claude Code's native statusLine setting.")
-	fmt.Fprintln(os.Stderr, "  Reads a JSON payload from stdin (optional; written by Claude Code),")
-	fmt.Fprintln(os.Stderr, "  then prints a single line describing the current steop session phase,")
-	fmt.Fprintln(os.Stderr, "  step, and counters. Exits 0 even on error.")
+	fmt.Fprintln(os.Stderr, "  One-line renderer for the steop pipeline state. Designed as the")
+	fmt.Fprintln(os.Stderr, "  second line of a two-line Claude Code statusline. Line 1 comes")
+	fmt.Fprintln(os.Stderr, "  from ~/.claude/statusline.sh (cerbrix-installed or a minimal")
+	fmt.Fprintln(os.Stderr, "  fallback); /steop:statusline-setup appends an invocation of this")
+	fmt.Fprintln(os.Stderr, "  command to that file.")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "  Always exits 0 — a broken statusline must not stall a session.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "  --session=<id>  session to render (default: most recently updated)")
 	fmt.Fprintln(os.Stderr, "  --json          emit JSON instead of a formatted line")

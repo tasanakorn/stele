@@ -30,7 +30,7 @@ Run the full pipeline end-to-end. Do NOT pause between phases unless a stop cond
 
 ## Statusline State Updates
 
-At the start of each phase, write the current phase into session state so the Claude Code statusline (see `/steop:statusline-install`) reflects live progress. The session id is discovered from the most recently updated session (hooks create one on the first tool call).
+At the start of each phase, write the current phase into session state so the Claude Code statusline (see `/steop:statusline-setup`) reflects live progress. The session id is discovered from the most recently updated session (hooks create one on the first tool call).
 
 ```bash
 SID="$(steop monitor --json --limit=1 2>/dev/null | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*"([^"]+)"$/\1/')"
