@@ -9,6 +9,10 @@ Analyze and clarify the user's request before any codebase research.
 
 ## Instructions
 
+```bash
+steop state set-phase clarify --mode clarify
+```
+
 Launch the **consultant** agent (`steop:consultant`, Opus, read-only tools).
 
 > **Note:** When invoked from `st-flow` with FLOW MODE, skip the wait-for-confirmation step and return the Task Brief immediately. The instructions below describe standalone behavior.

@@ -1,6 +1,18 @@
 {
   "description": "Safety guards and tool-call counter for steop workflow",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "steop hook UserPromptSubmit",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",

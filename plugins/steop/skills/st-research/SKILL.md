@@ -9,6 +9,10 @@ Research the codebase and gather all relevant context for the user's task.
 
 ## Instructions
 
+```bash
+steop state set-phase research --mode research
+```
+
 ### Agent & Model Selection
 
 Launch the **researcher** agent (`steop:researcher`, read-only tools). Override model based on task complexity:

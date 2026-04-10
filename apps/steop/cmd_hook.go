@@ -29,6 +29,8 @@ func runHook(args []string) {
 
 	var out []byte
 	switch event {
+	case "UserPromptSubmit":
+		out = hooks.HandleUserPromptSubmit(in)
 	case "PreToolUse":
 		out = hooks.HandlePreToolUse(in)
 	case "PostToolUse":

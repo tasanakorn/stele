@@ -9,6 +9,10 @@ Design the implementation strategy for the user's task.
 
 ## Instructions
 
+```bash
+steop state set-phase plan --mode plan
+```
+
 Launch the **architect** agent (`steop:architect`, Opus, read-only tools).
 
 > **Note:** When invoked from `st-flow` with FLOW MODE, produce the blueprint and return it immediately without asking for approval. The instructions below describe standalone behavior.

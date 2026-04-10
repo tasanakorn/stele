@@ -20,6 +20,12 @@ func HandleStop(in *HookInput, c *client.Client) []byte {
 	if err := c.Notify(req); err != nil {
 		logging.Debugf("notify call failed: %v", err)
 	}
+	if in != nil && in.SessionID != "" {
+		data := map[string]interface{}{"phase": "", "mode": ""}
+		if _, err := c.StatePut(in.SessionID, data, true); err != nil {
+			logging.Debugf("stop clear phase failed: %v", err)
+		}
+	}
 	return Allow()
 }
 

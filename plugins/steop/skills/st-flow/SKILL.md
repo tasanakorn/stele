@@ -30,18 +30,7 @@ Run the full pipeline end-to-end. Do NOT pause between phases unless a stop cond
 
 ## Statusline State Updates
 
-At the start of each phase, write the current phase into session state so the Claude Code statusline (see `/steop:statusline-setup`) reflects live progress. The session id is discovered from the most recently updated session (hooks create one on the first tool call).
-
-```bash
-SID="$(steop monitor --json --limit=1 2>/dev/null | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*"([^"]+)"$/\1/')"
-if [ -n "$SID" ]; then
-  steop state set "$SID" '{"mode":"flow","phase":"<PHASE>"}'
-fi
-```
-
-Replace `<PHASE>` with the phase name you are entering: `clarify`, `research`, `plan`, `execute`, or `validate`. Run this block once at the top of each `Phase N` section below, before launching the agent. If `SID` is empty (no session yet — first phase of a fresh run), silently skip; subsequent phases will succeed once a hook has created the session.
-
-This is best-effort and non-blocking. If `steop` or the server is unavailable, the pipeline proceeds normally.
+At the start of each phase, run `steop state set-phase <phase> --mode flow` so the Claude Code statusline reflects live progress. This is best-effort and non-blocking: if the server is unavailable or no session is active yet, the command silently exits 0 and the pipeline proceeds normally. After the Finalize step, run `steop state clear-phase` to reset the statusline to idle.
 
 ## Agents
 
@@ -57,7 +46,9 @@ Agents with `inherit` model have their model overridden based on complexity.
 
 ## Phase 1: Clarify
 
-Update statusline state: write `{"mode":"flow","phase":"clarify"}` via the Statusline State Updates helper above.
+```bash
+steop state set-phase clarify --mode flow
+```
 
 Launch the **consultant** agent. Pass the following override instruction:
 
@@ -75,7 +66,9 @@ Proceed immediately to the next phase.
 
 ## Phase 2: Research — skip if Simple
 
-Update statusline state: write `{"mode":"flow","phase":"research"}` via the Statusline State Updates helper above.
+```bash
+steop state set-phase research --mode flow
+```
 
 **Skip for Simple tasks.**
 
@@ -91,7 +84,9 @@ Proceed immediately to Plan.
 
 ## Phase 3: Plan
 
-Update statusline state: write `{"mode":"flow","phase":"plan"}` via the Statusline State Updates helper above.
+```bash
+steop state set-phase plan --mode flow
+```
 
 Launch the **architect** agent. Pass all available context (Task Brief + Research findings if applicable).
 
@@ -105,7 +100,9 @@ Proceed immediately to Execute.
 
 ## Phase 4: Execute
 
-Update statusline state: write `{"mode":"flow","phase":"execute"}` via the Statusline State Updates helper above.
+```bash
+steop state set-phase execute --mode flow
+```
 
 Launch the **executor** agent with model override based on complexity:
 - **Simple** → `model: "haiku"`
@@ -120,7 +117,9 @@ Proceed immediately to Validate.
 
 ## Phase 5: Validate
 
-Update statusline state: write `{"mode":"flow","phase":"validate"}` via the Statusline State Updates helper above.
+```bash
+steop state set-phase validate --mode flow
+```
 
 Launch the **reviewer** agent. It will review all changes, run tests/linting if available, and produce a verification report.
 
@@ -135,3 +134,7 @@ After all phases complete (or a stop condition halts the pipeline), present a si
 - **Changes made** (from Execute)
 - **Validation status** (from Validate)
 - **Issues** (if any remain)
+
+```bash
+steop state clear-phase
+```

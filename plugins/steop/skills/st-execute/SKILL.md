@@ -9,6 +9,10 @@ Implement the code changes for the user's task.
 
 ## Instructions
 
+```bash
+steop state set-phase execute --mode execute
+```
+
 ### Agent & Model Selection
 
 Launch the **executor** agent (`steop:executor`, full tool access). Override model based on task complexity:

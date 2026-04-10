@@ -9,6 +9,10 @@ Review and validate the implementation changes.
 
 ## Instructions
 
+```bash
+steop state set-phase validate --mode validate
+```
+
 Launch the **reviewer** agent (`steop:reviewer`, Sonnet, read-only tools).
 
 The verification agent should:

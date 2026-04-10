@@ -7,11 +7,12 @@ import (
 	"strconv"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
+	"github.com/tasanakorn/stele/apps/steop/internal/hooks"
 )
 
 func runState(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: steop state <get|set|incr|reset|delete> ...")
+		fmt.Fprintln(os.Stderr, "usage: steop state <get|set|set-phase|clear-phase|incr|reset|delete> ...")
 		os.Exit(2)
 	}
 	c, err := client.NewFromConfig()
@@ -99,6 +100,44 @@ func runState(args []string) {
 			os.Exit(1)
 		}
 		writeJSON(map[string]interface{}{"deleted": deleted})
+	case "set-phase":
+		// usage: steop state set-phase <phase> [--mode <mode>]
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: steop state set-phase <phase> [--mode <mode>]")
+			os.Exit(2)
+		}
+		phase := args[1]
+		mode := ""
+		for i := 2; i < len(args); i++ {
+			if args[i] == "--mode" && i+1 < len(args) {
+				mode = args[i+1]
+				i++
+			}
+		}
+		sid := hooks.ReadSentinel()
+		if sid == "" {
+			return
+		}
+		data := map[string]interface{}{"phase": phase}
+		if mode != "" {
+			data["mode"] = mode
+		}
+		if _, err := c.StatePut(sid, data, true); err != nil {
+			fmt.Fprintf(os.Stderr, "state set-phase: %v\n", err)
+			return
+		}
+
+	case "clear-phase":
+		sid := hooks.ReadSentinel()
+		if sid == "" {
+			return
+		}
+		data := map[string]interface{}{"phase": "", "mode": ""}
+		if _, err := c.StatePut(sid, data, true); err != nil {
+			fmt.Fprintf(os.Stderr, "state clear-phase: %v\n", err)
+			return
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown state subcommand: %s\n", args[0])
 		os.Exit(2)
