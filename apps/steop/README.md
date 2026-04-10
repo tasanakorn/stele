@@ -31,7 +31,7 @@ go vet ./...
 - `steop hook <event>` — dispatch a Claude Code hook (reads JSON from stdin).
 - `steop state get|set|incr|reset|delete <session> ...` — session state + counters.
 - `steop storage put|get|delete|list <scope> [key] [content]` — scoped blobs.
-- `steop hud` — v1 stub.
+- `steop hud [--session=<id>] [--once] [--json] [--interval=<s>] [--no-color]` — live status panel for a steop session. Polls the server and redraws in place.
 - `steop version` — print the version constant.
 
 ## Environment variables
