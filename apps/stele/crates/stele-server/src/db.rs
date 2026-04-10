@@ -1224,6 +1224,13 @@ pub struct SteopState {
     pub updated_at: String,
 }
 
+pub struct SteopSessionSummary {
+    pub session_id: String,
+    pub data: serde_json::Value,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 pub fn steop_storage_put(
     conn: &Connection,
     scope: &str,
@@ -1352,6 +1359,42 @@ pub fn steop_state_get(
     session_id: &str,
 ) -> rusqlite::Result<Option<SteopState>> {
     steop_state_load(conn, session_id)
+}
+
+pub fn steop_sessions_list(
+    conn: &Connection,
+    limit: i64,
+) -> rusqlite::Result<Vec<SteopSessionSummary>> {
+    let mut stmt = conn.prepare(
+        "SELECT session_id, data, created_at, updated_at
+         FROM steop_state
+         ORDER BY updated_at DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map(params![limit], |row| {
+            let data_str: String = row.get(1)?;
+            let data: serde_json::Value = serde_json::from_str(&data_str)
+                .unwrap_or(serde_json::Value::Object(Default::default()));
+            Ok(SteopSessionSummary {
+                session_id: row.get(0)?,
+                data,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn steop_storage_scopes(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT scope FROM steop_storage ORDER BY scope",
+    )?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
 }
 
 pub fn steop_state_put(

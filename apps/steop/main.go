@@ -14,7 +14,7 @@ func main() {
 	}()
 
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: steop <hook|state|storage|hud|version> ...")
+		fmt.Fprintln(os.Stderr, "usage: steop <hook|state|storage|hud|monitor|inspect|version> ...")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -26,6 +26,8 @@ func main() {
 		runStorage(os.Args[2:])
 	case "hud":
 		runHud(os.Args[2:])
+	case "monitor", "inspect":
+		runMonitor(os.Args[2:])
 	case "version":
 		runVersion()
 	default:

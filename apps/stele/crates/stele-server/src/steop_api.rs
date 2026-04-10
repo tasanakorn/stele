@@ -26,6 +26,9 @@ pub fn router(db: DbPool) -> Router {
         .route("/state/{session_id}/reset", post(counter_reset))
         .route("/status/{session_id}", get(status_get))
         .route("/notify", post(notify_handler))
+        .route("/sessions", get(sessions_list))
+        .route("/sessions/{id}", get(session_get))
+        .route("/storage/scopes", get(storage_scopes_list))
         .layer(CorsLayer::permissive())
         .with_state(db)
 }
@@ -440,22 +443,98 @@ async fn status_get(State(db): State<DbPool>, Path(session_id): Path<String>) ->
             )
             .into_response()
         }
-        Ok(None) => {
-            let now = chrono::Utc::now().to_rfc3339();
-            Json(
-                serde_json::to_value(&StatusResponse {
-                    session_id,
-                    mode: "idle".to_string(),
-                    phase: String::new(),
-                    step: "-".to_string(),
-                    tool_calls: 0,
-                    loop_count: 0,
-                    step_retry: 0,
-                    updated_at: now,
-                })
-                .unwrap(),
-            )
-            .into_response()
+        Ok(None) => error_response(StatusCode::NOT_FOUND, "not found"),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+// ── Sessions (monitor) ──
+
+#[derive(Deserialize)]
+struct SessionsListQuery {
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Serialize)]
+struct SessionSummaryResponse {
+    session_id: String,
+    mode: String,
+    phase: String,
+    current_step: Option<i64>,
+    total_steps: Option<i64>,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+struct SessionsListResponse {
+    sessions: Vec<SessionSummaryResponse>,
+}
+
+fn summarize_session(
+    session_id: String,
+    data: &serde_json::Value,
+    created_at: String,
+    updated_at: String,
+) -> SessionSummaryResponse {
+    SessionSummaryResponse {
+        session_id,
+        mode: json_string_field(data, "mode"),
+        phase: json_string_field(data, "phase"),
+        current_step: json_i64_field(data, "current_step"),
+        total_steps: json_i64_field(data, "total_steps"),
+        created_at,
+        updated_at,
+    }
+}
+
+async fn sessions_list(
+    State(db): State<DbPool>,
+    Query(q): Query<SessionsListQuery>,
+) -> impl IntoResponse {
+    let limit = q.limit.filter(|v| *v > 0).unwrap_or(100);
+    let conn = db.lock().await;
+    match db::steop_sessions_list(&conn, limit) {
+        Ok(rows) => {
+            let sessions: Vec<SessionSummaryResponse> = rows
+                .into_iter()
+                .map(|s| summarize_session(s.session_id, &s.data, s.created_at, s.updated_at))
+                .collect();
+            Json(serde_json::to_value(&SessionsListResponse { sessions }).unwrap())
+                .into_response()
+        }
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+async fn session_get(
+    State(db): State<DbPool>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let conn = db.lock().await;
+    match db::steop_state_get(&conn, &id) {
+        Ok(Some(state)) => {
+            Json(serde_json::to_value(StateResponse::from(state)).unwrap()).into_response()
+        }
+        Ok(None) => error_response(StatusCode::NOT_FOUND, "not found"),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+// ── Storage scopes ──
+
+#[derive(Serialize)]
+struct StorageScopesResponse {
+    scopes: Vec<String>,
+}
+
+async fn storage_scopes_list(State(db): State<DbPool>) -> impl IntoResponse {
+    let conn = db.lock().await;
+    match db::steop_storage_scopes(&conn) {
+        Ok(scopes) => {
+            Json(serde_json::to_value(&StorageScopesResponse { scopes }).unwrap())
+                .into_response()
         }
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
