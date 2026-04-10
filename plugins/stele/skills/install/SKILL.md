@@ -66,8 +66,11 @@ which stele
 > Installing the Stele CLI from source. This compiles from source and may take a few minutes.
 
 ```bash
-cargo install --path /tmp/stele-build/apps/stele/crates/stele-cli
+mkdir -p ~/.local/bin
+cargo install --path /tmp/stele-build/apps/stele/crates/stele-cli --root ~/.local
 ```
+
+`--root ~/.local` installs the binary at `~/.local/bin/stele` instead of cargo's default `~/.cargo/bin/`, keeping the CLI alongside other user-installed tools (matching the `steop` convention).
 
 After install, verify:
 
@@ -75,13 +78,13 @@ After install, verify:
 stele --help
 ```
 
-If `stele` is still not found, tell the user to ensure `~/.cargo/bin` is in their PATH:
+If `stele` is still not found, ensure `~/.local/bin` is in the user's PATH. On most shells, add this to `~/.zshrc` or `~/.bashrc` if it is not already present:
 
 ```bash
-source "$HOME/.cargo/env"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Then retry `stele --help`. If it still fails, stop and ask the user to troubleshoot their PATH.
+Then reload the shell (`exec $SHELL`) and retry `stele --help`. If it still fails, stop and ask the user to troubleshoot their PATH.
 
 ### Step 5: Check for Existing Server
 
@@ -152,7 +155,8 @@ On Linux, only headless mode is available. Ask the user:
 > Building the Stele server (headless). This compiles from source and may take several minutes.
 
 ```bash
-cargo install --path /tmp/stele-build/apps/stele/crates/stele-server --no-default-features --features headless
+mkdir -p ~/.local/bin
+cargo install --path /tmp/stele-build/apps/stele/crates/stele-server --no-default-features --features headless --root ~/.local
 ```
 
 After install, set up a systemd user service so the server starts automatically and can be managed with `systemctl`.
@@ -177,7 +181,7 @@ Environment=STELE_DB=%h/.local/share/stele/stele.db
 Environment=STELE_MCP_PATH=/mcp
 Environment=RUST_LOG=info
 ExecStartPre=/bin/mkdir -p %h/.local/share/stele
-ExecStart=%h/.cargo/bin/stele-server
+ExecStart=%h/.local/bin/stele-server
 Restart=on-failure
 RestartSec=5
 
