@@ -33,7 +33,7 @@ func runHook(args []string) {
 			logging.Debugf("client init failed: %v", err)
 			return nil
 		}
-		return c.WithRequestContext("", in.Cwd)
+		return c.WithRequestContext("", os.Getenv("CLAUDE_PROJECT_DIR"))
 	}
 
 	var out []byte
