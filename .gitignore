@@ -6,4 +6,6 @@
 *.app
 *.dmg
 *.icns
+__pycache__/
+*.pyc
 
