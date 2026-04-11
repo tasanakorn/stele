@@ -16,6 +16,10 @@ pub fn init_db(path: &str) -> rusqlite::Result<DbPool> {
     conn.execute_batch("PRAGMA journal_mode=WAL;")?;
     conn.execute_batch("PRAGMA foreign_keys=ON;")?;
 
+    // Drop any v0.5 steop_* tables before creating the new v0.6 schema so
+    // old steop_logs rows with the old column layout get wiped cleanly.
+    ensure_steop_schema(&conn)?;
+
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS memories (
@@ -134,86 +138,82 @@ pub fn init_db(path: &str) -> rusqlite::Result<DbPool> {
             VALUES (new.rowid, new.content);
         END;
 
-        -- Steop: generic blob KV
-        CREATE TABLE IF NOT EXISTS steop_storage (
-            scope       TEXT NOT NULL,
+        CREATE TABLE IF NOT EXISTS steop_sessions (
+            host           TEXT NOT NULL,
+            project_dir    TEXT NOT NULL,
+            session_id     TEXT NOT NULL,
+            state          TEXT NOT NULL DEFAULT 'active',
+            started_at     TEXT NOT NULL,
+            last_active_at TEXT NOT NULL,
+            stopped_at     TEXT,
+            data           TEXT NOT NULL DEFAULT '{}',
+            counters       TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY (host, project_dir, session_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_steop_sessions_host_proj  ON steop_sessions(host, project_dir);
+        CREATE INDEX IF NOT EXISTS idx_steop_sessions_session_id ON steop_sessions(session_id);
+
+        CREATE TABLE IF NOT EXISTS steop_storage_session (
+            host        TEXT NOT NULL,
+            project_dir TEXT NOT NULL,
+            session_id  TEXT NOT NULL,
             key         TEXT NOT NULL,
             content     TEXT NOT NULL,
             created_at  TEXT NOT NULL,
             updated_at  TEXT NOT NULL,
-            PRIMARY KEY (scope, key)
+            PRIMARY KEY (host, project_dir, session_id, key)
         );
-        CREATE INDEX IF NOT EXISTS idx_steop_storage_scope ON steop_storage(scope);
 
-        -- Steop: structured session state (free-form JSON data)
-        CREATE TABLE IF NOT EXISTS steop_state (
-            session_id  TEXT PRIMARY KEY,
-            data        TEXT NOT NULL DEFAULT '{}',
+        CREATE TABLE IF NOT EXISTS steop_storage_project (
+            host        TEXT NOT NULL,
+            project_dir TEXT NOT NULL,
+            key         TEXT NOT NULL,
+            content     TEXT NOT NULL,
             created_at  TEXT NOT NULL,
-            updated_at  TEXT NOT NULL
-        );
-
-        -- Steop: atomic counters keyed by (session_id, name)
-        CREATE TABLE IF NOT EXISTS steop_counters (
-            session_id  TEXT NOT NULL REFERENCES steop_state(session_id) ON DELETE CASCADE,
-            name        TEXT NOT NULL,
-            value       INTEGER NOT NULL DEFAULT 0,
             updated_at  TEXT NOT NULL,
-            PRIMARY KEY (session_id, name)
+            PRIMARY KEY (host, project_dir, key)
         );
-        CREATE INDEX IF NOT EXISTS idx_steop_counters_session ON steop_counters(session_id);
 
-        -- Steop: append-only structured event log
+        CREATE TABLE IF NOT EXISTS steop_mailbox (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_host        TEXT NOT NULL,
+            from_project_dir TEXT NOT NULL,
+            from_session_id  TEXT NOT NULL,
+            to_host          TEXT NOT NULL,
+            to_project_dir   TEXT NOT NULL,
+            to_session_id    TEXT NOT NULL DEFAULT '',
+            payload          TEXT NOT NULL DEFAULT '{}',
+            created_at       TEXT NOT NULL,
+            acked_at         TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_steop_mailbox_to
+            ON steop_mailbox(to_host, to_project_dir, to_session_id, created_at);
+
         CREATE TABLE IF NOT EXISTS steop_logs (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            host         TEXT NOT NULL DEFAULT '',
-            session_id   TEXT NOT NULL DEFAULT '',
-            project_dir  TEXT NOT NULL DEFAULT '',
-            event        TEXT NOT NULL,
-            data         TEXT NOT NULL DEFAULT '{}',
-            created_at   TEXT NOT NULL
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            host        TEXT NOT NULL,
+            project_dir TEXT NOT NULL,
+            session_id  TEXT NOT NULL,
+            event       TEXT NOT NULL,
+            data        TEXT NOT NULL DEFAULT '{}',
+            created_at  TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_steop_logs_session
-            ON steop_logs(session_id, host, project_dir, created_at);
-        CREATE INDEX IF NOT EXISTS idx_steop_logs_host
-            ON steop_logs(host, created_at);
-
-        -- Steop: append-only cross-session inbox (session summaries)
-        CREATE TABLE IF NOT EXISTS steop_inbox (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            host         TEXT NOT NULL DEFAULT '',
-            session_id   TEXT NOT NULL DEFAULT '',
-            project_dir  TEXT NOT NULL DEFAULT '',
-            payload      TEXT NOT NULL DEFAULT '{}',
-            created_at   TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_steop_inbox_session
-            ON steop_inbox(session_id, host, project_dir, created_at);
+        CREATE INDEX IF NOT EXISTS idx_steop_logs_session ON steop_logs(session_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_steop_logs_proj    ON steop_logs(host, project_dir, created_at);
         ",
     )?;
-
-    ensure_steop_schema(&conn)?;
 
     Ok(Arc::new(Mutex::new(conn)))
 }
 
 fn ensure_steop_schema(conn: &Connection) -> rusqlite::Result<()> {
-    let existing: Vec<String> = conn
-        .prepare("SELECT name FROM pragma_table_info('steop_state')")?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    if !existing.iter().any(|c| c == "host") {
-        conn.execute(
-            "ALTER TABLE steop_state ADD COLUMN host TEXT NOT NULL DEFAULT ''",
-            [],
-        )?;
-    }
-    if !existing.iter().any(|c| c == "project_dir") {
-        conn.execute(
-            "ALTER TABLE steop_state ADD COLUMN project_dir TEXT NOT NULL DEFAULT ''",
-            [],
-        )?;
-    }
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS steop_storage;
+         DROP TABLE IF EXISTS steop_state;
+         DROP TABLE IF EXISTS steop_counters;
+         DROP TABLE IF EXISTS steop_inbox;
+         DROP TABLE IF EXISTS steop_logs;",
+    )?;
     Ok(())
 }
 
@@ -1243,482 +1243,660 @@ pub fn open_entities(
     })
 }
 
-// ── Steop: generic blob KV ──
+// ── Steop v2: session-based RPC API ─────────────────────────────────────────
 
-pub struct SteopBlob {
-    pub scope: String,
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SteopSession {
+    pub host: String,
+    pub project_dir: String,
+    pub session_id: String,
+    pub state: String,
+    pub started_at: String,
+    pub last_active_at: String,
+    pub stopped_at: Option<String>,
+    pub data: serde_json::Value,
+    pub counters: serde_json::Value,
+}
+
+#[derive(Debug, Clone, serde::Serialize, Default)]
+pub struct SteopStatusProjection {
+    pub session_id: String,
+    pub mode: String,
+    pub phase: String,
+    pub step: String,
+    pub tool_calls: i64,
+    pub loop_count: i64,
+    pub step_retry: i64,
+    pub last_active_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SteopStorageBlob {
+    pub host: String,
+    pub project_dir: String,
+    pub session_id: Option<String>,
     pub key: String,
     pub content: String,
     pub created_at: String,
     pub updated_at: String,
 }
 
-pub struct SteopBlobMeta {
-    pub scope: String,
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SteopStorageMeta {
     pub key: String,
     pub updated_at: String,
 }
 
-pub struct SteopBlobListItem {
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SteopStorageListItem {
     pub key: String,
     pub updated_at: String,
     pub size: i64,
 }
 
-pub struct SteopState {
-    pub session_id: String,
-    pub data: serde_json::Value,
-    pub counters: std::collections::BTreeMap<String, i64>,
-    pub host: String,
-    pub project_dir: String,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-pub struct SteopSessionSummary {
-    pub session_id: String,
-    pub data: serde_json::Value,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-pub fn steop_storage_put(
-    conn: &Connection,
-    scope: &str,
-    key: &str,
-    content: &str,
-) -> rusqlite::Result<SteopBlobMeta> {
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "INSERT INTO steop_storage (scope, key, content, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?4)
-         ON CONFLICT(scope, key) DO UPDATE SET
-            content = excluded.content,
-            updated_at = excluded.updated_at",
-        params![scope, key, content, now],
-    )?;
-    Ok(SteopBlobMeta {
-        scope: scope.to_string(),
-        key: key.to_string(),
-        updated_at: now,
-    })
-}
-
-pub fn steop_storage_get(
-    conn: &Connection,
-    scope: &str,
-    key: &str,
-) -> rusqlite::Result<Option<SteopBlob>> {
-    use rusqlite::OptionalExtension;
-    let mut stmt = conn.prepare(
-        "SELECT scope, key, content, created_at, updated_at
-         FROM steop_storage WHERE scope = ?1 AND key = ?2",
-    )?;
-    let blob = stmt
-        .query_row(params![scope, key], |row| {
-            Ok(SteopBlob {
-                scope: row.get(0)?,
-                key: row.get(1)?,
-                content: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
-            })
-        })
-        .optional()?;
-    Ok(blob)
-}
-
-pub fn steop_storage_delete(conn: &Connection, scope: &str, key: &str) -> rusqlite::Result<bool> {
-    let rows = conn.execute(
-        "DELETE FROM steop_storage WHERE scope = ?1 AND key = ?2",
-        params![scope, key],
-    )?;
-    Ok(rows > 0)
-}
-
-pub fn steop_storage_list(
-    conn: &Connection,
-    scope: &str,
-) -> rusqlite::Result<Vec<SteopBlobListItem>> {
-    let mut stmt = conn.prepare(
-        "SELECT key, updated_at, LENGTH(content) AS size
-         FROM steop_storage WHERE scope = ?1 ORDER BY key",
-    )?;
-    let items = stmt
-        .query_map(params![scope], |row| {
-            Ok(SteopBlobListItem {
-                key: row.get(0)?,
-                updated_at: row.get(1)?,
-                size: row.get(2)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(items)
-}
-
-// ── Steop: session state ──
-
-fn steop_state_load(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<SteopState>> {
-    use rusqlite::OptionalExtension;
-    let row = conn
-        .query_row(
-            "SELECT session_id, data, host, project_dir, created_at, updated_at
-             FROM steop_state WHERE session_id = ?1",
-            params![session_id],
-            |row| {
-                let data_str: String = row.get(1)?;
-                Ok((
-                    row.get::<_, String>(0)?,
-                    data_str,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                ))
-            },
-        )
-        .optional()?;
-
-    let (sid, data_str, host, project_dir, created_at, updated_at) = match row {
-        Some(r) => r,
-        None => return Ok(None),
-    };
-
-    let data: serde_json::Value =
-        serde_json::from_str(&data_str).unwrap_or(serde_json::Value::Object(Default::default()));
-
-    let mut counters_stmt =
-        conn.prepare("SELECT name, value FROM steop_counters WHERE session_id = ?1 ORDER BY name")?;
-    let counters_iter = counters_stmt.query_map(params![session_id], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-    })?;
-    let mut counters = std::collections::BTreeMap::new();
-    for pair in counters_iter {
-        let (name, value) = pair?;
-        counters.insert(name, value);
-    }
-
-    Ok(Some(SteopState {
-        session_id: sid,
-        data,
-        counters,
-        host,
-        project_dir,
-        created_at,
-        updated_at,
-    }))
-}
-
-pub fn steop_state_get(
-    conn: &Connection,
-    session_id: &str,
-) -> rusqlite::Result<Option<SteopState>> {
-    steop_state_load(conn, session_id)
-}
-
-pub fn steop_sessions_list(
-    conn: &Connection,
-    limit: i64,
-) -> rusqlite::Result<Vec<SteopSessionSummary>> {
-    let mut stmt = conn.prepare(
-        "SELECT session_id, data, created_at, updated_at
-         FROM steop_state
-         ORDER BY updated_at DESC
-         LIMIT ?1",
-    )?;
-    let rows = stmt
-        .query_map(params![limit], |row| {
-            let data_str: String = row.get(1)?;
-            let data: serde_json::Value = serde_json::from_str(&data_str)
-                .unwrap_or(serde_json::Value::Object(Default::default()));
-            Ok(SteopSessionSummary {
-                session_id: row.get(0)?,
-                data,
-                created_at: row.get(2)?,
-                updated_at: row.get(3)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows)
-}
-
-pub fn steop_storage_scopes(conn: &Connection) -> rusqlite::Result<Vec<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT scope FROM steop_storage ORDER BY scope",
-    )?;
-    let rows = stmt
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows)
-}
-
-pub fn steop_state_put(
-    conn: &Connection,
-    session_id: &str,
-    data: serde_json::Value,
-    merge: bool,
-    host: Option<&str>,
-    project_dir: Option<&str>,
-) -> rusqlite::Result<SteopState> {
-    use rusqlite::OptionalExtension;
-    let now = chrono::Utc::now().to_rfc3339();
-
-    let existing: Option<String> = conn
-        .query_row(
-            "SELECT data FROM steop_state WHERE session_id = ?1",
-            params![session_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-
-    let final_data = if merge {
-        let existing_value: serde_json::Value = match existing.as_deref() {
-            Some(s) => {
-                serde_json::from_str(s).unwrap_or(serde_json::Value::Object(Default::default()))
-            }
-            None => serde_json::Value::Object(Default::default()),
-        };
-        match (existing_value, data) {
-            (serde_json::Value::Object(mut a), serde_json::Value::Object(b)) => {
-                for (k, v) in b {
-                    a.insert(k, v);
-                }
-                serde_json::Value::Object(a)
-            }
-            (_, other) => other,
-        }
-    } else {
-        data
-    };
-
-    let data_str = serde_json::to_string(&final_data).unwrap_or_else(|_| "{}".to_string());
-    let host_val = host.unwrap_or("");
-    let project_dir_val = project_dir.unwrap_or("");
-
-    // Only overwrite host / project_dir when the caller actually provides one.
-    // Blank values (e.g. a client that doesn't send headers) must not clobber
-    // provenance captured by a previous write.
-    if host.is_some() && project_dir.is_some() {
-        conn.execute(
-            "INSERT INTO steop_state (session_id, data, host, project_dir, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5)
-             ON CONFLICT(session_id) DO UPDATE SET
-                data = excluded.data,
-                host = excluded.host,
-                project_dir = excluded.project_dir,
-                updated_at = excluded.updated_at",
-            params![session_id, data_str, host_val, project_dir_val, now],
-        )?;
-    } else if host.is_some() {
-        conn.execute(
-            "INSERT INTO steop_state (session_id, data, host, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?4)
-             ON CONFLICT(session_id) DO UPDATE SET
-                data = excluded.data,
-                host = excluded.host,
-                updated_at = excluded.updated_at",
-            params![session_id, data_str, host_val, now],
-        )?;
-    } else if project_dir.is_some() {
-        conn.execute(
-            "INSERT INTO steop_state (session_id, data, project_dir, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?4)
-             ON CONFLICT(session_id) DO UPDATE SET
-                data = excluded.data,
-                project_dir = excluded.project_dir,
-                updated_at = excluded.updated_at",
-            params![session_id, data_str, project_dir_val, now],
-        )?;
-    } else {
-        conn.execute(
-            "INSERT INTO steop_state (session_id, data, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?3)
-             ON CONFLICT(session_id) DO UPDATE SET
-                data = excluded.data,
-                updated_at = excluded.updated_at",
-            params![session_id, data_str, now],
-        )?;
-    }
-
-    match steop_state_load(conn, session_id)? {
-        Some(state) => Ok(state),
-        None => Ok(SteopState {
-            session_id: session_id.to_string(),
-            data: final_data,
-            counters: std::collections::BTreeMap::new(),
-            host: host_val.to_string(),
-            project_dir: project_dir_val.to_string(),
-            created_at: now.clone(),
-            updated_at: now,
-        }),
-    }
-}
-
-pub fn steop_state_delete(conn: &Connection, session_id: &str) -> rusqlite::Result<bool> {
-    let rows = conn.execute(
-        "DELETE FROM steop_state WHERE session_id = ?1",
-        params![session_id],
-    )?;
-    Ok(rows > 0)
-}
-
-// ── Steop: counters ──
-
-fn steop_ensure_state_row(
-    conn: &Connection,
-    session_id: &str,
-    host: Option<&str>,
-    project_dir: Option<&str>,
-) -> rusqlite::Result<()> {
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "INSERT INTO steop_state (session_id, data, host, project_dir, created_at, updated_at)
-         VALUES (?1, '{}', ?2, ?3, ?4, ?4)
-         ON CONFLICT(session_id) DO NOTHING",
-        params![
-            session_id,
-            host.unwrap_or(""),
-            project_dir.unwrap_or(""),
-            now
-        ],
-    )?;
-    // If the row already exists but its host/project_dir is empty and we now
-    // have values, fill them in. Non-empty existing values are preserved.
-    if let Some(h) = host {
-        if !h.is_empty() {
-            conn.execute(
-                "UPDATE steop_state SET host = ?1 WHERE session_id = ?2 AND (host IS NULL OR host = '')",
-                params![h, session_id],
-            )?;
-        }
-    }
-    if let Some(p) = project_dir {
-        if !p.is_empty() {
-            conn.execute(
-                "UPDATE steop_state SET project_dir = ?1 WHERE session_id = ?2 AND (project_dir IS NULL OR project_dir = '')",
-                params![p, session_id],
-            )?;
-        }
-    }
-    Ok(())
-}
-
-pub fn steop_counter_incr(
-    conn: &Connection,
-    session_id: &str,
-    name: &str,
-    delta: i64,
-    host: Option<&str>,
-    project_dir: Option<&str>,
-) -> rusqlite::Result<i64> {
-    steop_ensure_state_row(conn, session_id, host, project_dir)?;
-    let now = chrono::Utc::now().to_rfc3339();
-    let value: i64 = conn.query_row(
-        "INSERT INTO steop_counters (session_id, name, value, updated_at)
-         VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT(session_id, name) DO UPDATE SET
-            value = steop_counters.value + excluded.value,
-            updated_at = excluded.updated_at
-         RETURNING value",
-        params![session_id, name, delta, now],
-        |row| row.get(0),
-    )?;
-    conn.execute(
-        "UPDATE steop_state SET updated_at = ?1 WHERE session_id = ?2",
-        params![now, session_id],
-    )?;
-    Ok(value)
-}
-
-pub fn steop_counter_reset(
-    conn: &Connection,
-    session_id: &str,
-    name: &str,
-    value: i64,
-    host: Option<&str>,
-    project_dir: Option<&str>,
-) -> rusqlite::Result<i64> {
-    steop_ensure_state_row(conn, session_id, host, project_dir)?;
-    let now = chrono::Utc::now().to_rfc3339();
-    let new_value: i64 = conn.query_row(
-        "INSERT INTO steop_counters (session_id, name, value, updated_at)
-         VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT(session_id, name) DO UPDATE SET
-            value = excluded.value,
-            updated_at = excluded.updated_at
-         RETURNING value",
-        params![session_id, name, value, now],
-        |row| row.get(0),
-    )?;
-    conn.execute(
-        "UPDATE steop_state SET updated_at = ?1 WHERE session_id = ?2",
-        params![now, session_id],
-    )?;
-    Ok(new_value)
-}
-
-// ── Steop: logs + inbox ──
-
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SteopLogRow {
     pub id: i64,
     pub host: String,
-    pub session_id: String,
     pub project_dir: String,
+    pub session_id: String,
     pub event: String,
     pub data: serde_json::Value,
     pub created_at: String,
 }
 
-pub fn steop_log_insert(
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SteopMailboxRow {
+    pub id: i64,
+    pub from_host: String,
+    pub from_project_dir: String,
+    pub from_session_id: String,
+    pub to_host: String,
+    pub to_project_dir: String,
+    pub to_session_id: String,
+    pub payload: serde_json::Value,
+    pub created_at: String,
+    pub acked_at: Option<String>,
+}
+
+fn steop_now() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
+fn steop_parse_json(s: &str) -> serde_json::Value {
+    serde_json::from_str(s).unwrap_or_else(|_| serde_json::Value::Object(Default::default()))
+}
+
+fn steop_json_merge(base: &mut serde_json::Value, patch: serde_json::Value) {
+    if let (serde_json::Value::Object(b), serde_json::Value::Object(p)) = (base, patch) {
+        for (k, v) in p {
+            b.insert(k, v);
+        }
+    }
+}
+
+fn steop_row_to_session(row: &rusqlite::Row) -> rusqlite::Result<SteopSession> {
+    let data_s: String = row.get("data")?;
+    let counters_s: String = row.get("counters")?;
+    Ok(SteopSession {
+        host: row.get("host")?,
+        project_dir: row.get("project_dir")?,
+        session_id: row.get("session_id")?,
+        state: row.get("state")?,
+        started_at: row.get("started_at")?,
+        last_active_at: row.get("last_active_at")?,
+        stopped_at: row.get("stopped_at")?,
+        data: steop_parse_json(&data_s),
+        counters: steop_parse_json(&counters_s),
+    })
+}
+
+fn steop_ensure_session(
     conn: &Connection,
     host: &str,
-    session_id: &str,
     project_dir: &str,
+    session_id: &str,
+) -> rusqlite::Result<()> {
+    let now = steop_now();
+    conn.execute(
+        "INSERT INTO steop_sessions (host, project_dir, session_id, state, started_at, last_active_at)
+         VALUES (?1, ?2, ?3, 'active', ?4, ?4)
+         ON CONFLICT(host, project_dir, session_id) DO NOTHING",
+        rusqlite::params![host, project_dir, session_id, now],
+    )?;
+    Ok(())
+}
+
+// ── Sessions ─────────────────────────────────────────────────────────────────
+
+pub fn steop_session_start(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+    data: Option<serde_json::Value>,
+) -> rusqlite::Result<SteopSession> {
+    use rusqlite::OptionalExtension;
+    let now = steop_now();
+    let existing: Option<SteopSession> = conn
+        .query_row(
+            "SELECT * FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+            rusqlite::params![host, project_dir, session_id],
+            steop_row_to_session,
+        )
+        .optional()?;
+
+    if let Some(mut sess) = existing {
+        if let Some(patch) = data {
+            steop_json_merge(&mut sess.data, patch);
+        }
+        let data_s = sess.data.to_string();
+        conn.execute(
+            "UPDATE steop_sessions SET state='active', last_active_at=?1, stopped_at=NULL, data=?2
+             WHERE host=?3 AND project_dir=?4 AND session_id=?5",
+            rusqlite::params![now, data_s, host, project_dir, session_id],
+        )?;
+    } else {
+        let data_s = data
+            .as_ref()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "{}".to_string());
+        conn.execute(
+            "INSERT INTO steop_sessions (host, project_dir, session_id, state, started_at, last_active_at, data)
+             VALUES (?1, ?2, ?3, 'active', ?4, ?4, ?5)",
+            rusqlite::params![host, project_dir, session_id, now, data_s],
+        )?;
+    }
+
+    conn.query_row(
+        "SELECT * FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+        rusqlite::params![host, project_dir, session_id],
+        steop_row_to_session,
+    )
+}
+
+pub fn steop_session_stop(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+) -> rusqlite::Result<Option<SteopSession>> {
+    let now = steop_now();
+    let n = conn.execute(
+        "UPDATE steop_sessions SET state='stopped', stopped_at=?1, last_active_at=?1
+         WHERE host=?2 AND project_dir=?3 AND session_id=?4",
+        rusqlite::params![now, host, project_dir, session_id],
+    )?;
+    if n == 0 {
+        return Ok(None);
+    }
+    let sess = conn.query_row(
+        "SELECT * FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+        rusqlite::params![host, project_dir, session_id],
+        steop_row_to_session,
+    )?;
+    Ok(Some(sess))
+}
+
+pub fn steop_session_touch(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+) -> rusqlite::Result<Option<SteopSession>> {
+    let now = steop_now();
+    let n = conn.execute(
+        "UPDATE steop_sessions SET last_active_at=?1 WHERE host=?2 AND project_dir=?3 AND session_id=?4",
+        rusqlite::params![now, host, project_dir, session_id],
+    )?;
+    if n == 0 {
+        return Ok(None);
+    }
+    let sess = conn.query_row(
+        "SELECT * FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+        rusqlite::params![host, project_dir, session_id],
+        steop_row_to_session,
+    )?;
+    Ok(Some(sess))
+}
+
+pub fn steop_session_get(
+    conn: &Connection,
+    host: Option<&str>,
+    project_dir: Option<&str>,
+    session_id: &str,
+) -> rusqlite::Result<Option<SteopSession>> {
+    use rusqlite::OptionalExtension;
+    if let (Some(h), Some(pd)) = (host, project_dir) {
+        conn.query_row(
+            "SELECT * FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+            rusqlite::params![h, pd, session_id],
+            steop_row_to_session,
+        )
+        .optional()
+    } else {
+        conn.query_row(
+            "SELECT * FROM steop_sessions WHERE session_id=?1 LIMIT 1",
+            rusqlite::params![session_id],
+            steop_row_to_session,
+        )
+        .optional()
+    }
+}
+
+pub fn steop_session_list(
+    conn: &Connection,
+    host: Option<&str>,
+    project_dir: Option<&str>,
+    state_filter: Option<&str>,
+    limit: i64,
+) -> rusqlite::Result<Vec<SteopSession>> {
+    let mut sql = String::from("SELECT * FROM steop_sessions WHERE 1=1");
+    let mut args: Vec<String> = Vec::new();
+    if host.is_some() {
+        sql.push_str(" AND host = ?");
+    }
+    if project_dir.is_some() {
+        sql.push_str(" AND project_dir = ?");
+    }
+    if state_filter.is_some() {
+        sql.push_str(" AND state = ?");
+    }
+    sql.push_str(" ORDER BY last_active_at DESC LIMIT ?");
+
+    if let Some(h) = host {
+        args.push(h.to_string());
+    }
+    if let Some(pd) = project_dir {
+        args.push(pd.to_string());
+    }
+    if let Some(s) = state_filter {
+        args.push(s.to_string());
+    }
+
+    let mut stmt = conn.prepare(&sql)?;
+    let mut param_refs: Vec<&dyn rusqlite::ToSql> =
+        args.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    param_refs.push(&limit);
+
+    let rows = stmt
+        .query_map(param_refs.as_slice(), steop_row_to_session)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn steop_project_list(
+    conn: &Connection,
+    host_filter: Option<&str>,
+) -> rusqlite::Result<Vec<(String, String)>> {
+    if let Some(h) = host_filter {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT host, project_dir FROM steop_sessions WHERE host=?1 ORDER BY host, project_dir",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![h], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT host, project_dir FROM steop_sessions ORDER BY host, project_dir",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+
+pub fn steop_state_put(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+    data: serde_json::Value,
+    merge: bool,
+) -> rusqlite::Result<SteopSession> {
+    steop_ensure_session(conn, host, project_dir, session_id)?;
+    let now = steop_now();
+
+    if merge {
+        let current_data_s: String = conn.query_row(
+            "SELECT data FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+            rusqlite::params![host, project_dir, session_id],
+            |r| r.get(0),
+        )?;
+        let mut current = steop_parse_json(&current_data_s);
+        steop_json_merge(&mut current, data);
+        let new_data_s = current.to_string();
+        conn.execute(
+            "UPDATE steop_sessions SET data=?1, last_active_at=?2 WHERE host=?3 AND project_dir=?4 AND session_id=?5",
+            rusqlite::params![new_data_s, now, host, project_dir, session_id],
+        )?;
+    } else {
+        let data_s = data.to_string();
+        conn.execute(
+            "UPDATE steop_sessions SET data=?1, last_active_at=?2 WHERE host=?3 AND project_dir=?4 AND session_id=?5",
+            rusqlite::params![data_s, now, host, project_dir, session_id],
+        )?;
+    }
+
+    conn.query_row(
+        "SELECT * FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+        rusqlite::params![host, project_dir, session_id],
+        steop_row_to_session,
+    )
+}
+
+pub fn steop_state_incr(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+    counter: &str,
+    delta: i64,
+) -> rusqlite::Result<i64> {
+    steop_ensure_session(conn, host, project_dir, session_id)?;
+    let now = steop_now();
+    let counters_s: String = conn.query_row(
+        "SELECT counters FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+        rusqlite::params![host, project_dir, session_id],
+        |r| r.get(0),
+    )?;
+    let mut counters = steop_parse_json(&counters_s);
+    let current = counters
+        .get(counter)
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let new_val = current + delta;
+    counters[counter] = serde_json::Value::Number(serde_json::Number::from(new_val));
+    conn.execute(
+        "UPDATE steop_sessions SET counters=?1, last_active_at=?2 WHERE host=?3 AND project_dir=?4 AND session_id=?5",
+        rusqlite::params![counters.to_string(), now, host, project_dir, session_id],
+    )?;
+    Ok(new_val)
+}
+
+pub fn steop_state_reset(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+    counter: &str,
+    value: i64,
+) -> rusqlite::Result<i64> {
+    steop_ensure_session(conn, host, project_dir, session_id)?;
+    let now = steop_now();
+    let counters_s: String = conn.query_row(
+        "SELECT counters FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+        rusqlite::params![host, project_dir, session_id],
+        |r| r.get(0),
+    )?;
+    let mut counters = steop_parse_json(&counters_s);
+    counters[counter] = serde_json::Value::Number(serde_json::Number::from(value));
+    conn.execute(
+        "UPDATE steop_sessions SET counters=?1, last_active_at=?2 WHERE host=?3 AND project_dir=?4 AND session_id=?5",
+        rusqlite::params![counters.to_string(), now, host, project_dir, session_id],
+    )?;
+    Ok(value)
+}
+
+pub fn steop_state_delete(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+) -> rusqlite::Result<bool> {
+    let n = conn.execute(
+        "DELETE FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+        rusqlite::params![host, project_dir, session_id],
+    )?;
+    Ok(n > 0)
+}
+
+pub fn steop_status_get(
+    conn: &Connection,
+    host: Option<&str>,
+    project_dir: Option<&str>,
+    session_id: &str,
+) -> rusqlite::Result<SteopStatusProjection> {
+    let sess = steop_session_get(conn, host, project_dir, session_id)?;
+    match sess {
+        None => Ok(SteopStatusProjection {
+            session_id: session_id.to_string(),
+            ..Default::default()
+        }),
+        Some(s) => {
+            let mode = s.data.get("mode").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let phase = s.data.get("phase").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let step = s.data.get("step").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let tool_calls = s.counters.get("tool_calls").and_then(|v| v.as_i64()).unwrap_or(0);
+            let loop_count = s.counters.get("loop_count").and_then(|v| v.as_i64()).unwrap_or(0);
+            let step_retry = s.counters.get("step_retry").and_then(|v| v.as_i64()).unwrap_or(0);
+            Ok(SteopStatusProjection {
+                session_id: s.session_id,
+                mode,
+                phase,
+                step,
+                tool_calls,
+                loop_count,
+                step_retry,
+                last_active_at: s.last_active_at,
+            })
+        }
+    }
+}
+
+// ── Storage ──────────────────────────────────────────────────────────────────
+
+pub fn steop_storage_session_put(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+    key: &str,
+    content: &str,
+) -> rusqlite::Result<SteopStorageMeta> {
+    let now = steop_now();
+    conn.execute(
+        "INSERT INTO steop_storage_session (host, project_dir, session_id, key, content, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+         ON CONFLICT(host, project_dir, session_id, key) DO UPDATE SET content=excluded.content, updated_at=excluded.updated_at",
+        rusqlite::params![host, project_dir, session_id, key, content, now],
+    )?;
+    Ok(SteopStorageMeta { key: key.to_string(), updated_at: now })
+}
+
+pub fn steop_storage_session_get(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+    key: &str,
+) -> rusqlite::Result<Option<SteopStorageBlob>> {
+    use rusqlite::OptionalExtension;
+    conn.query_row(
+        "SELECT host, project_dir, session_id, key, content, created_at, updated_at
+         FROM steop_storage_session WHERE host=?1 AND project_dir=?2 AND session_id=?3 AND key=?4",
+        rusqlite::params![host, project_dir, session_id, key],
+        |row| Ok(SteopStorageBlob {
+            host: row.get(0)?,
+            project_dir: row.get(1)?,
+            session_id: Some(row.get::<_, String>(2)?),
+            key: row.get(3)?,
+            content: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        }),
+    )
+    .optional()
+}
+
+pub fn steop_storage_session_delete(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+    key: &str,
+) -> rusqlite::Result<bool> {
+    let n = conn.execute(
+        "DELETE FROM steop_storage_session WHERE host=?1 AND project_dir=?2 AND session_id=?3 AND key=?4",
+        rusqlite::params![host, project_dir, session_id, key],
+    )?;
+    Ok(n > 0)
+}
+
+pub fn steop_storage_session_list(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
+) -> rusqlite::Result<Vec<SteopStorageListItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT key, updated_at, LENGTH(content) FROM steop_storage_session
+         WHERE host=?1 AND project_dir=?2 AND session_id=?3 ORDER BY key",
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::params![host, project_dir, session_id], |row| {
+            Ok(SteopStorageListItem {
+                key: row.get(0)?,
+                updated_at: row.get(1)?,
+                size: row.get(2)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn steop_storage_project_put(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    key: &str,
+    content: &str,
+) -> rusqlite::Result<SteopStorageMeta> {
+    let now = steop_now();
+    conn.execute(
+        "INSERT INTO steop_storage_project (host, project_dir, key, content, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+         ON CONFLICT(host, project_dir, key) DO UPDATE SET content=excluded.content, updated_at=excluded.updated_at",
+        rusqlite::params![host, project_dir, key, content, now],
+    )?;
+    Ok(SteopStorageMeta { key: key.to_string(), updated_at: now })
+}
+
+pub fn steop_storage_project_get(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    key: &str,
+) -> rusqlite::Result<Option<SteopStorageBlob>> {
+    use rusqlite::OptionalExtension;
+    conn.query_row(
+        "SELECT host, project_dir, key, content, created_at, updated_at
+         FROM steop_storage_project WHERE host=?1 AND project_dir=?2 AND key=?3",
+        rusqlite::params![host, project_dir, key],
+        |row| Ok(SteopStorageBlob {
+            host: row.get(0)?,
+            project_dir: row.get(1)?,
+            session_id: None,
+            key: row.get(2)?,
+            content: row.get(3)?,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
+        }),
+    )
+    .optional()
+}
+
+pub fn steop_storage_project_delete(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    key: &str,
+) -> rusqlite::Result<bool> {
+    let n = conn.execute(
+        "DELETE FROM steop_storage_project WHERE host=?1 AND project_dir=?2 AND key=?3",
+        rusqlite::params![host, project_dir, key],
+    )?;
+    Ok(n > 0)
+}
+
+pub fn steop_storage_project_list(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+) -> rusqlite::Result<Vec<SteopStorageListItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT key, updated_at, LENGTH(content) FROM steop_storage_project
+         WHERE host=?1 AND project_dir=?2 ORDER BY key",
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::params![host, project_dir], |row| {
+            Ok(SteopStorageListItem {
+                key: row.get(0)?,
+                updated_at: row.get(1)?,
+                size: row.get(2)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+// ── Log ──────────────────────────────────────────────────────────────────────
+
+pub fn steop_log_append(
+    conn: &Connection,
+    host: &str,
+    project_dir: &str,
+    session_id: &str,
     event: &str,
     data: &serde_json::Value,
 ) -> rusqlite::Result<i64> {
-    let now = chrono::Utc::now().to_rfc3339();
-    let data_s = data.to_string();
+    let now = steop_now();
     conn.execute(
-        "INSERT INTO steop_logs (host, session_id, project_dir, event, data, created_at)
+        "INSERT INTO steop_logs (host, project_dir, session_id, event, data, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![host, session_id, project_dir, event, data_s, now],
+        rusqlite::params![host, project_dir, session_id, event, data.to_string(), now],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
-pub fn steop_log_list(
+pub fn steop_log_query(
     conn: &Connection,
     host: Option<&str>,
-    session_id: Option<&str>,
     project_dir: Option<&str>,
+    session_id: Option<&str>,
     limit: i64,
 ) -> rusqlite::Result<Vec<SteopLogRow>> {
     let mut sql = String::from(
-        "SELECT id, host, session_id, project_dir, event, data, created_at
-         FROM steop_logs WHERE 1=1",
+        "SELECT id, host, project_dir, session_id, event, data, created_at FROM steop_logs WHERE 1=1",
     );
     let mut args: Vec<String> = Vec::new();
     if host.is_some() {
         sql.push_str(" AND host = ?");
     }
-    if session_id.is_some() {
-        sql.push_str(" AND session_id = ?");
-    }
     if project_dir.is_some() {
         sql.push_str(" AND project_dir = ?");
+    }
+    if session_id.is_some() {
+        sql.push_str(" AND session_id = ?");
     }
     sql.push_str(" ORDER BY created_at DESC LIMIT ?");
 
     if let Some(h) = host {
         args.push(h.to_string());
     }
-    if let Some(s) = session_id {
-        args.push(s.to_string());
+    if let Some(pd) = project_dir {
+        args.push(pd.to_string());
     }
-    if let Some(p) = project_dir {
-        args.push(p.to_string());
+    if let Some(sid) = session_id {
+        args.push(sid.to_string());
     }
 
     let mut stmt = conn.prepare(&sql)?;
@@ -1732,10 +1910,10 @@ pub fn steop_log_list(
             Ok(SteopLogRow {
                 id: row.get(0)?,
                 host: row.get(1)?,
-                session_id: row.get(2)?,
-                project_dir: row.get(3)?,
+                project_dir: row.get(2)?,
+                session_id: row.get(3)?,
                 event: row.get(4)?,
-                data: serde_json::from_str(&data_s).unwrap_or(serde_json::Value::Null),
+                data: steop_parse_json(&data_s),
                 created_at: row.get(6)?,
             })
         })?
@@ -1743,83 +1921,78 @@ pub fn steop_log_list(
     Ok(rows)
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct SteopInboxRow {
-    pub id: i64,
-    pub host: String,
-    pub session_id: String,
-    pub project_dir: String,
-    pub payload: serde_json::Value,
-    pub created_at: String,
-}
+// ── Mailbox ──────────────────────────────────────────────────────────────────
 
-pub fn steop_inbox_insert(
+pub fn steop_mailbox_send(
     conn: &Connection,
-    host: &str,
-    session_id: &str,
-    project_dir: &str,
+    from_host: &str,
+    from_project_dir: &str,
+    from_session_id: &str,
+    to_host: &str,
+    to_project_dir: &str,
+    to_session_id: &str,
     payload: &serde_json::Value,
 ) -> rusqlite::Result<i64> {
-    let now = chrono::Utc::now().to_rfc3339();
-    let payload_s = payload.to_string();
+    let now = steop_now();
     conn.execute(
-        "INSERT INTO steop_inbox (host, session_id, project_dir, payload, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![host, session_id, project_dir, payload_s, now],
+        "INSERT INTO steop_mailbox
+         (from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id, payload, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![
+            from_host, from_project_dir, from_session_id,
+            to_host, to_project_dir, to_session_id,
+            payload.to_string(), now
+        ],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
-pub fn steop_inbox_list(
+pub fn steop_mailbox_list(
     conn: &Connection,
-    host: Option<&str>,
-    session_id: Option<&str>,
-    project_dir: Option<&str>,
+    to_host: &str,
+    to_project_dir: &str,
+    to_session_id: &str,
     limit: i64,
-) -> rusqlite::Result<Vec<SteopInboxRow>> {
+    include_acked: bool,
+) -> rusqlite::Result<Vec<SteopMailboxRow>> {
     let mut sql = String::from(
-        "SELECT id, host, session_id, project_dir, payload, created_at
-         FROM steop_inbox WHERE 1=1",
+        "SELECT id, from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id, payload, created_at, acked_at
+         FROM steop_mailbox WHERE to_host=?1 AND to_project_dir=?2 AND to_session_id=?3",
     );
-    let mut args: Vec<String> = Vec::new();
-    if host.is_some() {
-        sql.push_str(" AND host = ?");
+    if !include_acked {
+        sql.push_str(" AND acked_at IS NULL");
     }
-    if session_id.is_some() {
-        sql.push_str(" AND session_id = ?");
-    }
-    if project_dir.is_some() {
-        sql.push_str(" AND project_dir = ?");
-    }
-    sql.push_str(" ORDER BY created_at ASC LIMIT ?");
-
-    if let Some(h) = host {
-        args.push(h.to_string());
-    }
-    if let Some(s) = session_id {
-        args.push(s.to_string());
-    }
-    if let Some(p) = project_dir {
-        args.push(p.to_string());
-    }
+    sql.push_str(" ORDER BY created_at ASC LIMIT ?4");
 
     let mut stmt = conn.prepare(&sql)?;
-    let mut param_refs: Vec<&dyn rusqlite::ToSql> =
-        args.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-    param_refs.push(&limit);
-
     let rows = stmt
-        .query_map(param_refs.as_slice(), |row| {
-            let payload_s: String = row.get(4)?;
-            Ok(SteopInboxRow {
-                id: row.get(0)?,
-                host: row.get(1)?,
-                session_id: row.get(2)?,
-                project_dir: row.get(3)?,
-                payload: serde_json::from_str(&payload_s).unwrap_or(serde_json::Value::Null),
-                created_at: row.get(5)?,
-            })
-        })?
+        .query_map(
+            rusqlite::params![to_host, to_project_dir, to_session_id, limit],
+            |row| {
+                let payload_s: String = row.get(7)?;
+                Ok(SteopMailboxRow {
+                    id: row.get(0)?,
+                    from_host: row.get(1)?,
+                    from_project_dir: row.get(2)?,
+                    from_session_id: row.get(3)?,
+                    to_host: row.get(4)?,
+                    to_project_dir: row.get(5)?,
+                    to_session_id: row.get(6)?,
+                    payload: steop_parse_json(&payload_s),
+                    created_at: row.get(8)?,
+                    acked_at: row.get(9)?,
+                })
+            },
+        )?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+pub fn steop_mailbox_ack(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
+    let now = steop_now();
+    let n = conn.execute(
+        "UPDATE steop_mailbox SET acked_at=?1 WHERE id=?2 AND acked_at IS NULL",
+        rusqlite::params![now, id],
+    )?;
+    Ok(n > 0)
 }

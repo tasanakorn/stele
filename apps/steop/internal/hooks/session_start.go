@@ -5,14 +5,22 @@ import (
 	"github.com/tasanakorn/stele/apps/steop/internal/logging"
 )
 
-// HandleSessionStart logs a session_start event. Always returns Allow().
+// HandleSessionStart registers the session and logs a session_start event. Always returns Allow().
 func HandleSessionStart(in *HookInput, c *client.Client) []byte {
 	if in == nil || c == nil {
 		return Allow()
 	}
+	if _, err := c.SessionStart(c.Host(), c.ProjectDir(), in.SessionID, map[string]interface{}{
+		"cwd":             in.Cwd,
+		"permission_mode": in.PermissionMode,
+	}); err != nil {
+		logging.Debugf("session_start session register failed: %v", err)
+	}
 	ev := client.LogEvent{
-		SessionID: in.SessionID,
-		Event:     "session_start",
+		Host:       c.Host(),
+		ProjectDir: c.ProjectDir(),
+		SessionID:  in.SessionID,
+		Event:      "session_start",
 		Data: map[string]interface{}{
 			"cwd":             in.Cwd,
 			"permission_mode": in.PermissionMode,

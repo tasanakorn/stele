@@ -1,81 +1,84 @@
 package client
 
-import (
-	"net/http"
-	"net/url"
-)
-
-type BlobMeta struct {
-	Scope     string `json:"scope"`
-	Key       string `json:"key"`
-	UpdatedAt string `json:"updated_at"`
-}
-
+// Blob is a storage value with full identity.
 type Blob struct {
-	Scope     string `json:"scope"`
+	Host       string  `json:"host"`
+	ProjectDir string  `json:"project_dir"`
+	SessionID  *string `json:"session_id"`
+	Key        string  `json:"key"`
+	Content    string  `json:"content"`
+	CreatedAt  string  `json:"created_at"`
+	UpdatedAt  string  `json:"updated_at"`
+}
+
+// BlobMeta is returned by put operations.
+type BlobMeta struct {
 	Key       string `json:"key"`
-	Content   string `json:"content"`
-	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
 
+// BlobListItem is a single entry in a storage list.
 type BlobListItem struct {
 	Key       string `json:"key"`
 	UpdatedAt string `json:"updated_at"`
 	Size      int64  `json:"size"`
 }
 
-type storagePutBody struct {
-	Content string `json:"content"`
+func storageBody(host, projectDir, sessionID string) map[string]interface{} {
+	body := map[string]interface{}{
+		"host":        host,
+		"project_dir": projectDir,
+	}
+	if sessionID != "" {
+		body["session_id"] = sessionID
+	}
+	return body
 }
 
-type storageDeleteResp struct {
-	Deleted bool `json:"deleted"`
-}
-
-type storageListResp struct {
-	Items []BlobListItem `json:"items"`
-}
-
-func (c *Client) StoragePut(scope, key, content string) (*BlobMeta, error) {
-	q := url.Values{}
-	q.Set("scope", scope)
-	q.Set("key", key)
+// StoragePut upserts a key-value blob. sessionID="" routes to project scope.
+func (c *Client) StoragePut(host, projectDir, sessionID, key, content string) (*BlobMeta, error) {
+	body := storageBody(host, projectDir, sessionID)
+	body["key"] = key
+	body["content"] = content
 	var out BlobMeta
-	if err := c.do(http.MethodPut, "/api/v1/steop/storage", q, storagePutBody{Content: content}, &out); err != nil {
+	if err := c.rpc("steop.storage.put", body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func (c *Client) StorageGet(scope, key string) (*Blob, error) {
-	q := url.Values{}
-	q.Set("scope", scope)
-	q.Set("key", key)
+// StorageGet retrieves a blob. sessionID="" routes to project scope.
+func (c *Client) StorageGet(host, projectDir, sessionID, key string) (*Blob, error) {
+	body := storageBody(host, projectDir, sessionID)
+	body["key"] = key
 	var out Blob
-	if err := c.do(http.MethodGet, "/api/v1/steop/storage", q, nil, &out); err != nil {
+	if err := c.rpc("steop.storage.get", body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func (c *Client) StorageDelete(scope, key string) (bool, error) {
-	q := url.Values{}
-	q.Set("scope", scope)
-	q.Set("key", key)
-	var out storageDeleteResp
-	if err := c.do(http.MethodDelete, "/api/v1/steop/storage", q, nil, &out); err != nil {
+// StorageDelete deletes a blob. sessionID="" routes to project scope.
+func (c *Client) StorageDelete(host, projectDir, sessionID, key string) (bool, error) {
+	body := storageBody(host, projectDir, sessionID)
+	body["key"] = key
+	var resp struct {
+		Deleted bool `json:"deleted"`
+	}
+	if err := c.rpc("steop.storage.delete", body, &resp); err != nil {
 		return false, err
 	}
-	return out.Deleted, nil
+	return resp.Deleted, nil
 }
 
-func (c *Client) StorageList(scope string) ([]BlobListItem, error) {
-	q := url.Values{}
-	q.Set("scope", scope)
-	var out storageListResp
-	if err := c.do(http.MethodGet, "/api/v1/steop/storage/list", q, nil, &out); err != nil {
+// StorageList lists keys for a storage scope. sessionID="" routes to project scope.
+func (c *Client) StorageList(host, projectDir, sessionID string) ([]BlobListItem, error) {
+	body := storageBody(host, projectDir, sessionID)
+	var resp struct {
+		Items []BlobListItem `json:"items"`
+	}
+	if err := c.rpc("steop.storage.list", body, &resp); err != nil {
 		return nil, err
 	}
-	return out.Items, nil
+	return resp.Items, nil
 }

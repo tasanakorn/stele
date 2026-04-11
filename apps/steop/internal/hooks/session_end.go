@@ -12,8 +12,10 @@ func HandleSessionEnd(in *HookInput, c *client.Client) []byte {
 		return Allow()
 	}
 	if err := c.Log(client.LogEvent{
-		SessionID: in.SessionID,
-		Event:     "session_end",
+		Host:       c.Host(),
+		ProjectDir: c.ProjectDir(),
+		SessionID:  in.SessionID,
+		Event:      "session_end",
 		Data: map[string]interface{}{
 			"reason":          in.Reason,
 			"cwd":             in.Cwd,
@@ -37,8 +39,11 @@ func HandleSessionEnd(in *HookInput, c *client.Client) []byte {
 		payload["data"] = state.Data
 		payload["counters"] = state.Counters
 	}
-	if err := c.Inbox(client.InboxEnvelope{SessionID: in.SessionID, Payload: payload}); err != nil {
-		logging.Debugf("session_end inbox post failed: %v", err)
+	if _, err := c.MailboxSendFromSelf(in.SessionID, c.Host(), c.ProjectDir(), "", payload); err != nil {
+		logging.Debugf("session_end mailbox send failed: %v", err)
+	}
+	if _, err := c.SessionStop(c.Host(), c.ProjectDir(), in.SessionID); err != nil {
+		logging.Debugf("session_end session stop failed: %v", err)
 	}
 	return Allow()
 }

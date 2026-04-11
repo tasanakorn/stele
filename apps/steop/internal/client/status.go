@@ -1,24 +1,22 @@
 package client
 
-import "net/http"
-
-// Status is the statusline read projection returned by /api/v1/steop/status/:id.
-// The endpoint never 404s — when no row exists the server returns a defaulted
-// Status so callers can render unconditionally.
+// Status holds the statusline projection for a session.
 type Status struct {
-	SessionID string `json:"session_id"`
-	Mode      string `json:"mode"`
-	Phase     string `json:"phase"`
-	Step      string `json:"step"`
-	ToolCalls int64  `json:"tool_calls"`
-	LoopCount int64  `json:"loop_count"`
-	StepRetry int64  `json:"step_retry"`
-	UpdatedAt string `json:"updated_at"`
+	SessionID    string `json:"session_id"`
+	Mode         string `json:"mode"`
+	Phase        string `json:"phase"`
+	Step         string `json:"step"`
+	ToolCalls    int64  `json:"tool_calls"`
+	LoopCount    int64  `json:"loop_count"`
+	StepRetry    int64  `json:"step_retry"`
+	LastActiveAt string `json:"last_active_at"`
 }
 
+// StatusGet retrieves the statusline projection (never returns 404 — missing sessions return defaults).
 func (c *Client) StatusGet(sessionID string) (*Status, error) {
+	body := map[string]string{"session_id": sessionID}
 	var out Status
-	if err := c.do(http.MethodGet, "/api/v1/steop/status/"+sessionID, nil, nil, &out); err != nil {
+	if err := c.rpc("steop.status.get", body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

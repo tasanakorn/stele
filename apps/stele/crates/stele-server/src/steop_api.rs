@@ -1,389 +1,175 @@
 use axum::{
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::State,
+    http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::post,
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use serde::Deserialize;
+use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
 
 use crate::db::{self, DbPool};
 
 pub fn router(db: DbPool) -> Router {
     Router::new()
-        .route(
-            "/storage",
-            put(storage_put).get(storage_get).delete(storage_delete),
-        )
-        .route("/storage/list", get(storage_list))
-        .route(
-            "/state/{session_id}",
-            get(state_get).put(state_put).delete(state_delete),
-        )
-        .route("/state/{session_id}/incr", post(counter_incr))
-        .route("/state/{session_id}/reset", post(counter_reset))
-        .route("/status/{session_id}", get(status_get))
-        .route("/notify", post(notify_handler))
-        .route("/sessions", get(sessions_list))
-        .route("/sessions/{id}", get(session_get))
-        .route("/storage/scopes", get(storage_scopes_list))
-        .route("/log", post(log_post).get(log_list))
-        .route("/inbox", post(inbox_post).get(inbox_list))
-        .layer(CorsLayer::permissive())
+        .route("/steop.session.start", post(session_start))
+        .route("/steop.session.stop", post(session_stop))
+        .route("/steop.session.touch", post(session_touch))
+        .route("/steop.session.get", post(session_get))
+        .route("/steop.session.list", post(session_list))
+        .route("/steop.project.list", post(project_list))
+        .route("/steop.state.get", post(state_get))
+        .route("/steop.state.put", post(state_put))
+        .route("/steop.state.incr", post(state_incr))
+        .route("/steop.state.reset", post(state_reset))
+        .route("/steop.state.delete", post(state_delete))
+        .route("/steop.status.get", post(status_get))
+        .route("/steop.storage.put", post(storage_put))
+        .route("/steop.storage.get", post(storage_get))
+        .route("/steop.storage.delete", post(storage_delete))
+        .route("/steop.storage.list", post(storage_list))
+        .route("/steop.log.append", post(log_append))
+        .route("/steop.log.query", post(log_query))
+        .route("/steop.mailbox.send", post(mailbox_send))
+        .route("/steop.mailbox.list", post(mailbox_list))
+        .route("/steop.mailbox.ack", post(mailbox_ack))
+        .route("/steop.notify", post(notify_handler))
         .with_state(db)
+        .layer(CorsLayer::permissive())
 }
 
-// ── Common helpers ──
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: String,
-}
-
-fn error_response(status: StatusCode, message: &str) -> axum::response::Response {
+fn err500(e: impl std::fmt::Display) -> Response {
     (
-        status,
-        Json(
-            serde_json::to_value(&ErrorResponse {
-                error: message.to_string(),
-            })
-            .unwrap(),
-        ),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "error": e.to_string() })),
     )
         .into_response()
 }
 
-// ── Storage ──
-
-#[derive(Deserialize)]
-struct StorageQuery {
-    scope: String,
-    key: String,
+fn not_found() -> Response {
+    (StatusCode::NOT_FOUND, Json(json!({ "error": "not found" }))).into_response()
 }
 
-#[derive(Deserialize)]
-struct StorageListQuery {
-    scope: String,
-}
-
-#[derive(Deserialize)]
-struct StoragePutBody {
-    content: String,
-}
-
-#[derive(Serialize)]
-struct StorageBlobResponse {
-    scope: String,
-    key: String,
-    content: String,
-    created_at: String,
-    updated_at: String,
-}
-
-#[derive(Serialize)]
-struct StoragePutResponse {
-    scope: String,
-    key: String,
-    updated_at: String,
-}
-
-#[derive(Serialize)]
-struct StorageListItem {
-    key: String,
-    updated_at: String,
-    size: i64,
-}
-
-#[derive(Serialize)]
-struct StorageListResponse {
-    scope: String,
-    items: Vec<StorageListItem>,
-}
-
-#[derive(Serialize)]
-struct StorageDeleteResponse {
-    deleted: bool,
-    scope: String,
-    key: String,
-}
-
-async fn storage_put(
-    State(db): State<DbPool>,
-    Query(q): Query<StorageQuery>,
-    Json(body): Json<StoragePutBody>,
-) -> impl IntoResponse {
-    let conn = db.lock().await;
-    match db::steop_storage_put(&conn, &q.scope, &q.key, &body.content) {
-        Ok(meta) => Json(
-            serde_json::to_value(&StoragePutResponse {
-                scope: meta.scope,
-                key: meta.key,
-                updated_at: meta.updated_at,
-            })
-            .unwrap(),
-        )
-        .into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
-}
-
-async fn storage_get(State(db): State<DbPool>, Query(q): Query<StorageQuery>) -> impl IntoResponse {
-    let conn = db.lock().await;
-    match db::steop_storage_get(&conn, &q.scope, &q.key) {
-        Ok(Some(blob)) => Json(
-            serde_json::to_value(&StorageBlobResponse {
-                scope: blob.scope,
-                key: blob.key,
-                content: blob.content,
-                created_at: blob.created_at,
-                updated_at: blob.updated_at,
-            })
-            .unwrap(),
-        )
-        .into_response(),
-        Ok(None) => error_response(StatusCode::NOT_FOUND, "not found"),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
-}
-
-async fn storage_delete(
-    State(db): State<DbPool>,
-    Query(q): Query<StorageQuery>,
-) -> impl IntoResponse {
-    let conn = db.lock().await;
-    match db::steop_storage_delete(&conn, &q.scope, &q.key) {
-        Ok(deleted) => Json(
-            serde_json::to_value(&StorageDeleteResponse {
-                deleted,
-                scope: q.scope,
-                key: q.key,
-            })
-            .unwrap(),
-        )
-        .into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
-}
-
-async fn storage_list(
-    State(db): State<DbPool>,
-    Query(q): Query<StorageListQuery>,
-) -> impl IntoResponse {
-    let conn = db.lock().await;
-    match db::steop_storage_list(&conn, &q.scope) {
-        Ok(items) => {
-            let items: Vec<StorageListItem> = items
-                .into_iter()
-                .map(|i| StorageListItem {
-                    key: i.key,
-                    updated_at: i.updated_at,
-                    size: i.size,
-                })
-                .collect();
-            Json(
-                serde_json::to_value(&StorageListResponse {
-                    scope: q.scope,
-                    items,
-                })
-                .unwrap(),
-            )
-            .into_response()
-        }
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
-}
-
-// ── State ──
-
-#[derive(Serialize)]
-struct StateResponse {
-    session_id: String,
-    data: serde_json::Value,
-    counters: BTreeMap<String, i64>,
-    host: String,
-    project_dir: String,
-    created_at: String,
-    updated_at: String,
-}
-
-impl From<db::SteopState> for StateResponse {
-    fn from(s: db::SteopState) -> Self {
-        StateResponse {
-            session_id: s.session_id,
-            data: s.data,
-            counters: s.counters,
-            host: s.host,
-            project_dir: s.project_dir,
-            created_at: s.created_at,
-            updated_at: s.updated_at,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct StatePutBody {
-    #[serde(default)]
-    data: serde_json::Value,
-    #[serde(default = "default_merge")]
-    merge: bool,
-}
-
-fn default_merge() -> bool {
+fn default_true() -> bool {
     true
 }
 
-#[derive(Deserialize)]
-struct CounterIncrBody {
-    counter: String,
-    #[serde(default = "default_delta")]
-    delta: i64,
-}
-
-fn default_delta() -> i64 {
-    1
-}
+// ── Request types ────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct CounterResetBody {
-    counter: String,
-    #[serde(default)]
-    value: i64,
+struct SessionStartReq {
+    host: String,
+    project_dir: String,
+    session_id: String,
+    data: Option<Value>,
 }
 
-#[derive(Serialize)]
-struct CounterResponse {
-    counter: String,
-    value: i64,
-}
-
-#[derive(Serialize)]
-struct StateDeleteResponse {
-    deleted: bool,
+#[derive(Deserialize)]
+struct SessionRef {
+    host: String,
+    project_dir: String,
     session_id: String,
 }
 
-async fn state_get(State(db): State<DbPool>, Path(session_id): Path<String>) -> impl IntoResponse {
-    let conn = db.lock().await;
-    match db::steop_state_get(&conn, &session_id) {
-        Ok(Some(state)) => {
-            Json(serde_json::to_value(StateResponse::from(state)).unwrap()).into_response()
-        }
-        Ok(None) => error_response(StatusCode::NOT_FOUND, "not found"),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
+#[derive(Deserialize)]
+struct ShortOrFullRef {
+    host: Option<String>,
+    project_dir: Option<String>,
+    session_id: String,
 }
 
-async fn state_put(
-    State(db): State<DbPool>,
-    Path(session_id): Path<String>,
-    headers: HeaderMap,
-    Json(body): Json<StatePutBody>,
-) -> impl IntoResponse {
-    let conn = db.lock().await;
-    let data = if body.data.is_null() {
-        serde_json::Value::Object(Default::default())
-    } else {
-        body.data
-    };
-    let host = header_str(&headers, "x-steop-host");
-    let project_dir = header_str(&headers, "x-steop-project-dir");
-    match db::steop_state_put(
-        &conn,
-        &session_id,
-        data,
-        body.merge,
-        host.as_deref(),
-        project_dir.as_deref(),
-    ) {
-        Ok(state) => {
-            Json(serde_json::to_value(StateResponse::from(state)).unwrap()).into_response()
-        }
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
+#[derive(Deserialize)]
+struct SessionListReq {
+    host: Option<String>,
+    project_dir: Option<String>,
+    state: Option<String>,
+    limit: Option<i64>,
 }
 
-async fn state_delete(
-    State(db): State<DbPool>,
-    Path(session_id): Path<String>,
-) -> impl IntoResponse {
-    let conn = db.lock().await;
-    match db::steop_state_delete(&conn, &session_id) {
-        Ok(deleted) => Json(
-            serde_json::to_value(&StateDeleteResponse {
-                deleted,
-                session_id,
-            })
-            .unwrap(),
-        )
-        .into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
+#[derive(Deserialize)]
+struct ProjectListReq {
+    host: Option<String>,
 }
 
-async fn counter_incr(
-    State(db): State<DbPool>,
-    Path(session_id): Path<String>,
-    headers: HeaderMap,
-    Json(body): Json<CounterIncrBody>,
-) -> impl IntoResponse {
-    let conn = db.lock().await;
-    let host = header_str(&headers, "x-steop-host");
-    let project_dir = header_str(&headers, "x-steop-project-dir");
-    match db::steop_counter_incr(
-        &conn,
-        &session_id,
-        &body.counter,
-        body.delta,
-        host.as_deref(),
-        project_dir.as_deref(),
-    ) {
-        Ok(value) => Json(
-            serde_json::to_value(&CounterResponse {
-                counter: body.counter,
-                value,
-            })
-            .unwrap(),
-        )
-        .into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
+#[derive(Deserialize)]
+struct StatePutReq {
+    host: String,
+    project_dir: String,
+    session_id: String,
+    data: Value,
+    #[serde(default = "default_true")]
+    merge: bool,
 }
 
-async fn counter_reset(
-    State(db): State<DbPool>,
-    Path(session_id): Path<String>,
-    headers: HeaderMap,
-    Json(body): Json<CounterResetBody>,
-) -> impl IntoResponse {
-    let conn = db.lock().await;
-    let host = header_str(&headers, "x-steop-host");
-    let project_dir = header_str(&headers, "x-steop-project-dir");
-    match db::steop_counter_reset(
-        &conn,
-        &session_id,
-        &body.counter,
-        body.value,
-        host.as_deref(),
-        project_dir.as_deref(),
-    ) {
-        Ok(value) => Json(
-            serde_json::to_value(&CounterResponse {
-                counter: body.counter,
-                value,
-            })
-            .unwrap(),
-        )
-        .into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
+#[derive(Deserialize)]
+struct CounterReq {
+    host: String,
+    project_dir: String,
+    session_id: String,
+    counter: String,
+    #[serde(default)]
+    delta: Option<i64>,
+    #[serde(default)]
+    value: Option<i64>,
 }
 
-// ── Notify ──
+#[derive(Deserialize)]
+struct StorageReq {
+    host: String,
+    project_dir: String,
+    session_id: Option<String>,
+    key: Option<String>,
+    content: Option<String>,
+}
 
-#[derive(Deserialize, Default)]
-struct NotifyRequest {
+#[derive(Deserialize)]
+struct LogAppendReq {
+    host: String,
+    project_dir: String,
+    session_id: String,
+    event: String,
+    #[serde(default)]
+    data: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct LogQueryReq {
+    host: Option<String>,
+    project_dir: Option<String>,
+    session_id: Option<String>,
+    limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct MailboxSendReq {
+    from_host: String,
+    from_project_dir: String,
+    from_session_id: String,
+    to_host: String,
+    to_project_dir: String,
+    to_session_id: Option<String>,
+    payload: Value,
+}
+
+#[derive(Deserialize)]
+struct MailboxListReq {
+    to_host: String,
+    to_project_dir: String,
+    to_session_id: Option<String>,
+    limit: Option<i64>,
+    #[serde(default)]
+    include_acked: bool,
+}
+
+#[derive(Deserialize)]
+struct MailboxAckReq {
+    id: i64,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+struct NotifyReq {
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
@@ -394,314 +180,315 @@ struct NotifyRequest {
     sound: bool,
 }
 
-async fn notify_handler(Json(req): Json<NotifyRequest>) -> impl IntoResponse {
-    let notification = crate::notify::NotificationRequest {
-        title: req.title.unwrap_or_else(|| "Claude Code".to_string()),
-        body: req
-            .body
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "Session finished".to_string()),
-        subtitle: req.subtitle,
-        sound: req.sound,
-    };
-    match crate::notify::show(&notification) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(msg) if msg.contains("unavailable") => (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(serde_json::json!({ "error": msg })),
-        )
-            .into_response(),
-        Err(msg) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &msg),
-    }
-}
+// ── Handlers ─────────────────────────────────────────────────────────────────
 
-// ── Status (statusline) ──
-
-#[derive(Serialize)]
-struct StatusResponse {
-    session_id: String,
-    mode: String,
-    phase: String,
-    step: String,
-    tool_calls: i64,
-    loop_count: i64,
-    step_retry: i64,
-    updated_at: String,
-}
-
-fn json_string_field(value: &serde_json::Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_default()
-}
-
-fn json_i64_field(value: &serde_json::Value, key: &str) -> Option<i64> {
-    value.get(key).and_then(|v| v.as_i64())
-}
-
-async fn status_get(State(db): State<DbPool>, Path(session_id): Path<String>) -> impl IntoResponse {
-    let conn = db.lock().await;
-    match db::steop_state_get(&conn, &session_id) {
-        Ok(Some(state)) => {
-            let mode = {
-                let m = json_string_field(&state.data, "mode");
-                if m.is_empty() {
-                    "idle".to_string()
-                } else {
-                    m
-                }
-            };
-            let phase = json_string_field(&state.data, "phase");
-            let step = match (
-                json_i64_field(&state.data, "current_step"),
-                json_i64_field(&state.data, "total_steps"),
-            ) {
-                (Some(cur), Some(total)) => format!("{}/{}", cur, total),
-                _ => "-".to_string(),
-            };
-            let tool_calls = state.counters.get("tool_calls").copied().unwrap_or(0);
-            let loop_count = state.counters.get("loop_count").copied().unwrap_or(0);
-            let step_retry = state.counters.get("step_retry").copied().unwrap_or(0);
-            Json(
-                serde_json::to_value(&StatusResponse {
-                    session_id: state.session_id,
-                    mode,
-                    phase,
-                    step,
-                    tool_calls,
-                    loop_count,
-                    step_retry,
-                    updated_at: state.updated_at,
-                })
-                .unwrap(),
-            )
-            .into_response()
-        }
-        Ok(None) => error_response(StatusCode::NOT_FOUND, "not found"),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
-}
-
-// ── Sessions (monitor) ──
-
-#[derive(Deserialize)]
-struct SessionsListQuery {
-    #[serde(default)]
-    limit: Option<i64>,
-}
-
-#[derive(Serialize)]
-struct SessionSummaryResponse {
-    session_id: String,
-    mode: String,
-    phase: String,
-    current_step: Option<i64>,
-    total_steps: Option<i64>,
-    created_at: String,
-    updated_at: String,
-}
-
-#[derive(Serialize)]
-struct SessionsListResponse {
-    sessions: Vec<SessionSummaryResponse>,
-}
-
-fn summarize_session(
-    session_id: String,
-    data: &serde_json::Value,
-    created_at: String,
-    updated_at: String,
-) -> SessionSummaryResponse {
-    SessionSummaryResponse {
-        session_id,
-        mode: json_string_field(data, "mode"),
-        phase: json_string_field(data, "phase"),
-        current_step: json_i64_field(data, "current_step"),
-        total_steps: json_i64_field(data, "total_steps"),
-        created_at,
-        updated_at,
-    }
-}
-
-async fn sessions_list(
+async fn session_start(
     State(db): State<DbPool>,
-    Query(q): Query<SessionsListQuery>,
-) -> impl IntoResponse {
-    let limit = q.limit.filter(|v| *v > 0).unwrap_or(100);
+    Json(req): Json<SessionStartReq>,
+) -> Response {
     let conn = db.lock().await;
-    match db::steop_sessions_list(&conn, limit) {
-        Ok(rows) => {
-            let sessions: Vec<SessionSummaryResponse> = rows
+    match db::steop_session_start(&conn, &req.host, &req.project_dir, &req.session_id, req.data) {
+        Ok(s) => Json(s).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn session_stop(State(db): State<DbPool>, Json(req): Json<SessionRef>) -> Response {
+    let conn = db.lock().await;
+    match db::steop_session_stop(&conn, &req.host, &req.project_dir, &req.session_id) {
+        Ok(Some(s)) => Json(s).into_response(),
+        Ok(None) => not_found(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn session_touch(State(db): State<DbPool>, Json(req): Json<SessionRef>) -> Response {
+    let conn = db.lock().await;
+    match db::steop_session_touch(&conn, &req.host, &req.project_dir, &req.session_id) {
+        Ok(Some(s)) => Json(s).into_response(),
+        Ok(None) => not_found(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn session_get(State(db): State<DbPool>, Json(req): Json<ShortOrFullRef>) -> Response {
+    let conn = db.lock().await;
+    match db::steop_session_get(
+        &conn,
+        req.host.as_deref(),
+        req.project_dir.as_deref(),
+        &req.session_id,
+    ) {
+        Ok(Some(s)) => Json(s).into_response(),
+        Ok(None) => not_found(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn session_list(State(db): State<DbPool>, Json(req): Json<SessionListReq>) -> Response {
+    let conn = db.lock().await;
+    let limit = req.limit.unwrap_or(100);
+    match db::steop_session_list(
+        &conn,
+        req.host.as_deref(),
+        req.project_dir.as_deref(),
+        req.state.as_deref(),
+        limit,
+    ) {
+        Ok(sessions) => Json(json!({ "sessions": sessions })).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn project_list(State(db): State<DbPool>, Json(req): Json<ProjectListReq>) -> Response {
+    let conn = db.lock().await;
+    match db::steop_project_list(&conn, req.host.as_deref()) {
+        Ok(pairs) => {
+            let projects: Vec<_> = pairs
                 .into_iter()
-                .map(|s| summarize_session(s.session_id, &s.data, s.created_at, s.updated_at))
+                .map(|(h, pd)| json!({ "host": h, "project_dir": pd }))
                 .collect();
-            Json(serde_json::to_value(&SessionsListResponse { sessions }).unwrap())
-                .into_response()
+            Json(json!({ "projects": projects })).into_response()
         }
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        Err(e) => err500(e),
     }
 }
 
-async fn session_get(
-    State(db): State<DbPool>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
+async fn state_get(State(db): State<DbPool>, Json(req): Json<ShortOrFullRef>) -> Response {
     let conn = db.lock().await;
-    match db::steop_state_get(&conn, &id) {
-        Ok(Some(state)) => {
-            Json(serde_json::to_value(StateResponse::from(state)).unwrap()).into_response()
-        }
-        Ok(None) => error_response(StatusCode::NOT_FOUND, "not found"),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
-}
-
-// ── Storage scopes ──
-
-#[derive(Serialize)]
-struct StorageScopesResponse {
-    scopes: Vec<String>,
-}
-
-async fn storage_scopes_list(State(db): State<DbPool>) -> impl IntoResponse {
-    let conn = db.lock().await;
-    match db::steop_storage_scopes(&conn) {
-        Ok(scopes) => {
-            Json(serde_json::to_value(&StorageScopesResponse { scopes }).unwrap())
-                .into_response()
-        }
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
-}
-
-// ── Logs + inbox ──
-
-fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers
-        .get(name)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-}
-
-#[derive(Deserialize)]
-struct LogPostBody {
-    #[serde(default)]
-    host: Option<String>,
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    project_dir: Option<String>,
-    event: String,
-    #[serde(default)]
-    data: serde_json::Value,
-}
-
-async fn log_post(
-    State(db): State<DbPool>,
-    headers: HeaderMap,
-    Json(body): Json<LogPostBody>,
-) -> Response {
-    let host = body
-        .host
-        .or_else(|| header_str(&headers, "x-steop-host"))
-        .unwrap_or_default();
-    let session_id = body.session_id.unwrap_or_default();
-    let project_dir = body
-        .project_dir
-        .or_else(|| header_str(&headers, "x-steop-project-dir"))
-        .unwrap_or_default();
-    let conn = db.lock().await;
-    match db::steop_log_insert(&conn, &host, &session_id, &project_dir, &body.event, &body.data) {
-        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
-}
-
-#[derive(Deserialize)]
-struct LogListQuery {
-    #[serde(default)]
-    host: Option<String>,
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    project_dir: Option<String>,
-    #[serde(default)]
-    limit: Option<i64>,
-}
-
-async fn log_list(State(db): State<DbPool>, Query(q): Query<LogListQuery>) -> Response {
-    let limit = q.limit.filter(|v| *v > 0).unwrap_or(200);
-    let conn = db.lock().await;
-    match db::steop_log_list(
+    match db::steop_session_get(
         &conn,
-        q.host.as_deref(),
-        q.session_id.as_deref(),
-        q.project_dir.as_deref(),
+        req.host.as_deref(),
+        req.project_dir.as_deref(),
+        &req.session_id,
+    ) {
+        Ok(Some(s)) => Json(s).into_response(),
+        Ok(None) => not_found(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn state_put(State(db): State<DbPool>, Json(req): Json<StatePutReq>) -> Response {
+    let conn = db.lock().await;
+    match db::steop_state_put(
+        &conn,
+        &req.host,
+        &req.project_dir,
+        &req.session_id,
+        req.data,
+        req.merge,
+    ) {
+        Ok(s) => Json(s).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn state_incr(State(db): State<DbPool>, Json(req): Json<CounterReq>) -> Response {
+    let conn = db.lock().await;
+    let delta = req.delta.unwrap_or(1);
+    match db::steop_state_incr(
+        &conn,
+        &req.host,
+        &req.project_dir,
+        &req.session_id,
+        &req.counter,
+        delta,
+    ) {
+        Ok(v) => Json(json!({ "counter": req.counter, "value": v })).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn state_reset(State(db): State<DbPool>, Json(req): Json<CounterReq>) -> Response {
+    let conn = db.lock().await;
+    let value = req.value.unwrap_or(0);
+    match db::steop_state_reset(
+        &conn,
+        &req.host,
+        &req.project_dir,
+        &req.session_id,
+        &req.counter,
+        value,
+    ) {
+        Ok(v) => Json(json!({ "counter": req.counter, "value": v })).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn state_delete(State(db): State<DbPool>, Json(req): Json<SessionRef>) -> Response {
+    let conn = db.lock().await;
+    match db::steop_state_delete(&conn, &req.host, &req.project_dir, &req.session_id) {
+        Ok(deleted) => Json(json!({ "deleted": deleted })).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn status_get(State(db): State<DbPool>, Json(req): Json<ShortOrFullRef>) -> Response {
+    let conn = db.lock().await;
+    match db::steop_status_get(
+        &conn,
+        req.host.as_deref(),
+        req.project_dir.as_deref(),
+        &req.session_id,
+    ) {
+        Ok(p) => Json(p).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn storage_put(State(db): State<DbPool>, Json(req): Json<StorageReq>) -> Response {
+    let key = req.key.as_deref().unwrap_or("");
+    let content = req.content.as_deref().unwrap_or("");
+    let conn = db.lock().await;
+    let res = match req.session_id.as_deref().filter(|s| !s.is_empty()) {
+        Some(sid) => {
+            db::steop_storage_session_put(&conn, &req.host, &req.project_dir, sid, key, content)
+        }
+        None => db::steop_storage_project_put(&conn, &req.host, &req.project_dir, key, content),
+    };
+    match res {
+        Ok(m) => Json(m).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn storage_get(State(db): State<DbPool>, Json(req): Json<StorageReq>) -> Response {
+    let key = req.key.as_deref().unwrap_or("");
+    let conn = db.lock().await;
+    let res = match req.session_id.as_deref().filter(|s| !s.is_empty()) {
+        Some(sid) => db::steop_storage_session_get(&conn, &req.host, &req.project_dir, sid, key),
+        None => db::steop_storage_project_get(&conn, &req.host, &req.project_dir, key),
+    };
+    match res {
+        Ok(Some(b)) => Json(b).into_response(),
+        Ok(None) => not_found(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn storage_delete(State(db): State<DbPool>, Json(req): Json<StorageReq>) -> Response {
+    let key = req.key.as_deref().unwrap_or("");
+    let conn = db.lock().await;
+    let res = match req.session_id.as_deref().filter(|s| !s.is_empty()) {
+        Some(sid) => {
+            db::steop_storage_session_delete(&conn, &req.host, &req.project_dir, sid, key)
+        }
+        None => db::steop_storage_project_delete(&conn, &req.host, &req.project_dir, key),
+    };
+    match res {
+        Ok(deleted) => Json(json!({ "deleted": deleted })).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn storage_list(State(db): State<DbPool>, Json(req): Json<StorageReq>) -> Response {
+    let conn = db.lock().await;
+    let res = match req.session_id.as_deref().filter(|s| !s.is_empty()) {
+        Some(sid) => db::steop_storage_session_list(&conn, &req.host, &req.project_dir, sid),
+        None => db::steop_storage_project_list(&conn, &req.host, &req.project_dir),
+    };
+    match res {
+        Ok(items) => Json(json!({ "items": items })).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn log_append(State(db): State<DbPool>, Json(req): Json<LogAppendReq>) -> Response {
+    let conn = db.lock().await;
+    let default_data = Value::Object(Default::default());
+    let data = req.data.as_ref().unwrap_or(&default_data);
+    match db::steop_log_append(
+        &conn,
+        &req.host,
+        &req.project_dir,
+        &req.session_id,
+        &req.event,
+        data,
+    ) {
+        Ok(id) => Json(json!({ "id": id })).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn log_query(State(db): State<DbPool>, Json(req): Json<LogQueryReq>) -> Response {
+    let conn = db.lock().await;
+    let limit = req.limit.unwrap_or(200);
+    match db::steop_log_query(
+        &conn,
+        req.host.as_deref(),
+        req.project_dir.as_deref(),
+        req.session_id.as_deref(),
         limit,
     ) {
-        Ok(rows) => Json(serde_json::json!({ "logs": rows })).into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        Ok(logs) => Json(json!({ "logs": logs })).into_response(),
+        Err(e) => err500(e),
     }
 }
 
-#[derive(Deserialize)]
-struct InboxPostBody {
-    #[serde(default)]
-    host: Option<String>,
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    project_dir: Option<String>,
-    #[serde(default)]
-    payload: serde_json::Value,
-}
-
-async fn inbox_post(
-    State(db): State<DbPool>,
-    headers: HeaderMap,
-    Json(body): Json<InboxPostBody>,
-) -> Response {
-    let host = body
-        .host
-        .or_else(|| header_str(&headers, "x-steop-host"))
-        .unwrap_or_default();
-    let session_id = body.session_id.unwrap_or_default();
-    let project_dir = body
-        .project_dir
-        .or_else(|| header_str(&headers, "x-steop-project-dir"))
-        .unwrap_or_default();
+async fn mailbox_send(State(db): State<DbPool>, Json(req): Json<MailboxSendReq>) -> Response {
     let conn = db.lock().await;
-    match db::steop_inbox_insert(&conn, &host, &session_id, &project_dir, &body.payload) {
-        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
-}
-
-#[derive(Deserialize)]
-struct InboxListQuery {
-    #[serde(default)]
-    host: Option<String>,
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    project_dir: Option<String>,
-    #[serde(default)]
-    limit: Option<i64>,
-}
-
-async fn inbox_list(State(db): State<DbPool>, Query(q): Query<InboxListQuery>) -> Response {
-    let limit = q.limit.filter(|v| *v > 0).unwrap_or(200);
-    let conn = db.lock().await;
-    match db::steop_inbox_list(
+    let to_sid = req.to_session_id.as_deref().unwrap_or("");
+    match db::steop_mailbox_send(
         &conn,
-        q.host.as_deref(),
-        q.session_id.as_deref(),
-        q.project_dir.as_deref(),
-        limit,
+        &req.from_host,
+        &req.from_project_dir,
+        &req.from_session_id,
+        &req.to_host,
+        &req.to_project_dir,
+        to_sid,
+        &req.payload,
     ) {
-        Ok(rows) => Json(serde_json::json!({ "inbox": rows })).into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        Ok(id) => Json(json!({ "id": id })).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn mailbox_list(State(db): State<DbPool>, Json(req): Json<MailboxListReq>) -> Response {
+    let conn = db.lock().await;
+    let to_sid = req.to_session_id.as_deref().unwrap_or("");
+    let limit = req.limit.unwrap_or(200);
+    match db::steop_mailbox_list(
+        &conn,
+        &req.to_host,
+        &req.to_project_dir,
+        to_sid,
+        limit,
+        req.include_acked,
+    ) {
+        Ok(messages) => Json(json!({ "messages": messages })).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn mailbox_ack(State(db): State<DbPool>, Json(req): Json<MailboxAckReq>) -> Response {
+    let conn = db.lock().await;
+    match db::steop_mailbox_ack(&conn, req.id) {
+        Ok(acked) => Json(json!({ "acked": acked })).into_response(),
+        Err(e) => err500(e),
+    }
+}
+
+async fn notify_handler(State(_db): State<DbPool>, Json(req): Json<NotifyReq>) -> Response {
+    #[cfg(feature = "desktop")]
+    {
+        let notification = crate::notify::NotificationRequest {
+            title: req.title.unwrap_or_else(|| "Steop".to_string()),
+            body: req.body.unwrap_or_default(),
+            subtitle: req.subtitle,
+            sound: req.sound,
+        };
+        match crate::notify::show(&notification) {
+            Ok(_) => (StatusCode::NO_CONTENT, Json(json!({}))).into_response(),
+            Err(e) => err500(e),
+        }
+    }
+    #[cfg(not(feature = "desktop"))]
+    {
+        let _ = req;
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({ "error": "notify unavailable in headless mode" })),
+        )
+            .into_response()
     }
 }

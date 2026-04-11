@@ -167,30 +167,36 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 
 ### Steop (workflow pipeline)
 
-Mounted under `/api/v1/steop/*`. Serves the `steop` Go binary and the stele CLI. Defined in `apps/stele/crates/stele-server/src/steop_api.rs`.
+RPC-style surface mounted under `/api/v1/steop/*`. Every method is `POST /api/v1/steop/<method>` with a JSON body — no path params, no query params, no header identity. Served by `apps/stele/crates/stele-server/src/steop_api.rs`. Used by the `steop` Go binary and the stele CLI.
 
-| Method | Path                                      | Description                                 |
-| ------ | ----------------------------------------- | ------------------------------------------- |
-| PUT    | /api/v1/steop/storage                     | Upsert storage blob (query `?scope=&key=`)  |
-| GET    | /api/v1/steop/storage                     | Read storage blob                           |
-| DELETE | /api/v1/steop/storage                     | Delete storage blob                         |
-| GET    | /api/v1/steop/storage/list                | List storage keys in a scope                |
-| GET    | /api/v1/steop/storage/scopes              | List storage scopes                         |
-| GET    | /api/v1/steop/state/:session_id           | Read session state + counters               |
-| PUT    | /api/v1/steop/state/:session_id           | Upsert `data` (merge by default)            |
-| DELETE | /api/v1/steop/state/:session_id           | Delete session state                        |
-| POST   | /api/v1/steop/state/:session_id/incr      | Atomic counter increment                    |
-| POST   | /api/v1/steop/state/:session_id/reset     | Reset counter                               |
-| GET    | /api/v1/steop/status/:session_id          | Statusline projection (never 404s)         |
-| POST   | /api/v1/steop/notify                      | Fire desktop notification (Stop hook)       |
-| GET    | /api/v1/steop/sessions                    | List recent sessions                        |
-| GET    | /api/v1/steop/sessions/:id                | Get single session                          |
-| POST   | /api/v1/steop/log                         | Append structured event log (v0.5.0+)       |
-| GET    | /api/v1/steop/log                         | Query logs (v0.5.0+)                        |
-| POST   | /api/v1/steop/inbox                       | Append session summary envelope (v0.5.0+)   |
-| GET    | /api/v1/steop/inbox                       | Read inbox FIFO (v0.5.0+)                   |
+**Identity.** Every call carries composite SSH/SCP-style identifiers in the body: `host` + `project_dir` (project-level) or `host` + `project_dir` + `session_id` (session-level). Session IDs are globally unique Claude Code UUIDs; read methods accept `{session_id}` as a short form. Write methods require the full triple. The server does not validate identifiers — clients take care of completeness.
 
-**Composite session identity (v0.5.0+):** clients send `X-Steop-Host` and `X-Steop-Project-Dir` headers on every request. Server extractors fall back to these headers when a request body omits `host` / `project_dir`. The `steop_state` table gained `host` + `project_dir` columns via idempotent `ALTER TABLE` on startup. See `docs/steop/DESIGN.md` for the full v0.5 feature reference.
+| Method                 | Body                                                                                                    | Description                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `steop.session.start`  | `host, project_dir, session_id, data?`                                                                  | Create/reactivate session (idempotent)                |
+| `steop.session.stop`   | `host, project_dir, session_id`                                                                         | Mark session stopped                                  |
+| `steop.session.touch`  | `host, project_dir, session_id`                                                                         | Refresh `last_active_at`                              |
+| `steop.session.get`    | `session_id` or full triple                                                                             | Get session row                                       |
+| `steop.session.list`   | `host?, project_dir?, state?, limit?`                                                                   | List sessions                                         |
+| `steop.project.list`   | `host?`                                                                                                 | List `host:project_dir` combos                        |
+| `steop.state.get`      | `session_id` or full triple                                                                             | Get session state + counters                          |
+| `steop.state.put`      | `host, project_dir, session_id, data, merge?=true`                                                      | Upsert `data` JSON                                    |
+| `steop.state.incr`     | `host, project_dir, session_id, counter, delta?=1`                                                      | Atomic counter increment                              |
+| `steop.state.reset`    | `host, project_dir, session_id, counter, value?=0`                                                      | Reset counter                                         |
+| `steop.state.delete`   | `host, project_dir, session_id`                                                                         | Delete session row                                    |
+| `steop.status.get`     | `session_id` or full triple                                                                             | Statusline projection (never 404s)                    |
+| `steop.storage.put`    | `host, project_dir, key, content, session_id?`                                                          | KV put (session if `session_id`, project otherwise)   |
+| `steop.storage.get`    | `host, project_dir, key, session_id?`                                                                   | KV get                                                |
+| `steop.storage.delete` | `host, project_dir, key, session_id?`                                                                   | KV delete                                             |
+| `steop.storage.list`   | `host, project_dir, session_id?`                                                                        | List keys                                             |
+| `steop.log.append`     | `host, project_dir, session_id, event, data?`                                                           | Append log entry                                      |
+| `steop.log.query`      | `host?, project_dir?, session_id?, limit?=200`                                                          | Query logs (DESC)                                     |
+| `steop.mailbox.send`   | `from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id?, payload`        | Send message (session or project recipient)           |
+| `steop.mailbox.list`   | `to_host, to_project_dir, to_session_id?, limit?=200, include_acked?=false`                             | List messages for recipient (FIFO)                    |
+| `steop.mailbox.ack`    | `id`                                                                                                    | Mark message acked                                    |
+| `steop.notify`         | `title?, body?, subtitle?, sound?=false`                                                                | Fire desktop notification                             |
+
+**Tables (v0.6.0):** `steop_sessions` (merges state + counters, PK `(host, project_dir, session_id)`, JSON `data` + `counters` columns), `steop_storage_session`, `steop_storage_project`, `steop_mailbox` (replaces `steop_inbox`), `steop_logs`. Sender on mailbox is **always** a session; recipient may be a project (`to_session_id=''`) or a session. See `docs/steop/DESIGN.md` for schema and semantics.
 
 ## rmcp Conventions
 

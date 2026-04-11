@@ -159,12 +159,6 @@ func (c *Client) do(method, path string, query url.Values, body interface{}, out
 	if c.authKey != "" {
 		req.Header.Set("X-Stele-Key", c.authKey)
 	}
-	if c.host != "" {
-		req.Header.Set("X-Steop-Host", c.host)
-	}
-	if c.projectDir != "" {
-		req.Header.Set("X-Steop-Project-Dir", c.projectDir)
-	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -195,3 +189,14 @@ func (c *Client) do(method, path string, query url.Values, body interface{}, out
 	}
 	return nil
 }
+
+// rpc posts to /api/v1/steop/<method> with a JSON body.
+func (c *Client) rpc(method string, body any, out any) error {
+	return c.do("POST", "/api/v1/steop/"+method, nil, body, out)
+}
+
+// Host returns the client's resolved host name.
+func (c *Client) Host() string { return c.host }
+
+// ProjectDir returns the client's resolved project directory.
+func (c *Client) ProjectDir() string { return c.projectDir }

@@ -43,7 +43,7 @@ func runState(args []string) {
 			fmt.Fprintf(os.Stderr, "state set: parse json: %v\n", err)
 			os.Exit(2)
 		}
-		s, err := c.StatePut(args[1], data, true)
+		s, err := c.StatePut(c.Host(), c.ProjectDir(), args[1], data, true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "state set: %v\n", err)
 			os.Exit(1)
@@ -63,7 +63,7 @@ func runState(args []string) {
 			}
 			delta = d
 		}
-		v, err := c.CounterIncr(args[1], args[2], delta)
+		v, err := c.CounterIncr(c.Host(), c.ProjectDir(), args[1], args[2], delta)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "state incr: %v\n", err)
 			os.Exit(1)
@@ -83,7 +83,7 @@ func runState(args []string) {
 			}
 			value = v
 		}
-		v, err := c.CounterReset(args[1], args[2], value)
+		v, err := c.CounterReset(c.Host(), c.ProjectDir(), args[1], args[2], value)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "state reset: %v\n", err)
 			os.Exit(1)
@@ -94,7 +94,7 @@ func runState(args []string) {
 			fmt.Fprintln(os.Stderr, "usage: steop state delete <session>")
 			os.Exit(2)
 		}
-		deleted, err := c.StateDelete(args[1])
+		deleted, err := c.StateDelete(c.Host(), c.ProjectDir(), args[1])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "state delete: %v\n", err)
 			os.Exit(1)
@@ -122,7 +122,7 @@ func runState(args []string) {
 		if mode != "" {
 			data["mode"] = mode
 		}
-		if _, err := c.StatePut(sid, data, true); err != nil {
+		if _, err := c.StatePut(c.Host(), c.ProjectDir(), sid, data, true); err != nil {
 			fmt.Fprintf(os.Stderr, "state set-phase: %v\n", err)
 			return
 		}
@@ -133,7 +133,7 @@ func runState(args []string) {
 			return
 		}
 		data := map[string]interface{}{"phase": "", "mode": ""}
-		if _, err := c.StatePut(sid, data, true); err != nil {
+		if _, err := c.StatePut(c.Host(), c.ProjectDir(), sid, data, true); err != nil {
 			fmt.Fprintf(os.Stderr, "state clear-phase: %v\n", err)
 			return
 		}

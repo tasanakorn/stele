@@ -20,8 +20,10 @@ func HandleSubagentStart(in *HookInput, c *client.Client) []byte {
 		return Allow()
 	}
 	ev := client.LogEvent{
-		SessionID: in.SessionID,
-		Event:     "subagent_start",
+		Host:       c.Host(),
+		ProjectDir: c.ProjectDir(),
+		SessionID:  in.SessionID,
+		Event:      "subagent_start",
 		Data: map[string]interface{}{
 			"agent_id":   in.AgentID,
 			"agent_type": in.AgentType,

@@ -19,7 +19,7 @@ worth explaining. For deeper internals, follow the per-component links.
 
 Deeper docs:
 
-- Stele server internals: [`stele/server.md`](stele/server.md), [`stele/data-model.md`](stele/data-model.md), [`stele/rest-api.md`](stele/rest-api.md), [`stele/mcp-tools.md`](stele/mcp-tools.md)
+- Stele server internals: [`stele/server.md`](stele/server.md), [`stele/data-model.md`](stele/data-model.md), [`stele/http-api.md`](stele/http-api.md), [`stele/mcp-tools.md`](stele/mcp-tools.md)
 - Stele CLI: [`stele/cli.md`](stele/cli.md)
 - Build, deploy, test: [`stele/deployment.md`](stele/deployment.md), [`stele/testing.md`](stele/testing.md)
 - Steop pipeline & runtime: [`steop/DESIGN.md`](steop/DESIGN.md)

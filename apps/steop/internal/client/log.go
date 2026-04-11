@@ -1,42 +1,15 @@
 package client
 
-import "net/http"
-
-// LogEvent is a structured event logged to the steop log endpoint.
+// LogEvent is a structured log entry.
 type LogEvent struct {
-	SessionID  string      `json:"session_id,omitempty"`
-	Host       string      `json:"host,omitempty"`
-	ProjectDir string      `json:"project_dir,omitempty"`
+	Host       string      `json:"host"`
+	ProjectDir string      `json:"project_dir"`
+	SessionID  string      `json:"session_id"`
 	Event      string      `json:"event"`
 	Data       interface{} `json:"data,omitempty"`
 }
 
-// Log posts a structured log event using a short-timeout fast client.
+// Log appends a log entry. Uses fastClone for fire-and-forget semantics.
 func (c *Client) Log(ev LogEvent) error {
-	if ev.Host == "" {
-		ev.Host = c.host
-	}
-	if ev.ProjectDir == "" {
-		ev.ProjectDir = c.projectDir
-	}
-	return c.fastClone().do(http.MethodPost, "/api/v1/steop/log", nil, ev, nil)
-}
-
-// InboxEnvelope is a cross-host session summary payload.
-type InboxEnvelope struct {
-	SessionID  string      `json:"session_id,omitempty"`
-	Host       string      `json:"host,omitempty"`
-	ProjectDir string      `json:"project_dir,omitempty"`
-	Payload    interface{} `json:"payload,omitempty"`
-}
-
-// Inbox posts a session summary envelope using a short-timeout fast client.
-func (c *Client) Inbox(env InboxEnvelope) error {
-	if env.Host == "" {
-		env.Host = c.host
-	}
-	if env.ProjectDir == "" {
-		env.ProjectDir = c.projectDir
-	}
-	return c.fastClone().do(http.MethodPost, "/api/v1/steop/inbox", nil, env, nil)
+	return c.fastClone().rpc("steop.log.append", ev, nil)
 }

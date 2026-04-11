@@ -3,13 +3,24 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
 )
 
 func runStorage(args []string) {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: steop storage <put|get|delete|list> ...")
+	sessionID := ""
+	var positional []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "--session=") {
+			sessionID = a[len("--session="):]
+		} else {
+			positional = append(positional, a)
+		}
+	}
+
+	if len(positional) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: steop storage [--session=<id>] <put|get|delete|list> ...")
 		os.Exit(2)
 	}
 	c, err := client.NewFromConfig()
@@ -18,53 +29,49 @@ func runStorage(args []string) {
 		os.Exit(1)
 	}
 
-	switch args[0] {
+	switch positional[0] {
 	case "put":
-		if len(args) < 4 {
-			fmt.Fprintln(os.Stderr, "usage: steop storage put <scope> <key> <content>")
+		if len(positional) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: steop storage [--session=<id>] put <key> <content>")
 			os.Exit(2)
 		}
-		meta, err := c.StoragePut(args[1], args[2], args[3])
+		meta, err := c.StoragePut(c.Host(), c.ProjectDir(), sessionID, positional[1], positional[2])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "storage put: %v\n", err)
 			os.Exit(1)
 		}
 		writeJSON(meta)
 	case "get":
-		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: steop storage get <scope> <key>")
+		if len(positional) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: steop storage [--session=<id>] get <key>")
 			os.Exit(2)
 		}
-		blob, err := c.StorageGet(args[1], args[2])
+		blob, err := c.StorageGet(c.Host(), c.ProjectDir(), sessionID, positional[1])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "storage get: %v\n", err)
 			os.Exit(1)
 		}
 		writeJSON(blob)
 	case "delete":
-		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: steop storage delete <scope> <key>")
+		if len(positional) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: steop storage [--session=<id>] delete <key>")
 			os.Exit(2)
 		}
-		deleted, err := c.StorageDelete(args[1], args[2])
+		deleted, err := c.StorageDelete(c.Host(), c.ProjectDir(), sessionID, positional[1])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "storage delete: %v\n", err)
 			os.Exit(1)
 		}
 		writeJSON(map[string]interface{}{"deleted": deleted})
 	case "list":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: steop storage list <scope>")
-			os.Exit(2)
-		}
-		items, err := c.StorageList(args[1])
+		items, err := c.StorageList(c.Host(), c.ProjectDir(), sessionID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "storage list: %v\n", err)
 			os.Exit(1)
 		}
 		writeJSON(map[string]interface{}{"items": items})
 	default:
-		fmt.Fprintf(os.Stderr, "unknown storage subcommand: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "unknown storage subcommand: %s\n", positional[0])
 		os.Exit(2)
 	}
 }

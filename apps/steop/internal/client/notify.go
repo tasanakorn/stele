@@ -1,7 +1,5 @@
 package client
 
-import "net/http"
-
 type NotifyRequest struct {
 	Title    string `json:"title,omitempty"`
 	Body     string `json:"body,omitempty"`
@@ -10,5 +8,5 @@ type NotifyRequest struct {
 }
 
 func (c *Client) Notify(req NotifyRequest) error {
-	return c.do(http.MethodPost, "/api/v1/steop/notify", nil, &req, nil)
+	return c.rpc("steop.notify", req, nil)
 }

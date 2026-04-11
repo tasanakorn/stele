@@ -42,7 +42,7 @@ func runMonitor(args []string) {
 	}
 
 	if len(positional) == 0 {
-		sessions, err := c.SessionsList(limit)
+		sessions, err := c.SessionList("", "", "", limit)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "monitor: list: %v\n", err)
 			os.Exit(1)
@@ -77,37 +77,41 @@ func printMonitorUsage() {
 	fmt.Fprintln(os.Stderr, "alias: steop inspect ...")
 }
 
-func printSessionsTable(sessions []client.SessionSummary) {
+func printSessionsTable(sessions []client.Session) {
 	if len(sessions) == 0 {
 		fmt.Println("(no sessions)")
 		return
 	}
-	fmt.Printf("%-36s  %-8s  %-12s  %-8s  %s\n",
-		"SESSION_ID", "MODE", "PHASE", "STEP", "UPDATED")
+	fmt.Printf("%-36s  %-8s  %-12s  %-10s  %s\n",
+		"SESSION_ID", "STATE", "HOST", "PROJECT_DIR", "LAST_ACTIVE")
 	for _, s := range sessions {
-		step := "-"
-		if s.CurrentStep != nil && s.TotalSteps != nil {
-			step = fmt.Sprintf("%d/%d", *s.CurrentStep, *s.TotalSteps)
-		} else if s.CurrentStep != nil {
-			step = fmt.Sprintf("%d/-", *s.CurrentStep)
+		state := s.State
+		if state == "" {
+			state = "-"
 		}
-		mode := s.Mode
-		if mode == "" {
-			mode = "-"
+		host := s.Host
+		if host == "" {
+			host = "-"
 		}
-		phase := s.Phase
-		if phase == "" {
-			phase = "-"
+		projectDir := s.ProjectDir
+		if len(projectDir) > 10 {
+			projectDir = "..." + projectDir[len(projectDir)-7:]
 		}
-		fmt.Printf("%-36s  %-8s  %-12s  %-8s  %s\n",
-			s.SessionID, mode, phase, step, s.UpdatedAt)
+		if projectDir == "" {
+			projectDir = "-"
+		}
+		fmt.Printf("%-36s  %-8s  %-12s  %-10s  %s\n",
+			s.SessionID, state, host, projectDir, s.LastActiveAt)
 	}
 }
 
 func printSessionInspect(s *client.State) {
-	fmt.Printf("session_id : %s\n", s.SessionID)
-	fmt.Printf("created_at : %s\n", s.CreatedAt)
-	fmt.Printf("updated_at : %s\n", s.UpdatedAt)
+	fmt.Printf("session_id    : %s\n", s.SessionID)
+	fmt.Printf("host          : %s\n", s.Host)
+	fmt.Printf("project_dir   : %s\n", s.ProjectDir)
+	fmt.Printf("state         : %s\n", s.State)
+	fmt.Printf("started_at    : %s\n", s.StartedAt)
+	fmt.Printf("last_active_at: %s\n", s.LastActiveAt)
 
 	fmt.Println("data:")
 	if len(s.Data) == 0 {

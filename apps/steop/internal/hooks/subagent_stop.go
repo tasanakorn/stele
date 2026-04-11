@@ -15,8 +15,10 @@ func HandleSubagentStop(in *HookInput, c *client.Client) []byte {
 		success = *in.Success
 	}
 	ev := client.LogEvent{
-		SessionID: in.SessionID,
-		Event:     "subagent_stop",
+		Host:       c.Host(),
+		ProjectDir: c.ProjectDir(),
+		SessionID:  in.SessionID,
+		Event:      "subagent_stop",
 		Data: map[string]interface{}{
 			"agent_id":   in.AgentID,
 			"agent_type": in.AgentType,

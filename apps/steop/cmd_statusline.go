@@ -135,7 +135,7 @@ func resolveStatuslineSession(c *client.Client, wanted string) (string, error) {
 	if wanted != "" {
 		return wanted, nil
 	}
-	sessions, err := c.SessionsList(1)
+	sessions, err := c.SessionList("", "", "", 1)
 	if err != nil {
 		return "", err
 	}

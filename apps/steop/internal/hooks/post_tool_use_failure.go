@@ -11,8 +11,10 @@ func HandlePostToolUseFailure(in *HookInput, c *client.Client) []byte {
 		return Allow()
 	}
 	ev := client.LogEvent{
-		SessionID: in.SessionID,
-		Event:     "post_tool_use_failure",
+		Host:       c.Host(),
+		ProjectDir: c.ProjectDir(),
+		SessionID:  in.SessionID,
+		Event:      "post_tool_use_failure",
 		Data: map[string]interface{}{
 			"tool_name":    in.ToolName,
 			"error":        in.Error,

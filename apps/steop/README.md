@@ -3,11 +3,11 @@
 Go runtime for the **steop** Claude Code workflow plugin. A single binary that
 dispatches all 11 Claude Code hooks (PreToolUse safety regexes, PostToolUse
 counter + state, UserPromptSubmit keyword injection, SubagentStart/Stop
-lifecycle, SessionStart/End, PreCompact, Stop/Inbox, PermissionRequest observe)
-and provides CLI helpers for session state, scoped blob storage, logs, and
-the cross-host inbox. It talks HTTP to `stele-server`'s `/api/v1/steop/*`
-endpoints, tagging every request with composite identity headers
-(`X-Steop-Host`, `X-Steop-Project-Dir`).
+lifecycle, SessionStart/End, PreCompact, Stop/Mailbox, PermissionRequest observe)
+and provides CLI helpers for session state, generic KV storage, logs, and
+the cross-host mailbox. It talks HTTP to `stele-server`'s `/api/v1/steop/*`
+endpoints using RPC-style `POST <method>` calls with JSON bodies carrying
+composite identity (`host`, `project_dir`, `session_id`).
 
 ## Build
 
@@ -36,10 +36,12 @@ go vet ./...
   - `UserPromptSubmit` — writes session sentinel + injects SKILL.md on `st-<phase>:` / `/steop:st-<phase>` triggers
   - `PreToolUse` — Bash deny regex (force-push, `rm -rf /`, etc.)
   - `PostToolUse` — increments `tool_calls` counter, merges `last_tool` state, fires log event
-  - `Stop` — desktop notify + posts session summary to inbox + clears phase
-  - `SessionStart`, `SessionEnd`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostToolUseFailure`, `PermissionRequest` — structured logging to `/api/v1/steop/log`
+  - `Stop` — desktop notify + posts session summary to mailbox + clears phase/mode
+  - `SessionStart` — calls `steop.session.start` + structured log event
+  - `SessionEnd` — structured log + mailbox summary + calls `steop.session.stop`
+  - `SubagentStart`, `SubagentStop`, `PreCompact`, `PostToolUseFailure`, `PermissionRequest` — structured logging via `steop.log.append`
 - `steop state get|set|incr|reset|delete <session> ...` — session state + counters.
-- `steop storage put|get|delete|list <scope> [key] [content]` — scoped blobs.
+- `steop storage put|get|delete|list [--session=<id>] [key] [content]` — KV blobs. Omit `--session` for project-level scope.
 - `steop statusline [--session=<id>] [--json] [--no-color] [--line2-only]` — two-line renderer for the Claude Code status bar. Reads Claude Code's session JSON from stdin and prints:
   - **Line 1**: `model | project | git branch | context bar | cost-or-rate-limits`
   - **Line 2**: `steop: [<mode>] <phase> <step>  loop=N tools=N retries=N`
@@ -57,7 +59,7 @@ go vet ./...
 | `STEOP_DEBUG`         | Set to `1` to enable debug logging to stderr.                                     |
 | `CLAUDE_PLUGIN_ROOT`  | Set by Claude Code; points at the plugin install dir. Used by the keyword-injection path in `UserPromptSubmit` to load `$root/skills/<name>/SKILL.md`. |
 
-Hook-provided fields (not env vars, but worth knowing): every hook handler reads `in.Cwd` from stdin JSON and forwards it as `X-Steop-Project-Dir` on every stele-server request, so Claude Code's `cwd` flows end-to-end as part of the composite session identity.
+Hook-provided fields (not env vars, but worth knowing): every hook handler reads `in.Cwd` from stdin JSON and populates `project_dir` in the JSON request body, alongside `host` (from `os.Hostname()` or config) and `session_id` (from stdin). These form the composite session identity — no headers are used.
 
 ## Config
 
@@ -66,7 +68,7 @@ Reads `~/.config/stele/config.toml` (primary) or
 config is present, a local default profile is used — the binary never panics
 on missing config.
 
-### Profile fields (v0.5.0+)
+### Profile fields (v0.6.0+)
 
 ```toml
 default_profile = "default"
@@ -74,10 +76,10 @@ default_profile = "default"
 [profiles.default]
 server_url = "http://127.0.0.1:3100"
 auth_key   = ""        # optional — sent as X-Stele-Key
-host       = "laptop"  # optional — sent as X-Steop-Host; auto-populated on first load
+host       = "laptop"  # optional — auto-populated on first load via os.Hostname()
 ```
 
-The `host` field is added automatically on first load via `os.Hostname()` and persisted back to the config file. It's used to disambiguate sessions across machines when multiple hosts share a single stele-server.
+The `host` field is auto-populated on first load and persisted. It flows into every request body as `host` for composite session identity (`host:project_dir:session_id`). It is not sent as a header.
 
 ## Hook output shapes
 

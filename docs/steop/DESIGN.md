@@ -1,283 +1,459 @@
-# Steop Design (v1)
+# Steop Design (v2, 0.6.0)
 
 ## 1. Purpose
 
-Steop is an agentic workflow pipeline for Claude Code. Markdown skills and subagents drive a clarify -> research -> plan -> execute -> validate loop, while a small Go runtime (`steop`) handles hook dispatch and reads/writes session state through the stele-server REST API. Safety hooks block dangerous shell commands, PostToolUse hooks bump a per-session tool-call counter, and all persistence is delegated to stele — there is no project-local state directory.
+Steop is a workflow pipeline harness for Claude Code. It hooks into Claude Code lifecycle events (SessionStart, PostToolUse, Stop, etc.) to:
+
+1. Track session state — current phase, mode, step, counters.
+2. Surface a compact status line in the Claude Code terminal.
+3. Archive session summaries to a shared mailbox for `/stele:sync` and retrospective tooling.
+4. Persist arbitrary key-value storage for skills and hooks to share across tool calls.
+
+Steop is deliberately thin on the hook side and fat on the read side: hooks fire-and-forget; skills read state to resume mid-session.
 
 ## 2. Non-goals
 
-- No `.steop/` or `.cerbrix/` directory. Session state lives in stele-server's SQLite.
-- No web HUD and no standalone TUI panel. Live progress surfaces through Claude Code's native `statusLine` setting as a two-line display: both lines are rendered by the `steop statusline` subcommand, which reads Claude Code's stdin JSON directly. Line 1 shows model / project / git branch / context bar / rate limits or cost; line 2 shows the steop pipeline state. `/steop:statusline-setup` patches `~/.claude/settings.json` to point `statusLine` directly at `steop statusline` — no shell script, no `jq` prerequisite.
-- No tmux team coordination.
-- No feature-flag DSL or config schema language.
-- No rewrite of stele itself in Go. Stele stays Rust; steop talks to it over HTTP.
+- Not a general-purpose logging service. Use the stele memory layer for structured knowledge.
+- Not a real-time event bus. The mailbox and log are polled, not pushed.
+- Not a process supervisor. Steop tracks Claude Code sessions, not shell processes.
+- Not a multi-tenant system. A single stele server typically serves a team on a local network or a single developer on localhost. Cross-machine visibility is by design.
 
 ## 3. Architecture
 
-Three layers:
+Steop has three layers:
 
-1. **Plugin content** (`plugins/steop/`) — markdown skills (`st-flow`, `st-clarify`, `st-research`, `st-plan`, `st-execute`, `st-validate`) and subagents (`consultant`, `researcher`, `architect`, `executor`, `reviewer`). This is the part Claude Code loads and reads; it drives the pipeline.
-2. **Go runtime** (`apps/steop/`) — a single `steop` binary with subcommands `hook`, `state`, `storage`, `statusline`, `monitor`, `version`. Installed to `~/.local/bin/steop` by `/steop:install` (or by `apps/steop/scripts/build.sh` for developers). The binary must be on the user's `PATH`; hooks invoke it as a bare `steop` command, and Claude Code invokes `steop statusline` every couple of seconds if `/steop:statusline-setup` has been run. It is the target of every hook invocation and of any CLI call the skills make.
-3. **Stele server API** (`/api/v1/steop/*`) — REST endpoints on the existing stele-server process. New tables live alongside existing `memories`, `entities`, `relations`, etc. The server is the single source of truth.
+1. **Go binary (`steop`)** — installed to `~/.local/bin/steop`. Dispatches hooks, evaluates PreToolUse safety rules, maintains the current-session sentinel file. Reads config from `~/.config/stele/config.toml`. Compiled from `apps/steop/`.
+
+2. **Claude Code hooks** — registered in `plugins/steop/hooks/hooks.json`. On every Claude Code lifecycle event, the hook shell invokes `steop hook <event>` with JSON on stdin.
+
+3. **Stele server API** (`/api/v1/steop/*`) — RPC-style endpoints on the existing stele-server process. Every method is `POST /api/v1/steop/<method>` with a JSON body. Tables (`steop_sessions`, `steop_storage_session`, `steop_storage_project`, `steop_mailbox`, `steop_logs`) live alongside the existing `memories`, `entities`, `relations` tables. The server is the single source of truth.
 
 ```
- Claude Code
-     |
-     v
- hooks/hooks.json  (PreToolUse/PostToolUse)
-     |
-     v
- steop  (Go, on PATH — installed to ~/.local/bin)
-     |   HTTP + X-Stele-Key
-     v
- stele-server  (Rust / axum)
-     |
-     v
- SQLite  (steop_storage / steop_state / steop_status)
+Claude Code lifecycle
+       │
+       ▼
+steop hook <event>  ←── hooks.json
+       │
+       │   HTTP POST /api/v1/steop/<method>
+       ▼
+stele-server process
+       │
+       ▼
+ SQLite  (steop_sessions / steop_storage_session / steop_storage_project / steop_mailbox / steop_logs)
 ```
 
-## 4. Persistence model
+## 4. Identity model
 
-Three resource groups, all namespaced under `/api/v1/steop/`.
+Steop addresses every resource with an **SSH/SCP-style composite identifier**. There are no implicit defaults and no header-based identity — v2 is body-only.
 
-- **Storage** — generic blob KV keyed by `(scope, key)`. Used for plans, snapshots, inboxes, arbitrary workflow blobs. Value is an opaque JSON document.
-- **State** — per-session state keyed by `session_id`. One row per session holding a JSON `data` object plus atomic integer `counters`. The counters map supports atomic increment and reset so hooks can bump them without racing the skill logic.
-- **Status** — statusline read projection keyed by `session_id`. Never 404s: when absent it returns a defaulted row so the status readers can render without special-casing.
+### Identifier grammar
 
-Four resource groups in v0.5.0:
+```
+project_ref  = host ":" project_dir
+session_ref  = host ":" project_dir ":" session_id
+```
 
-- **Storage** — generic blob KV keyed by `(scope, key)`. Plans, snapshots, arbitrary workflow blobs.
-- **State** — per-session state keyed by `session_id`. One row per session with JSON `data` + atomic integer `counters`.
-- **Status** — statusline read projection keyed by `session_id`. Never 404s.
-- **Log / Inbox (v0.5.0+)** — append-only structured event log (`steop_logs`) and session-summary FIFO queue (`steop_inbox`). Every row carries `host`, `session_id`, `project_dir`, timestamp.
+Examples:
 
-Endpoint table:
+- `vm-02:/home/tas/stele`               — a project on host `vm-02`
+- `vm-02:/home/tas/stele:a1b2c3d4-...`  — a specific session inside that project
+- `laptop:/Users/tas/work:9f...`         — a session on a different machine
 
-| Method | Path                                       | Body / Query                                            | Purpose                                          |
-| ------ | ------------------------------------------ | ------------------------------------------------------- | ------------------------------------------------ |
-| PUT    | /api/v1/steop/storage                      | query `?scope=&key=`, body `{"content":"..."}`          | Upsert a storage blob                            |
-| GET    | /api/v1/steop/storage                      | query `?scope=&key=`                                    | Read a storage blob                              |
-| DELETE | /api/v1/steop/storage                      | query `?scope=&key=`                                    | Delete a storage blob                            |
-| GET    | /api/v1/steop/storage/list                 | query `?scope=`                                         | List storage keys in a scope                     |
-| GET    | /api/v1/steop/state/:session_id            | —                                                       | Read session state + counters                    |
-| PUT    | /api/v1/steop/state/:session_id            | body `{"data":{...},"merge":true}`                      | Upsert `data` (merge by default)                 |
-| POST   | /api/v1/steop/state/:session_id/incr       | body `{"counter":"tool_calls","delta":1}`               | Atomic counter increment                         |
-| POST   | /api/v1/steop/state/:session_id/reset      | body `{"counter":"loop_count","value":0}`               | Reset counter to value                           |
-| DELETE | /api/v1/steop/state/:session_id            | —                                                       | Delete session state row (cascades counters)     |
-| GET    | /api/v1/steop/status/:session_id           | —                                                       | Read statusline projection (never 404s)         |
-| POST   | /api/v1/steop/log                          | body `{session_id, event, data, host?, project_dir?}`   | Append structured log event (v0.5.0+)            |
-| GET    | /api/v1/steop/log                          | query `?session_id=&host=&project_dir=&limit=`          | Query logs (DESC by created_at, default 200)     |
-| POST   | /api/v1/steop/inbox                        | body `{session_id, payload, host?, project_dir?}`       | Append session summary envelope (v0.5.0+)        |
-| GET    | /api/v1/steop/inbox                        | query `?session_id=&host=&project_dir=&limit=`          | Read inbox FIFO (ASC by created_at)              |
+`host` is the machine name (e.g. `os.Hostname()` in Go, `gethostname()` in Rust). `project_dir` is an absolute path. `session_id` is the Claude Code session UUID.
 
-- **Notify** (`POST /api/v1/steop/notify`) — fire-and-forget native OS notification. Desktop builds render via `notify-rust`; headless builds return 501. The Stop hook calls this with `title` = `"Claude Code · <cwd basename>"` and `body` = truncated `last_assistant_message`. The call is non-blocking: the Go handler swallows errors so Claude Code always stops cleanly. Note: macOS may prompt for notification permission on first fire — this is a runtime UX quirk, not solved in v1.
+Because Claude Code session UUIDs are globally unique in practice, **read** methods (`session.get`, `state.get`, `status.get`) may accept a bare `session_id` as a short form. **Write** methods always require the full triple (`host`, `project_dir`, `session_id`).
 
-### Log + Inbox semantics (v0.5.0+)
+### No server-side validation
 
-Both facilities are **append-only**. v0.5.0 has no DELETE or TTL — rows accumulate until the user prunes manually. This matches the intended use cases:
+The server does not validate that `host` looks like a hostname, that `project_dir` is absolute, or that identity fields are consistent across related calls. Clients are responsible for completeness. Empty strings are tolerated and treated as literal values.
 
-- **Logs** are operational breadcrumbs — hook events, phase transitions, subagent lifecycle. Query by `session_id` (most common), filtered by `host` / `project_dir` when debugging cross-machine. Keep the last ~200 per session is the default limit. Body precedence: request body fields win over `X-Steop-Host` / `X-Steop-Project-Dir` header fallbacks.
-- **Inbox** is a session-summary queue. On `Stop` and `SessionEnd`, the `steop` binary posts a payload containing final `data` + `counters` + any workflow metadata. A future reader (not yet implemented) would consume these to populate `/stele:sync` with "what did my last session do". FIFO ordering is enforced at query time via `ORDER BY created_at ASC`.
+### No headers
 
-### Composite session identity (v0.5.0+)
+v0.5 used `X-Steop-Host` and `X-Steop-Project-Dir` headers as an implicit identity channel. **v2 ignores these headers.** All identity is explicit in the request body.
 
-Problem: `session_id` alone is not unique across machines. Two Claude Code instances on different hosts can generate the same session ID (UUIDs are unique in practice but the guarantee doesn't bind stele). Worse, the same session ID can appear for different projects on the same machine if the user switches workspaces.
+## 5. Persistence model
 
-Solution: **every** outbound HTTP request from **every** stele client carries two additional headers. No matter the transport (REST API, MCP proxy) and no matter the route (`/api/v1/memories`, `/api/v1/graph/*`, `/api/v1/steop/*`, `/mcp`), the identifying headers are present:
+Five tables under the `steop_*` prefix. All are created idempotently by `ensure_steop_schema()` at server startup.
 
-- `X-Steop-Host` — the originating machine.
-- `X-Steop-Project-Dir` — the workspace directory.
+### 5.1 `steop_sessions` — session registry + state + counters
 
-#### Client injection
+One row per `(host, project_dir, session_id)`. Replaces the v0.5 `steop_state` + `steop_counters` tables. Counters live inside a JSON column on the session row; under the server's serialized SQLite mutex, read-modify-write on JSON is race-free.
 
-Both headers are populated at client construction time, not per-request, so zero code paths can bypass them:
+```sql
+CREATE TABLE IF NOT EXISTS steop_sessions (
+    host           TEXT NOT NULL,
+    project_dir    TEXT NOT NULL,
+    session_id     TEXT NOT NULL,
+    state          TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'stopped'
+    started_at     TEXT NOT NULL,
+    last_active_at TEXT NOT NULL,
+    stopped_at     TEXT,
+    data           TEXT NOT NULL DEFAULT '{}',      -- JSON: phase, mode, step, arbitrary keys
+    counters       TEXT NOT NULL DEFAULT '{}',      -- JSON: { "tool_calls": 12, "loop_count": 3 }
+    PRIMARY KEY (host, project_dir, session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_steop_sessions_host_proj  ON steop_sessions(host, project_dir);
+CREATE INDEX IF NOT EXISTS idx_steop_sessions_session_id ON steop_sessions(session_id);
+```
 
-| Client                         | Host source                                                                                      | Project dir source                                                          | Applied at                                            |
-| ------------------------------ | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Go steop (`apps/steop/`)       | `Profile.host` from `~/.config/stele/config.toml`; fallback `STELE_HOST` env; fallback `os.Hostname()`. Auto-backfilled into config on first load. | `CLAUDE_PROJECT_DIR` env; fallback `PWD`; fallback `os.Getwd()`.            | `client.New()` → `do()` sets headers unconditionally. |
-| Rust stele CLI (`stele-cli/`)  | `Profile.host` from config; fallback `STELE_HOST` env; fallback `gethostname::gethostname()`. Auto-backfilled into config on first load. | `CLAUDE_PROJECT_DIR` env; fallback `PWD`.                                   | `SteleClient::apply_headers()` on every get/post/put/delete. |
-| MCP proxy (`mcp_proxy.rs`)     | Same as Rust CLI.                                                                                 | Same as Rust CLI.                                                           | `forward_request`, `forward_request_capture`, shutdown DELETE. |
+The `session_id` index supports short-form read lookups. `data` and `counters` are opaque JSON; only top-level keys are projected by `steop.status.get`.
 
-Hook handlers in the Go steop binary additionally override `project_dir` per-call via `client.WithRequestContext("", in.Cwd)` using the hook stdin payload — the hook-reported `cwd` is more authoritative than the binary's own working directory when running as a hook subprocess.
+### 5.2 `steop_storage_session` — session-scoped KV
 
-Header values are ASCII-graphic sanitized (`/` kept for paths, control chars and spaces stripped) so they are always valid HTTP header values. The `sanitizeHeader()` helper in Go matches the Rust `SteleClient::sanitize()` behavior byte-for-byte.
+```sql
+CREATE TABLE IF NOT EXISTS steop_storage_session (
+    host        TEXT NOT NULL,
+    project_dir TEXT NOT NULL,
+    session_id  TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (host, project_dir, session_id, key)
+);
+```
 
-#### Server persistence
+### 5.3 `steop_storage_project` — project-scoped KV
 
-The server honors the headers on every steop write endpoint, not just log/inbox:
+```sql
+CREATE TABLE IF NOT EXISTS steop_storage_project (
+    host        TEXT NOT NULL,
+    project_dir TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (host, project_dir, key)
+);
+```
 
-| Endpoint                                    | Provenance persistence                                            |
-| ------------------------------------------- | ----------------------------------------------------------------- |
-| `PUT /api/v1/steop/state/:id`               | Writes `host`/`project_dir` into the row. Blank headers don't clobber pre-existing values. |
-| `POST /api/v1/steop/state/:id/incr`         | Calls `ensure_state_row` which backfills blank columns on the first counter bump. |
-| `POST /api/v1/steop/state/:id/reset`        | Same as `incr`.                                                   |
-| `POST /api/v1/steop/log`                    | Persists into `steop_logs` rows; body fields override headers.    |
-| `POST /api/v1/steop/inbox`                  | Persists into `steop_inbox` rows; body fields override headers.   |
-| `GET`/search routes on memories/graph       | Not persisted (no composite columns on memory tables in v0.5.0). Headers are still sent and available to future analytics/audit layers. |
+The two storage tables are dispatched by presence of `session_id` in the request body. `steop.storage.put {host, project_dir, key, content}` writes the project table; adding `session_id` routes to the session table. There is no "global" scope — every blob is anchored to at least a project.
 
-Schema change: the `steop_state` table gained `host TEXT NOT NULL DEFAULT ''` and `project_dir TEXT NOT NULL DEFAULT ''` columns via an idempotent `ALTER TABLE` guarded by `pragma_table_info('steop_state')` in `ensure_steop_schema()`. New rows populate from incoming headers. Pre-existing rows keep their defaults (`''`) until their next PUT or counter mutation, at which point `ensure_state_row` fills the blank columns without disturbing any non-blank values already there.
+### 5.4 `steop_mailbox` — inter-session messaging
 
-The primary key remains `session_id` alone in v0.5.0 — true composite-PK uniqueness is a v2 migration. The columns are provenance metadata today, not part of the identity.
+Replaces the v0.5 `steop_inbox` table. "Mailbox" is the subsystem name (not a place); messages are addressed to either a session or a project.
 
-Headers are optional: the server tolerates their absence and defaults to empty strings. Clients that don't set them behave identically to v0.4.x, and the server does not clobber previously stored provenance with blank values from such clients.
+```sql
+CREATE TABLE IF NOT EXISTS steop_mailbox (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_host        TEXT NOT NULL,
+    from_project_dir TEXT NOT NULL,
+    from_session_id  TEXT NOT NULL,
+    to_host          TEXT NOT NULL,
+    to_project_dir   TEXT NOT NULL,
+    to_session_id    TEXT NOT NULL DEFAULT '',  -- '' = project-level recipient
+    payload          TEXT NOT NULL DEFAULT '{}',
+    created_at       TEXT NOT NULL,
+    acked_at         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_steop_mailbox_to
+    ON steop_mailbox(to_host, to_project_dir, to_session_id, created_at);
+```
 
-## 5. Hook taxonomy
+Addressing rules:
 
-All 11 Claude Code hook events are wired in v0.5.0. Dispatcher at `apps/steop/cmd_hook.go` routes each event to a handler under `apps/steop/internal/hooks/`. Handlers read `HookInput` from stdin, emit one of `Allow()`, `DenyPreToolUse(reason)`, or `InjectUserPromptContext(text)` to stdout, and always exit 0.
+- **Sender** (`from_*`) is **always** a session — a message must originate from a concrete `(host, project_dir, session_id)`. There is no "project sent this" origin. Hooks and skills must have a live session to send mail.
+- **Recipient** (`to_*`) is either:
+  - a project — `to_session_id = ''`, inbox drains to any session in that project that polls for it
+  - a session — `to_session_id` is the full UUID, delivered to that session only
 
-| Event                 | Matcher | Handler                           | v0.5.0 behavior                                                                                      |
-| --------------------- | ------- | --------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `SessionStart`        | `*`     | `session_start.go`                | Log `{cwd, permission_mode}` to `/api/v1/steop/log`                                                  |
-| `UserPromptSubmit`    | `*`     | `user_prompt_submit.go`           | Write session sentinel; on `st-<phase>:` / `/steop:st-<phase>` triggers, inject matching SKILL.md    |
-| `PreToolUse`          | `Bash`  | `pre_tool_use.go`                 | Deny force-push, `rm -rf /`, `rm -rf ~/`, `rm -rf $HOME` via regex                                   |
-| `PermissionRequest`   | `*`     | `permission_request.go`           | Observe-only stub (returns `Allow()`)                                                                |
-| `PostToolUse`         | `*`     | `post_tool_use.go`                | Increment `tool_calls` counter + merge `{last_tool, last_tool_at}` into state + log event            |
-| `PostToolUseFailure`  | `*`     | `post_tool_use_failure.go`        | Log `{tool_name, error, is_interrupt}`                                                               |
-| `SubagentStart`       | `*`     | `subagent_start.go`               | Log `{agent_id, agent_type, model, prompt[:500]}`                                                    |
-| `SubagentStop`        | `*`     | `subagent_stop.go`                | Log `{agent_id, agent_type, output[:500], success}`                                                  |
-| `PreCompact`          | `*`     | `pre_compact.go`                  | Log `{cwd, trigger}`                                                                                 |
-| `Stop`                | `*`     | `stop.go`                         | Desktop notify + fetch state + post inbox summary + log persistent_mode flag + clear phase/mode      |
-| `SessionEnd`          | `*`     | `session_end.go`                  | Log `{cwd, reason, transcript_path}` + post inbox summary with final `data` + `counters`             |
+Ack is explicit via `steop.mailbox.ack {id}`. Acked messages stay in the table (for audit) with a non-null `acked_at`; list operations return unacked by default.
 
-Hook manifest lives at `plugins/steop/hooks/hooks.json`. Per-event timeouts: 3s for `PostToolUse` (hot path), 10s for `Stop`, 30s for `SessionEnd`, 5s for the rest. All HTTP calls from the handlers use a 500ms `fastClone()` timeout so a dead stele-server never stalls Claude Code beyond 500ms per event.
+### 5.5 `steop_logs` — append-only structured event log
 
-### Keyword injection in UserPromptSubmit
+```sql
+CREATE TABLE IF NOT EXISTS steop_logs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    host        TEXT NOT NULL,
+    project_dir TEXT NOT NULL,
+    session_id  TEXT NOT NULL,
+    event       TEXT NOT NULL,
+    data        TEXT NOT NULL DEFAULT '{}',
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_steop_logs_session ON steop_logs(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_steop_logs_proj    ON steop_logs(host, project_dir, created_at);
+```
 
-Opt-in explicit triggers only. No implicit auto-routing — the gap-analysis non-goal applies.
+v2 clients always populate all three identity fields (`host`, `project_dir`, `session_id`) in every log write.
 
-| Trigger regex                              | Skill injected    |
-| ------------------------------------------ | ----------------- |
-| `^/?(steop:)?st-flow\b` or `^flow:`        | `st-flow`         |
-| `^/?(steop:)?st-clarify\b` or `^clarify:`  | `st-clarify`      |
-| `^/?(steop:)?st-research\b` or `^research:`| `st-research`     |
-| `^/?(steop:)?st-plan\b` or `^plan:`        | `st-plan`         |
-| `^/?(steop:)?st-execute\b` or `^execute:`  | `st-execute`      |
-| `^/?(steop:)?st-validate\b` or `^validate:`| `st-validate`     |
+## 6. RPC API
 
-Skill body loaded from `$CLAUDE_PLUGIN_ROOT/skills/<name>/SKILL.md`. Missing env var or file → fall through to `Allow()`. Output shape: `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"<full SKILL.md contents>"}}`.
+All methods are `POST /api/v1/steop/<method>` with `Content-Type: application/json`. The method name is dot-separated (`steop.session.start`, `steop.storage.put`, etc.). Request body is a JSON object. Response is a JSON object. Errors use `{ "error": "message" }` with an appropriate HTTP status code.
 
-## 6. Phase roadmap
+There are no path parameters, no query parameters, and no header-based identity. This makes the transport trivially proxyable and loggable.
 
-- **v0.4 (done)** — foundation. Go runtime, 4 hook events, REST endpoints for storage/state/status/notify, PreToolUse deny list, PostToolUse counter, manifest + docs + CI. Statusline rendered in-process (v0.4.12).
-- **v0.5 (current)** — full hook surface + composite identity. All 11 Claude Code events wired, `log` + `inbox` REST endpoints, `host` + `project_dir` composite session identity with `X-Steop-*` headers, keyword injection on UserPromptSubmit, hostname auto-detected on first config load. Persistent-mode flag read-only.
-- **v0.6** — consumers. `/stele:sync` reads inbox to surface past-session summaries. `steop recap` skill. Deliverable verification heuristics on `SubagentStop`. Compact-rescue memory tagging on `PreCompact`.
-- **v0.7** — persistent-mode honored. Stop hook returns `{"decision":"block","reason":"..."}` when `persistent_mode` flag is set, with safety guards against infinite loops.
-- **v1.0** — release surface. Prebuilt binaries, optional MCP tool wrappers around the REST endpoints, FTS over log payloads.
+### 6.1 Method catalogue
 
-## 7. Versioning
+#### Session lifecycle
 
-The plugin version in `plugins/steop/.claude-plugin/plugin.json` and the Go `const Version` in `apps/steop/version.go` must match. CI enforces this. Together they are the **single source of truth** for the human-facing steop version — what `steop version` prints, what the plugin marketplace displays.
+| Method                | Body                                                           | Returns                              |
+| --------------------- | -------------------------------------------------------------- | ------------------------------------ |
+| `steop.session.start` | `{host, project_dir, session_id, data?}`                       | `Session`                            |
+| `steop.session.stop`  | `{host, project_dir, session_id}`                              | `Session`                            |
+| `steop.session.touch` | `{host, project_dir, session_id}`                              | `Session`                            |
+| `steop.session.get`   | `{session_id}` **or** `{host, project_dir, session_id}`        | `Session` or 404                     |
+| `steop.session.list`  | `{host?, project_dir?, state?, limit?}`                        | `{sessions: Session[]}`              |
+| `steop.project.list`  | `{host?}`                                                      | `{projects: [{host, project_dir}]}`  |
 
-The REST contract under `/api/v1/steop/*` is frozen at v1. Additive changes (new fields, new endpoints) are allowed. Any breaking change requires a new `/api/v2/steop/*` prefix; v1 must keep working.
+`start` is idempotent — if the row already exists, set `state='active'`, refresh `last_active_at`, clear `stopped_at`, and merge `data` if supplied. `stop` sets `state='stopped'` and `stopped_at=now`. `touch` only updates `last_active_at`.
 
-**No separate Go module tags.** `apps/steop/` is a subdirectory Go module inside this monorepo. Go's proxy expects such modules to be tagged with a subdirectory prefix (`apps/steop/vX.Y.Z`), which would fork the tag namespace and create churn every time steop moves independently of stele-server. We deliberately do **not** maintain that parallel tag stream.
+`session.list` filters: no fields = all sessions; `{host}` = all sessions for a host; `{host, project_dir}` = all sessions for a project; `{state:"active"}` = filter by lifecycle state. Ordered by `last_active_at` DESC, default `limit=100`.
 
-Instead, `/steop:install` installs from the `main` branch tip:
+#### Session state and counters
+
+| Method               | Body                                                          | Returns                  |
+| -------------------- | ------------------------------------------------------------- | ------------------------ |
+| `steop.state.get`    | `{session_id}` **or** `{host, project_dir, session_id}`       | `Session` or 404         |
+| `steop.state.put`    | `{host, project_dir, session_id, data, merge?=true}`          | `Session`                |
+| `steop.state.incr`   | `{host, project_dir, session_id, counter, delta?=1}`          | `{counter, value}`       |
+| `steop.state.reset`  | `{host, project_dir, session_id, counter, value?=0}`          | `{counter, value}`       |
+| `steop.state.delete` | `{host, project_dir, session_id}`                             | `{deleted: true|false}`  |
+
+`state.put` merges into the `data` JSON column (shallow merge, top-level key replacement) unless `merge:false` replaces the object entirely. `incr`/`reset` operate on the `counters` JSON column. All write methods refresh `last_active_at` and create the session row if absent (implicit start; `state='active'`).
+
+#### Statusline projection
+
+| Method             | Body                                                    | Returns                              |
+| ------------------ | ------------------------------------------------------- | ------------------------------------ |
+| `steop.status.get` | `{session_id}` **or** `{host, project_dir, session_id}` | `StatusProjection` (always 200)      |
+
+Projects `{session_id, mode, phase, step, tool_calls, loop_count, step_retry, last_active_at}` from `data` + `counters`. Returns defaulted values for unknown sessions so the statusline render path has no error branch.
+
+#### Storage (generic KV)
+
+| Method                 | Body                                                     | Returns                               |
+| ---------------------- | -------------------------------------------------------- | ------------------------------------- |
+| `steop.storage.put`    | `{host, project_dir, key, content, session_id?}`         | `{key, updated_at}`                   |
+| `steop.storage.get`    | `{host, project_dir, key, session_id?}`                  | `StorageBlob` or 404                  |
+| `steop.storage.delete` | `{host, project_dir, key, session_id?}`                  | `{deleted: true|false}`               |
+| `steop.storage.list`   | `{host, project_dir, session_id?}`                       | `{items: [{key, updated_at, size}]}`  |
+
+Presence of `session_id` selects `steop_storage_session`; absence selects `steop_storage_project`. Writes are upserts that refresh `updated_at`.
+
+#### Log
+
+| Method             | Body                                                     | Returns             |
+| ------------------ | -------------------------------------------------------- | ------------------- |
+| `steop.log.append` | `{host, project_dir, session_id, event, data?}`          | `{id}`              |
+| `steop.log.query`  | `{host?, project_dir?, session_id?, limit?=200}`         | `{logs: LogRow[]}`  |
+
+`query` filters additively: no fields = all logs, `{session_id}` = one session, `{host, project_dir}` = one project, etc. Ordered by `created_at` DESC.
+
+#### Mailbox
+
+| Method               | Body                                                                                                   | Returns                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------- |
+| `steop.mailbox.send` | `{from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id?, payload}`    | `{id}`                     |
+| `steop.mailbox.list` | `{to_host, to_project_dir, to_session_id?, limit?=200, include_acked?=false}`                          | `{messages: MailboxRow[]}` |
+| `steop.mailbox.ack`  | `{id}`                                                                                                 | `{acked: true|false}`      |
+
+A `list` call with `{to_host, to_project_dir}` returns project-level messages (those with `to_session_id=''`); adding `to_session_id` returns session-level messages addressed to that session. Short identifiers are **not** supported in mailbox methods — addressing must always be fully qualified. Ordered by `created_at` ASC (FIFO).
+
+#### Notifications
+
+| Method         | Body                                        | Returns    |
+| -------------- | ------------------------------------------- | ---------- |
+| `steop.notify` | `{title?, body?, subtitle?, sound?=false}`  | `{}` / 501 |
+
+Unchanged from v0.5 semantics. No identity fields (notifications are local to the server host).
+
+### 6.2 Response types
+
+```json
+// Session
+{
+  "host":           "string",
+  "project_dir":    "string",
+  "session_id":     "string",
+  "state":          "active | stopped",
+  "started_at":     "string (RFC3339)",
+  "last_active_at": "string (RFC3339)",
+  "stopped_at":     "string (RFC3339) | null",
+  "data":           {},
+  "counters":       { "tool_calls": 12 }
+}
+
+// StatusProjection
+{
+  "session_id":     "string",
+  "mode":           "string",
+  "phase":          "string",
+  "step":           "string",
+  "tool_calls":     0,
+  "loop_count":     0,
+  "step_retry":     0,
+  "last_active_at": "string (RFC3339)"
+}
+
+// StorageBlob
+{
+  "host":        "string",
+  "project_dir": "string",
+  "session_id":  "string | null",
+  "key":         "string",
+  "content":     "string",
+  "created_at":  "string (RFC3339)",
+  "updated_at":  "string (RFC3339)"
+}
+
+// LogRow
+{
+  "id":          1234,
+  "host":        "string",
+  "project_dir": "string",
+  "session_id":  "string",
+  "event":       "string",
+  "data":        {},
+  "created_at":  "string (RFC3339)"
+}
+
+// MailboxRow
+{
+  "id":               1234,
+  "from_host":        "string",
+  "from_project_dir": "string",
+  "from_session_id":  "string",
+  "to_host":          "string",
+  "to_project_dir":   "string",
+  "to_session_id":    "string",
+  "payload":          {},
+  "created_at":       "string (RFC3339)",
+  "acked_at":         "string (RFC3339) | null"
+}
+```
+
+### 6.3 Removed v0.5 surface
+
+All REST routes under `/api/v1/steop/*` that used path parameters, query parameters, or header-based identity are **removed** in v2. There is no deprecation window (stele is pre-1.0). The removed routes are:
+
+```
+PUT/GET/DELETE /api/v1/steop/storage?scope=&key=
+GET            /api/v1/steop/storage/list?scope=
+GET            /api/v1/steop/storage/scopes
+GET/PUT/DELETE /api/v1/steop/state/{session_id}
+POST           /api/v1/steop/state/{session_id}/incr
+POST           /api/v1/steop/state/{session_id}/reset
+GET            /api/v1/steop/status/{session_id}
+GET            /api/v1/steop/sessions
+GET            /api/v1/steop/sessions/{id}
+POST           /api/v1/steop/notify
+POST/GET       /api/v1/steop/log
+POST/GET       /api/v1/steop/inbox
+```
+
+Clients that were relying on the `X-Steop-Host` / `X-Steop-Project-Dir` headers must be updated to send identity in the request body. The headers are ignored by v2.
+
+## 7. Hook taxonomy
+
+| Event               | Handler                    | Client required | Behavior                                                                                                              |
+| ------------------- | -------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `UserPromptSubmit`  | `HandleUserPromptSubmit`   | No              | Writes session ID to sentinel file. Injects SKILL.md body if prompt matches skill trigger regex.                      |
+| `PreToolUse`        | `HandlePreToolUse`         | No              | Regex-matches Bash commands for dangerous patterns; returns `DenyPreToolUse` or `Allow`.                              |
+| `PostToolUse`       | `HandlePostToolUse`        | Yes             | `steop.state.incr {counter:"tool_calls"}` + `steop.state.put {data:{last_tool, last_tool_at}, merge:true}` + `steop.log.append` |
+| `Stop`              | `HandleStop`               | Yes             | `steop.notify` + `steop.state.get` + `steop.mailbox.send` (to project-level) + `steop.state.put {data:{phase:null, mode:null}, merge:true}` |
+| `SessionStart`      | `HandleSessionStart`       | Yes             | `steop.session.start {host, project_dir, session_id, data:{cwd, permission_mode}}` + `steop.log.append {event:"session_start"}` |
+| `SessionEnd`        | `HandleSessionEnd`         | Yes             | `steop.log.append {event:"session_end", data:{reason,...}}` + `steop.mailbox.send` (project-level summary) + `steop.session.stop` |
+| `PermissionRequest` | `HandlePermissionRequest`  | No              | Returns `Allow()` unconditionally (observe-only, v1).                                                                 |
+| `PostToolUseFailure`| `HandlePostToolUseFailure` | Yes             | `steop.log.append {event:"post_tool_use_failure", data:{tool_name, error, is_interrupt}}`                             |
+| `SubagentStart`     | `HandleSubagentStart`      | Yes             | `steop.log.append {event:"subagent_start", data:{agent_id, agent_type, model, prompt (truncated)}}`                   |
+| `SubagentStop`      | `HandleSubagentStop`       | Yes             | `steop.log.append {event:"subagent_stop", data:{agent_id, agent_type, output (truncated), success}}`                  |
+| `PreCompact`        | `HandlePreCompact`         | Yes             | `steop.log.append {event:"pre_compact", data:{trigger, cwd}}`                                                         |
+
+## 8. Phase roadmap
+
+- **v0.1–0.4** — initial spike, hook skeleton, state API, counters.
+- **v0.5 (previous)** — REST API. Log + inbox append-only. Composite session identity (`host` + `project_dir`) via `X-Steop-*` headers. `steop_state` + `steop_counters` separate tables. PreToolUse safety rules. `persistent_mode` flag stored but not honored.
+- **v0.6 (current)** — RPC redesign. Breaking API migration: all `/api/v1/steop/*` endpoints are now `POST /api/v1/steop/<method>` RPC with body-only input. Composite SSH-style identity (`host:project_dir[:session_id]`) is mandatory and explicit. New tables: `steop_sessions` (merges state + counters), `steop_storage_session`, `steop_storage_project`, `steop_mailbox` (replaces `steop_inbox`). Explicit `session.start`/`stop`/`touch` lifecycle. Mailbox with project-level and session-level addressing plus explicit ack. Go and Rust clients migrated.
+- **v0.7** — consumers. `/stele:sync` drains the mailbox for past-session summaries. `steop recap` skill. Deliverable verification heuristics on `SubagentStop`.
+- **v0.8** — persistent-mode honored. Stop hook returns `{"decision":"block","reason":"..."}` when `persistent_mode` flag is set, with safety guards against infinite loops.
+- **v1.0** — release surface. Prebuilt binaries, optional MCP tool wrappers around the RPC methods, FTS over log payloads.
+
+## 9. Versioning
+
+The RPC contract under `/api/v1/steop/*` is versioned together with the stele-server workspace version. v0.6.0 is a breaking migration from v0.5 — endpoints, schema, and identity model all changed. Future additive changes (new methods, new optional fields) bump minor. Any further breaking change bumps minor again until v1.0, at which point SemVer kicks in and breaking changes require a `/api/v2/steop/*` prefix.
+
+The stele workspace version, the steop plugin version, and the Go binary version must always match. Use `scripts/bump-version.py` to move them in lock-step.
+
+## 10. Verifying v0.6 (smoke tests)
 
 ```bash
-go install github.com/tasanakorn/stele/apps/steop@main
+KEY=...
+URL=http://127.0.0.1:3100/api/v1/steop
+H="X-Stele-Key: $KEY"
+CT="Content-Type: application/json"
+
+# session lifecycle
+curl -sS -X POST "$URL/steop.session.start" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","data":{"phase":"plan"}}'
+
+curl -sS -X POST "$URL/steop.session.touch" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1"}'
+
+curl -sS -X POST "$URL/steop.session.get" -H "$H" -H "$CT" \
+  -d '{"session_id":"sess-1"}'
+
+curl -sS -X POST "$URL/steop.session.list" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","state":"active"}'
+
+# state + counters
+curl -sS -X POST "$URL/steop.state.put" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","data":{"phase":"execute"},"merge":true}'
+
+curl -sS -X POST "$URL/steop.state.incr" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","counter":"tool_calls","delta":1}'
+
+curl -sS -X POST "$URL/steop.state.reset" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","counter":"tool_calls","value":0}'
+
+# status
+curl -sS -X POST "$URL/steop.status.get" -H "$H" -H "$CT" \
+  -d '{"session_id":"sess-1"}'
+
+# storage (session-level)
+curl -sS -X POST "$URL/steop.storage.put" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","key":"plan","content":"{\"steps\":[1,2,3]}"}'
+
+curl -sS -X POST "$URL/steop.storage.get" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","key":"plan"}'
+
+curl -sS -X POST "$URL/steop.storage.list" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1"}'
+
+# storage (project-level, no session_id)
+curl -sS -X POST "$URL/steop.storage.put" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","key":"brief","content":"shared"}'
+
+# log
+curl -sS -X POST "$URL/steop.log.append" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","event":"post_tool_use","data":{"tool_name":"Bash"}}'
+
+curl -sS -X POST "$URL/steop.log.query" -H "$H" -H "$CT" \
+  -d '{"session_id":"sess-1","limit":20}'
+
+# mailbox
+curl -sS -X POST "$URL/steop.mailbox.send" -H "$H" -H "$CT" \
+  -d '{"from_host":"laptop","from_project_dir":"/tmp/demo","from_session_id":"sess-1","to_host":"laptop","to_project_dir":"/tmp/demo","payload":{"phase":"validate","tool_calls":42}}'
+
+curl -sS -X POST "$URL/steop.mailbox.list" -H "$H" -H "$CT" \
+  -d '{"to_host":"laptop","to_project_dir":"/tmp/demo"}'
+
+curl -sS -X POST "$URL/steop.mailbox.ack" -H "$H" -H "$CT" \
+  -d '{"id":1}'
+
+# session stop
+curl -sS -X POST "$URL/steop.session.stop" -H "$H" -H "$CT" \
+  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1"}'
 ```
 
-This records a Go pseudo-version (e.g. `v0.0.0-20260410133000-abc123def456`) in the binary's build metadata — visible via `go version -m $(which steop)` — while `steop version` still prints the human-facing version from `version.go`. Pseudo-versions are the commit the user actually got; the const is the release they think they got. In practice the two should agree because `main` is the only shipping branch.
+## 11. Known limitations
 
-If we ever need independent release tagging for steop (for reproducible pins, a plugin marketplace that wants semver, or a detached release cadence from stele-server), options in order of preference:
-
-1. **Publish prebuilt binaries via GitHub Releases** and rewrite `/steop:install` to download them. No Go toolchain required on the user's machine, no tag pollution, reproducible artefacts.
-2. **Adopt `apps/steop/vX.Y.Z` tags** as Go's native multi-module convention. Cheap per-release but doubles the tag namespace.
-3. **Split `apps/steop/` into its own repository.** Clean but loses the monorepo coupling with `stele-server`.
-
-Until any of those become necessary, `@main` + the version const is deliberately enough.
-
-## 8. Verifying v1 (smoke tests)
-
-Against a running stele-server on `http://127.0.0.1:3100` with auth key `$KEY`:
-
-```bash
-# --- storage ---
-curl -sS -X PUT "http://127.0.0.1:3100/api/v1/steop/storage?scope=demo&key=plan" \
-  -H "X-Stele-Key: $KEY" -H 'Content-Type: application/json' \
-  -d '{"content":"{\"title\":\"first plan\",\"steps\":[1,2,3]}"}'
-
-curl -sS "http://127.0.0.1:3100/api/v1/steop/storage?scope=demo&key=plan" \
-  -H "X-Stele-Key: $KEY"
-
-curl -sS "http://127.0.0.1:3100/api/v1/steop/storage/list?scope=demo" \
-  -H "X-Stele-Key: $KEY"
-
-curl -sS -X DELETE "http://127.0.0.1:3100/api/v1/steop/storage?scope=demo&key=plan" \
-  -H "X-Stele-Key: $KEY"
-
-# --- state ---
-curl -sS -X PUT http://127.0.0.1:3100/api/v1/steop/state/sess-1 \
-  -H "X-Stele-Key: $KEY" -H 'Content-Type: application/json' \
-  -d '{"data":{"phase":"plan"},"merge":true}'
-
-curl -sS http://127.0.0.1:3100/api/v1/steop/state/sess-1 \
-  -H "X-Stele-Key: $KEY"
-
-curl -sS -X POST http://127.0.0.1:3100/api/v1/steop/state/sess-1/incr \
-  -H "X-Stele-Key: $KEY" -H 'Content-Type: application/json' \
-  -d '{"counter":"tool_calls","delta":1}'
-
-curl -sS -X POST http://127.0.0.1:3100/api/v1/steop/state/sess-1/reset \
-  -H "X-Stele-Key: $KEY" -H 'Content-Type: application/json' \
-  -d '{"counter":"tool_calls","value":0}'
-
-curl -sS -X DELETE http://127.0.0.1:3100/api/v1/steop/state/sess-1 \
-  -H "X-Stele-Key: $KEY"
-
-# --- status ---
-curl -sS http://127.0.0.1:3100/api/v1/steop/status/sess-1 \
-  -H "X-Stele-Key: $KEY"
-
-# --- log (v0.5.0+) ---
-curl -sS -X POST http://127.0.0.1:3100/api/v1/steop/log \
-  -H "X-Stele-Key: $KEY" -H 'Content-Type: application/json' \
-  -H 'X-Steop-Host: laptop-a' -H 'X-Steop-Project-Dir: /tmp/proj' \
-  -d '{"session_id":"sess-1","event":"post_tool_use","data":{"tool_name":"Bash"}}'
-
-curl -sS "http://127.0.0.1:3100/api/v1/steop/log?session_id=sess-1&limit=20" \
-  -H "X-Stele-Key: $KEY"
-
-# --- inbox (v0.5.0+) ---
-curl -sS -X POST http://127.0.0.1:3100/api/v1/steop/inbox \
-  -H "X-Stele-Key: $KEY" -H 'Content-Type: application/json' \
-  -d '{"session_id":"sess-1","host":"laptop-a","project_dir":"/tmp/proj","payload":{"phase":"validate","tool_calls":42}}'
-
-curl -sS "http://127.0.0.1:3100/api/v1/steop/inbox?session_id=sess-1" \
-  -H "X-Stele-Key: $KEY"
-```
-
-Hook smoke tests (local, no server required):
-
-```bash
-echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' \
-  | steop hook PreToolUse
-# => {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",...}}
-
-echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls -la"}}' \
-  | steop hook PreToolUse
-# => {}
-
-# Keyword injection (v0.5.0+)
-echo '{"session_id":"sess-1","cwd":"/tmp","hook_event_name":"UserPromptSubmit","prompt":"/steop:st-flow build the thing"}' \
-  | CLAUDE_PLUGIN_ROOT=$(pwd)/plugins/steop steop hook UserPromptSubmit
-# => {"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"<st-flow SKILL.md body>"}}
-
-# Subagent lifecycle log (v0.5.0+)
-echo '{"session_id":"sess-1","cwd":"/tmp","hook_event_name":"SubagentStop","agent_id":"a-1","agent_type":"researcher","output":"done","success":true}' \
-  | steop hook SubagentStop
-# => {}  (log event appended to steop_logs)
-```
-
-## 9. Known limitations
-
-- No server-side auth enforcement yet on steop endpoints beyond whatever the existing stele auth middleware provides.
-- No migrations subsystem. Schema changes are additive-only: `CREATE TABLE IF NOT EXISTS` for new tables, and the `ensure_steop_schema()` helper uses `pragma_table_info` guards before `ALTER TABLE ADD COLUMN`.
-- The stele-server uses a shared tokio mutex around its SQLite connection, so all DB access (including steop) is serialized. Fine for workflow-scale traffic but would need revisiting for high concurrency.
-- The `steop` binary must be rebuilt with `apps/steop/scripts/build.sh` after every Go source change. No auto-rebuild on install.
-- Status projection has no background materializer yet; it computes on read.
-- **v0.5.0**: `log` and `inbox` tables are append-only with no TTL or DELETE path. Rows accumulate until manually pruned.
-- **v0.5.0**: `steop_state` primary key is still `session_id` alone — the `host` + `project_dir` columns are metadata, not composite key. Two machines posting the same `session_id` will still collide on `/state/:id` writes. Composite PK is a v2 migration.
-- **v0.5.0**: `persistent_mode` flag is stored but not honored — Stop always returns `Allow()`. Full block-and-resume loop is v0.7.
-- **v0.5.0**: `PermissionRequest` handler is observe-only. It does not inject an allow/deny envelope, so user confirmation prompts are unaffected by steop today.
+- No server-side auth enforcement yet on steop endpoints beyond what the existing stele auth middleware provides.
+- No migrations subsystem. v0.6.0 is a hard break from v0.5 — old `steop_storage`, `steop_state`, `steop_counters`, `steop_inbox` tables are superseded by new tables. Users who need to preserve v0.5 data must export manually before upgrading.
+- The stele-server uses a shared tokio mutex around its SQLite connection, so all DB access (including steop) is serialized. Counters-as-JSON in `steop_sessions.counters` is race-free under this mutex. Fine for workflow-scale traffic; would need revisiting for high concurrency.
+- The `steop` binary must be rebuilt after every Go source change. No auto-rebuild on install.
+- Status projection has no background materializer; it computes on read.
+- Logs and mailbox are append-only with no TTL. Mailbox rows stay in the table after ack (for audit); rows accumulate until manually pruned.
+- The server does not validate identifier completeness. A client that sends `{host:"", project_dir:"", session_id:"x"}` will create a row with empty host/project_dir. Clients must take care.
+- `persistent_mode` flag is stored but not honored — Stop always returns `Allow()`. Full block-and-resume loop is v0.8.
+- `PermissionRequest` handler is observe-only.
