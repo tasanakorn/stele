@@ -9,6 +9,8 @@ type MailboxMessage struct {
 	ToHost         string      `json:"to_host"`
 	ToProjectDir   string      `json:"to_project_dir"`
 	ToSessionID    string      `json:"to_session_id"`
+	Kind           string      `json:"kind"`
+	Subject        string      `json:"subject"`
 	Payload        interface{} `json:"payload"`
 	CreatedAt      string      `json:"created_at"`
 	AckedAt        *string     `json:"acked_at"`
@@ -16,7 +18,7 @@ type MailboxMessage struct {
 
 // MailboxSend sends a message from a session to a project or session.
 // Set toSessionID="" to send to the project level.
-func (c *Client) MailboxSend(fromHost, fromProjectDir, fromSessionID, toHost, toProjectDir, toSessionID string, payload interface{}) (int64, error) {
+func (c *Client) MailboxSend(fromHost, fromProjectDir, fromSessionID, toHost, toProjectDir, toSessionID, kind, subject string, payload interface{}) (int64, error) {
 	body := map[string]interface{}{
 		"from_host":        fromHost,
 		"from_project_dir": fromProjectDir,
@@ -24,6 +26,8 @@ func (c *Client) MailboxSend(fromHost, fromProjectDir, fromSessionID, toHost, to
 		"to_host":          toHost,
 		"to_project_dir":   toProjectDir,
 		"to_session_id":    toSessionID,
+		"kind":             kind,
+		"subject":          subject,
 		"payload":          payload,
 	}
 	var resp struct {
@@ -37,8 +41,8 @@ func (c *Client) MailboxSend(fromHost, fromProjectDir, fromSessionID, toHost, to
 
 // MailboxSendFromSelf sends a message using the client's own host/projectDir as sender.
 // Uses fastClone for fire-and-forget.
-func (c *Client) MailboxSendFromSelf(sessionID, toHost, toProjectDir, toSessionID string, payload interface{}) (int64, error) {
-	return c.MailboxSend(c.host, c.projectDir, sessionID, toHost, toProjectDir, toSessionID, payload)
+func (c *Client) MailboxSendFromSelf(sessionID, toHost, toProjectDir, toSessionID, kind, subject string, payload interface{}) (int64, error) {
+	return c.MailboxSend(c.host, c.projectDir, sessionID, toHost, toProjectDir, toSessionID, kind, subject, payload)
 }
 
 // MailboxList lists messages for a recipient.

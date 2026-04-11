@@ -144,7 +144,9 @@ CREATE TABLE IF NOT EXISTS steop_mailbox (
     to_session_id    TEXT NOT NULL DEFAULT '',  -- '' = project-level recipient
     payload          TEXT NOT NULL DEFAULT '{}',
     created_at       TEXT NOT NULL,
-    acked_at         TEXT
+    acked_at         TEXT,
+    kind             TEXT NOT NULL DEFAULT 'LEGACY:UNKNOWN',
+    subject          TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_steop_mailbox_to
     ON steop_mailbox(to_host, to_project_dir, to_session_id, created_at);
@@ -158,6 +160,19 @@ Addressing rules:
   - a session — `to_session_id` is the full UUID, delivered to that session only
 
 Ack is explicit via `steop.mailbox.ack {id}`. Acked messages stay in the table (for audit) with a non-null `acked_at`; list operations return unacked by default.
+
+#### Envelope fields
+
+Every message carries two envelope fields that describe its origin and intent without requiring readers to inspect `payload`:
+
+- **`kind`** (required, non-empty) — structured message type. Vocabulary:
+  - `HOOK:Stop` — fired by the Stop hook with a session summary
+  - `HOOK:SessionEnd` — fired by the SessionEnd hook when Claude Code terminates a session
+  - `LEGACY:UNKNOWN` — default for rows created before envelope fields existed
+  - `TASK:*` — reserved for task-level messages from skills (e.g. `TASK:Result`, `TASK:Progress`)
+  - `NOTE:*` — reserved for human-authored or skill-authored notes
+  - `CHAT:MESSAGE` — reserved for direct session-to-session messages
+- **`subject`** (required, may be empty string) — human-readable one-line summary. For `HOOK:Stop` this is the truncated last assistant message. For `HOOK:SessionEnd` this is the session end reason or `"session ended"` if empty.
 
 ### 5.5 `steop_logs` — append-only structured event log
 
@@ -242,11 +257,11 @@ Presence of `session_id` selects `steop_storage_session`; absence selects `steop
 
 #### Mailbox
 
-| Method               | Body                                                                                                   | Returns                    |
-| -------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------- |
-| `steop.mailbox.send` | `{from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id?, payload}`    | `{id}`                     |
-| `steop.mailbox.list` | `{to_host, to_project_dir, to_session_id?, limit?=200, include_acked?=false}`                          | `{messages: MailboxRow[]}` |
-| `steop.mailbox.ack`  | `{id}`                                                                                                 | `{acked: true|false}`      |
+| Method               | Body                                                                                                                 | Returns                    |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `steop.mailbox.send` | `{from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id?, kind, subject, payload}`   | `{id}`                     |
+| `steop.mailbox.list` | `{to_host, to_project_dir, to_session_id?, limit?=200, include_acked?=false}`                                        | `{messages: MailboxRow[]}` |
+| `steop.mailbox.ack`  | `{id}`                                                                                                               | `{acked: true|false}`      |
 
 A `list` call with `{to_host, to_project_dir}` returns project-level messages (those with `to_session_id=''`); adding `to_session_id` returns session-level messages addressed to that session. Short identifiers are **not** supported in mailbox methods — addressing must always be fully qualified. Ordered by `created_at` ASC (FIFO).
 
@@ -317,6 +332,8 @@ Unchanged from v0.5 semantics. No identity fields (notifications are local to th
   "to_host":          "string",
   "to_project_dir":   "string",
   "to_session_id":    "string",
+  "kind":             "string",
+  "subject":          "string",
   "payload":          {},
   "created_at":       "string (RFC3339)",
   "acked_at":         "string (RFC3339) | null"
@@ -433,7 +450,7 @@ curl -sS -X POST "$URL/steop.log.query" -H "$H" -H "$CT" \
 
 # mailbox
 curl -sS -X POST "$URL/steop.mailbox.send" -H "$H" -H "$CT" \
-  -d '{"from_host":"laptop","from_project_dir":"/tmp/demo","from_session_id":"sess-1","to_host":"laptop","to_project_dir":"/tmp/demo","payload":{"phase":"validate","tool_calls":42}}'
+  -d '{"from_host":"laptop","from_project_dir":"/tmp/demo","from_session_id":"sess-1","to_host":"laptop","to_project_dir":"/tmp/demo","kind":"NOTE:INFO","subject":"demo message","payload":{"phase":"validate","tool_calls":42}}'
 
 curl -sS -X POST "$URL/steop.mailbox.list" -H "$H" -H "$CT" \
   -d '{"to_host":"laptop","to_project_dir":"/tmp/demo"}'

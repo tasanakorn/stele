@@ -41,7 +41,8 @@ func HandleStop(in *HookInput, c *client.Client) []byte {
 			"counters": state.Counters,
 			"ended_at": time.Now().UTC().Format(time.RFC3339),
 		}
-		if _, err := c.MailboxSendFromSelf(in.SessionID, c.Host(), c.ProjectDir(), "", payload); err != nil {
+		subject := buildBody(in.LastAssistantMessage)
+		if _, err := c.MailboxSendFromSelf(in.SessionID, c.Host(), c.ProjectDir(), "", "HOOK:Stop", subject, payload); err != nil {
 			logging.Debugf("stop mailbox send failed: %v", err)
 		}
 		if pm, ok := state.Data["persistent_mode"].(bool); ok && pm {

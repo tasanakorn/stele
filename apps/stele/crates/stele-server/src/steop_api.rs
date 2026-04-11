@@ -149,6 +149,8 @@ struct MailboxSendReq {
     to_host: String,
     to_project_dir: String,
     to_session_id: Option<String>,
+    kind: String,
+    subject: String,
     payload: Value,
 }
 
@@ -426,6 +428,9 @@ async fn log_query(State(db): State<DbPool>, Json(req): Json<LogQueryReq>) -> Re
 }
 
 async fn mailbox_send(State(db): State<DbPool>, Json(req): Json<MailboxSendReq>) -> Response {
+    if req.kind.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "kind must be non-empty"}))).into_response();
+    }
     let conn = db.lock().await;
     let to_sid = req.to_session_id.as_deref().unwrap_or("");
     match db::steop_mailbox_send(
@@ -436,6 +441,8 @@ async fn mailbox_send(State(db): State<DbPool>, Json(req): Json<MailboxSendReq>)
         &req.to_host,
         &req.to_project_dir,
         to_sid,
+        &req.kind,
+        &req.subject,
         &req.payload,
     ) {
         Ok(id) => Json(json!({ "id": id })).into_response(),

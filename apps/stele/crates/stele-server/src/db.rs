@@ -184,7 +184,9 @@ pub fn init_db(path: &str) -> rusqlite::Result<DbPool> {
             to_session_id    TEXT NOT NULL DEFAULT '',
             payload          TEXT NOT NULL DEFAULT '{}',
             created_at       TEXT NOT NULL,
-            acked_at         TEXT
+            acked_at         TEXT,
+            kind             TEXT NOT NULL DEFAULT 'LEGACY:UNKNOWN',
+            subject          TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_steop_mailbox_to
             ON steop_mailbox(to_host, to_project_dir, to_session_id, created_at);
@@ -214,6 +216,31 @@ fn ensure_steop_schema(conn: &Connection) -> rusqlite::Result<()> {
          DROP TABLE IF EXISTS steop_inbox;
          DROP TABLE IF EXISTS steop_logs;",
     )?;
+    // Migrate: add envelope columns if missing
+    {
+        let mut existing: std::collections::HashSet<String> = std::collections::HashSet::new();
+        {
+            let mut stmt = conn.prepare("PRAGMA table_info(steop_mailbox)")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            for r in rows {
+                existing.insert(r?);
+            }
+        }
+        if !existing.is_empty() {
+            if !existing.contains("kind") {
+                conn.execute(
+                    "ALTER TABLE steop_mailbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'LEGACY:UNKNOWN'",
+                    [],
+                )?;
+            }
+            if !existing.contains("subject") {
+                conn.execute(
+                    "ALTER TABLE steop_mailbox ADD COLUMN subject TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1317,6 +1344,8 @@ pub struct SteopMailboxRow {
     pub payload: serde_json::Value,
     pub created_at: String,
     pub acked_at: Option<String>,
+    pub kind: String,
+    pub subject: String,
 }
 
 fn steop_now() -> String {
@@ -1931,17 +1960,19 @@ pub fn steop_mailbox_send(
     to_host: &str,
     to_project_dir: &str,
     to_session_id: &str,
+    kind: &str,
+    subject: &str,
     payload: &serde_json::Value,
 ) -> rusqlite::Result<i64> {
     let now = steop_now();
     conn.execute(
         "INSERT INTO steop_mailbox
-         (from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id, payload, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         (from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id, kind, subject, payload, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
             from_host, from_project_dir, from_session_id,
             to_host, to_project_dir, to_session_id,
-            payload.to_string(), now
+            kind, subject, payload.to_string(), now
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -1956,7 +1987,7 @@ pub fn steop_mailbox_list(
     include_acked: bool,
 ) -> rusqlite::Result<Vec<SteopMailboxRow>> {
     let mut sql = String::from(
-        "SELECT id, from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id, payload, created_at, acked_at
+        "SELECT id, from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id, payload, created_at, acked_at, kind, subject
          FROM steop_mailbox WHERE to_host=?1 AND to_project_dir=?2 AND to_session_id=?3",
     );
     if !include_acked {
@@ -1981,6 +2012,8 @@ pub fn steop_mailbox_list(
                     payload: steop_parse_json(&payload_s),
                     created_at: row.get(8)?,
                     acked_at: row.get(9)?,
+                    kind: row.get(10)?,
+                    subject: row.get(11)?,
                 })
             },
         )?

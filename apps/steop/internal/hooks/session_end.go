@@ -39,7 +39,11 @@ func HandleSessionEnd(in *HookInput, c *client.Client) []byte {
 		payload["data"] = state.Data
 		payload["counters"] = state.Counters
 	}
-	if _, err := c.MailboxSendFromSelf(in.SessionID, c.Host(), c.ProjectDir(), "", payload); err != nil {
+	subject := in.Reason
+	if subject == "" {
+		subject = "session ended"
+	}
+	if _, err := c.MailboxSendFromSelf(in.SessionID, c.Host(), c.ProjectDir(), "", "HOOK:SessionEnd", subject, payload); err != nil {
 		logging.Debugf("session_end mailbox send failed: %v", err)
 	}
 	if _, err := c.SessionStop(c.Host(), c.ProjectDir(), in.SessionID); err != nil {

@@ -191,7 +191,7 @@ RPC-style surface mounted under `/api/v1/steop/*`. Every method is `POST /api/v1
 | `steop.storage.list`   | `host, project_dir, session_id?`                                                                        | List keys                                             |
 | `steop.log.append`     | `host, project_dir, session_id, event, data?`                                                           | Append log entry                                      |
 | `steop.log.query`      | `host?, project_dir?, session_id?, limit?=200`                                                          | Query logs (DESC)                                     |
-| `steop.mailbox.send`   | `from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id?, payload`        | Send message (session or project recipient)           |
+| `steop.mailbox.send`   | `from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id?, kind, subject, payload` | Send message (session or project recipient)           |
 | `steop.mailbox.list`   | `to_host, to_project_dir, to_session_id?, limit?=200, include_acked?=false`                             | List messages for recipient (FIFO)                    |
 | `steop.mailbox.ack`    | `id`                                                                                                    | Mark message acked                                    |
 | `steop.notify`         | `title?, body?, subtitle?, sound?=false`                                                                | Fire desktop notification                             |
