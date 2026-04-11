@@ -270,7 +270,7 @@ The plugin version in `plugins/stele/.claude-plugin/plugin.json` must match `app
 
 ## Versioning
 
-SemVer. Bump `apps/stele/Cargo.toml` (`[workspace.package].version`) and `plugins/stele/.claude-plugin/plugin.json` (`"version"`) together, then `cargo update --workspace`. Major = breaking MCP/API/DB changes, minor = new features, patch = fixes and docs.
+SemVer. Major = breaking MCP/API/DB changes, minor = new features, patch = fixes and docs. Use `scripts/bump-version.py` to move versions in lock-step — see [docs/versioning.md](docs/versioning.md) for components, bump semantics, and usage.
 
 ## Steop Plugin (Agentic Workflow)
 
