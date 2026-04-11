@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde_json::Value;
 use stele_common::models::{
     Entity, EntitySearchResult, Graph, Memory, ScopeInfo, SearchResult, TagInfo,
@@ -32,7 +34,9 @@ impl SteleClient {
         let host = Self::detect_host();
         let project_dir = Self::detect_project_dir();
         Self {
-            agent: Agent::new(),
+            agent: ureq::AgentBuilder::new()
+                .timeout(Duration::from_secs(10))
+                .build(),
             base_url,
             auth_key,
             host,
