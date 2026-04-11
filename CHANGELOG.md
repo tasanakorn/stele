@@ -105,7 +105,7 @@ Maintained with the help of AI tooling. Each entry references the git hash it co
 - CLI client (`stele-cli`) with multi-profile config, memory/graph commands, and MCP proxy (`599adb2`)
 - Cargo workspace split: `stele-common` (shared types), `stele-server`, `stele-cli` as separate crates (`599adb2`)
 - End-to-end integration test suite — 68 tests covering REST API and MCP transport (`797a687`)
-- Architecture docs: `docs/stele/architecture.md`, `docs/stele/cli.md`, `docs/stele/data-model.md`, `docs/stele/deployment.md`, `docs/stele/mcp-tools.md`, `docs/stele/rest-api.md`, `docs/stele/server.md` (`599adb2`)
+- Architecture docs: `docs/architecture.md`, `docs/stele/cli.md`, `docs/stele/data-model.md`, `docs/stele/deployment.md`, `docs/stele/mcp-tools.md`, `docs/stele/rest-api.md`, `docs/stele/server.md` (`599adb2`)
 
 ### Changed
 - README restructured around marketplace installation and plugin-first developer experience (`a0905d0`)
