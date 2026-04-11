@@ -190,7 +190,7 @@ Mounted under `/api/v1/steop/*`. Serves the `steop` Go binary and the stele CLI.
 | POST   | /api/v1/steop/inbox                       | Append session summary envelope (v0.5.0+)   |
 | GET    | /api/v1/steop/inbox                       | Read inbox FIFO (v0.5.0+)                   |
 
-**Composite session identity (v0.5.0+):** clients send `X-Steop-Host` and `X-Steop-Project-Dir` headers on every request. Server extractors fall back to these headers when a request body omits `host` / `project_dir`. The `steop_state` table gained `host` + `project_dir` columns via idempotent `ALTER TABLE` on startup. See `plugins/steop/docs/DESIGN.md` for the full v0.5 feature reference.
+**Composite session identity (v0.5.0+):** clients send `X-Steop-Host` and `X-Steop-Project-Dir` headers on every request. Server extractors fall back to these headers when a request body omits `host` / `project_dir`. The `steop_state` table gained `host` + `project_dir` columns via idempotent `ALTER TABLE` on startup. See `docs/steop/DESIGN.md` for the full v0.5 feature reference.
 
 ## rmcp Conventions
 
@@ -270,7 +270,7 @@ The plugin version in `plugins/stele/.claude-plugin/plugin.json` must match `app
 
 ## Versioning
 
-SemVer. Major = breaking MCP/API/DB changes, minor = new features, patch = fixes and docs. Use `scripts/bump-version.py` to move versions in lock-step — see [docs/versioning.md](docs/versioning.md) for components, bump semantics, and usage.
+SemVer. Major = breaking MCP/API/DB changes, minor = new features, patch = fixes and docs. Use `scripts/bump-version.py` to move versions in lock-step — see [docs/stele/versioning.md](docs/stele/versioning.md) for components, bump semantics, and usage.
 
 ## Steop Plugin (Agentic Workflow)
 

@@ -48,7 +48,7 @@ Status legend: **✓ v1** shipped · **v2** planned next · **v3+** later · **�
 | Team / parallel tmux coordination      | `cb-team` splits panes, aggregates results                          | Prose-level "launch parallel agents"                                 | B      | —      | In-prompt parallelism covers 90%                          |
 | Memory / knowledge persistence         | `.cerbrix/memory/` (reserved, unused)                               | Stele server (mature)                                                | C      | n/a    | Steop wins here, and now `steop_*` tables coexist         |
 | Plugin manifest richness               | Rich (skills/hooks/mcp keys)                                        | **`hooks/hooks.json` present**; skills/agents discovered by convention | A    | ✓ v1   | Hooks registered; skill frontmatter richer in v2          |
-| Design docs                            | `DESIGN.md` + `MVP-SPEC.md` + per-command docs                      | **`plugins/steop/docs/DESIGN.md` shipped** (9 sections)              | A      | ✓ v1   | This gap doc kept as planning ledger                      |
+| Design docs                            | `DESIGN.md` + `MVP-SPEC.md` + per-command docs                      | **`docs/steop/DESIGN.md` shipped** (9 sections)              | A      | ✓ v1   | This gap doc kept as planning ledger                      |
 | Agent `disallowedTools` deny-list      | Explicit deny for planner/architect/explorer                        | Allowlist only                                                       | A      | v2     | Defense in depth                                          |
 | Stable REST API contract               | No API — filesystem only                                            | **`/api/v1/steop/*` frozen** (storage/state/status)                  | —      | ✓ v1   | New capability, no cerbrix equivalent                     |
 | Atomic counter primitives              | Read-modify-write on JSON file                                      | **`/state/:id/incr` + `/reset`** — atomic via SQL `ON CONFLICT`      | —      | ✓ v1   | Correctness win over cerbrix                              |
@@ -61,7 +61,7 @@ These were the real gaps. Status after v1:
 
 - **PreToolUse safety gates** — ✓ **v1**. Six regex blocks (`git push --force`, `git push -f`, `git push origin main/master`, `rm -rf /`, `rm -rf ~`, `rm -rf $HOME`) emit `permissionDecision: "deny"` via `${CLAUDE_PLUGIN_ROOT}/bin/steop hook PreToolUse`. Command-chaining (`&&`, `;`) is handled.
 - **Plugin manifest enrichment** — ✓ **v1**. `plugins/steop/hooks/hooks.json` registers the hooks. Skills/agents still discovered by convention (keys are optional).
-- **DESIGN.md / philosophy doc** — ✓ **v1**. `plugins/steop/docs/DESIGN.md` covers purpose, persistence model, hook taxonomy, versioning, phase roadmap, smoke tests.
+- **DESIGN.md / philosophy doc** — ✓ **v1**. `docs/steop/DESIGN.md` covers purpose, persistence model, hook taxonomy, versioning, phase roadmap, smoke tests.
 - **UserPromptSubmit keyword router** — **v2**. Hook infrastructure is ready (`internal/hooks/output.go InjectUserPromptContext`). Handler is a stub. Triggers TBD.
 - **Session resume (`st-recap`)** — **v2**. Storage + state APIs are ready. Needs a SessionStart hook that reads the last snapshot + an `st-recap` skill that calls the CLI.
 - **Explicit retry counters** — **v2**. `/api/v1/steop/state/:id/incr` exists with atomic SQL semantics. Skills must now refer to the counters (e.g. `steop state incr $SESSION_ID loop_count`) instead of prose `max 3`.
@@ -105,7 +105,7 @@ These were "deliberately not recommended" in the original analysis because cerbr
 | 4   | Introduce `level` / `triggers` / `pipeline` frontmatter on all 6 skills       | Low    | Medium | v2      | Metadata bundled with #2.                                                |
 | 5   | Add `st-recap` skill that pulls last session state from stele                 | Medium | High   | v2      | Needs SessionStart hook + storage GET.                                   |
 | 6   | Promote execute/validate retry loop to explicit counter (stele-backed)        | Medium | Medium | v2      | Atomic `/state/:id/incr` shipped; skill integration pending.             |
-| 7   | Write `plugins/steop/docs/DESIGN.md` mirroring cerbrix's design doc           | Medium | Medium | ✓ v1    | 9 sections; kept current with implementation.                            |
+| 7   | Write `docs/steop/DESIGN.md` mirroring cerbrix's design doc           | Medium | Medium | ✓ v1    | 9 sections; kept current with implementation.                            |
 | 8   | Enrich `plugins/steop/.claude-plugin/plugin.json` with skills/agents/hooks    | Low    | Low    | ✓ v1    | `hooks/hooks.json` registered; keywords added.                           |
 | 9   | Stand up `/api/v1/steop/*` storage/state/status REST API on stele-server      | High   | High   | ✓ v1    | New capability added during v1 planning; foundation for everything.      |
 | 10  | Ship a Go runtime (`apps/steop/`) building to `plugins/steop/bin/steop`       | High   | High   | ✓ v1    | Originally "not recommended"; reversed because stele replaces `.cerbrix/`. |
@@ -158,7 +158,7 @@ Shipped in the v1 foundation slice:
 **Plugin wiring (`plugins/steop/`)**
 - `hooks/hooks.json` registers PreToolUse (`Bash` matcher) and PostToolUse (`*` matcher) invoking `${CLAUDE_PLUGIN_ROOT}/bin/steop hook <Event>` with 5s timeout.
 - Enriched `.claude-plugin/plugin.json` (keywords added, description refined).
-- `docs/DESIGN.md` (new, 9 sections): purpose, architecture, persistence model with endpoint table, hook taxonomy, phase roadmap, versioning, smoke tests, known limitations.
+- `docs/steop/DESIGN.md` (new, 9 sections): purpose, architecture, persistence model with endpoint table, hook taxonomy, phase roadmap, versioning, smoke tests, known limitations.
 - Build script `apps/steop/scripts/build.sh` produces `plugins/steop/bin/steop` (~6.2 MB, arm64, gitignored).
 
 **CI (`.github/workflows/ci.yml`)**

@@ -133,7 +133,7 @@ jobs:
             plugins/steop/agents/executor.md \
             plugins/steop/agents/reviewer.md \
             plugins/steop/hooks/hooks.json \
-            plugins/steop/docs/DESIGN.md \
+            docs/steop/DESIGN.md \
             plugins/steop/README.md \
             apps/steop/go.mod \
             apps/steop/main.go \
