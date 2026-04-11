@@ -165,6 +165,33 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 | DELETE | /api/v1/graph/relations                   | Delete relations       |
 | GET    | /api/v1/graph/open?names=a,b&scope=       | Open specific nodes    |
 
+### Steop (workflow pipeline)
+
+Mounted under `/api/v1/steop/*`. Serves the `steop` Go binary and the stele CLI. Defined in `apps/stele/crates/stele-server/src/steop_api.rs`.
+
+| Method | Path                                      | Description                                 |
+| ------ | ----------------------------------------- | ------------------------------------------- |
+| PUT    | /api/v1/steop/storage                     | Upsert storage blob (query `?scope=&key=`)  |
+| GET    | /api/v1/steop/storage                     | Read storage blob                           |
+| DELETE | /api/v1/steop/storage                     | Delete storage blob                         |
+| GET    | /api/v1/steop/storage/list                | List storage keys in a scope                |
+| GET    | /api/v1/steop/storage/scopes              | List storage scopes                         |
+| GET    | /api/v1/steop/state/:session_id           | Read session state + counters               |
+| PUT    | /api/v1/steop/state/:session_id           | Upsert `data` (merge by default)            |
+| DELETE | /api/v1/steop/state/:session_id           | Delete session state                        |
+| POST   | /api/v1/steop/state/:session_id/incr      | Atomic counter increment                    |
+| POST   | /api/v1/steop/state/:session_id/reset     | Reset counter                               |
+| GET    | /api/v1/steop/status/:session_id          | Statusline projection (never 404s)         |
+| POST   | /api/v1/steop/notify                      | Fire desktop notification (Stop hook)       |
+| GET    | /api/v1/steop/sessions                    | List recent sessions                        |
+| GET    | /api/v1/steop/sessions/:id                | Get single session                          |
+| POST   | /api/v1/steop/log                         | Append structured event log (v0.5.0+)       |
+| GET    | /api/v1/steop/log                         | Query logs (v0.5.0+)                        |
+| POST   | /api/v1/steop/inbox                       | Append session summary envelope (v0.5.0+)   |
+| GET    | /api/v1/steop/inbox                       | Read inbox FIFO (v0.5.0+)                   |
+
+**Composite session identity (v0.5.0+):** clients send `X-Steop-Host` and `X-Steop-Project-Dir` headers on every request. Server extractors fall back to these headers when a request body omits `host` / `project_dir`. The `steop_state` table gained `host` + `project_dir` columns via idempotent `ALTER TABLE` on startup. See `plugins/steop/docs/DESIGN.md` for the full v0.5 feature reference.
+
 ## rmcp Conventions
 
 - Tool methods go inside `#[tool_router] impl SteleServer { ... }` — this generates `Self::tool_router()`.

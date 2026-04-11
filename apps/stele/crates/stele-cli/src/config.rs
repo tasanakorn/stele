@@ -11,7 +11,10 @@ pub struct SteleConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub server_url: String,
+    #[serde(default)]
     pub auth_key: Option<String>,
+    #[serde(default)]
+    pub host: Option<String>,
 }
 
 impl Default for SteleConfig {
@@ -22,6 +25,7 @@ impl Default for SteleConfig {
             Profile {
                 server_url: "http://127.0.0.1:3100".to_string(),
                 auth_key: None,
+                host: None,
             },
         );
         Self {
@@ -40,14 +44,38 @@ pub fn config_path() -> PathBuf {
 
 pub fn load_config() -> SteleConfig {
     let path = config_path();
-    if !path.exists() {
+    let existed = path.exists();
+    if !existed {
         return SteleConfig::default();
     }
     let contents = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => return SteleConfig::default(),
     };
-    toml::from_str(&contents).unwrap_or_default()
+    let mut config: SteleConfig = toml::from_str(&contents).unwrap_or_default();
+
+    // Backfill missing per-profile host with the current machine's hostname.
+    let raw = gethostname::gethostname().to_string_lossy().to_string();
+    let cleaned: String = raw.chars().filter(|c| c.is_ascii_graphic()).collect();
+    let hostname = if cleaned.is_empty() {
+        "unknown".to_string()
+    } else {
+        cleaned
+    };
+
+    let mut mutated = false;
+    for profile in config.profiles.values_mut() {
+        if profile.host.is_none() {
+            profile.host = Some(hostname.clone());
+            mutated = true;
+        }
+    }
+
+    if mutated && existed {
+        let _ = save_config(&config);
+    }
+
+    config
 }
 
 pub fn save_config(config: &SteleConfig) -> Result<(), String> {
@@ -66,22 +94,22 @@ pub struct CliArgs {
     pub auth_key: Option<String>,
 }
 
-pub fn resolve_connection(cli_args: &CliArgs) -> (String, Option<String>) {
+pub fn resolve_connection(cli_args: &CliArgs) -> (String, Option<String>, Option<String>) {
     // CLI flags > env vars > profile from config > defaults
+    let config = load_config();
+    let profile_name = cli_args
+        .profile
+        .clone()
+        .or_else(|| std::env::var("STELE_PROFILE").ok())
+        .unwrap_or_else(|| config.default_profile.clone());
+    let profile = config.profiles.get(&profile_name);
+
     let url = if let Some(ref u) = cli_args.server_url {
         u.clone()
     } else if let Ok(u) = std::env::var("STELE_URL") {
         u
     } else {
-        let config = load_config();
-        let profile_name = cli_args
-            .profile
-            .clone()
-            .or_else(|| std::env::var("STELE_PROFILE").ok())
-            .unwrap_or_else(|| config.default_profile.clone());
-        config
-            .profiles
-            .get(&profile_name)
+        profile
             .map(|p| p.server_url.clone())
             .unwrap_or_else(|| "http://localhost:3100".to_string())
     };
@@ -91,17 +119,10 @@ pub fn resolve_connection(cli_args: &CliArgs) -> (String, Option<String>) {
     } else if let Ok(k) = std::env::var("STELE_AUTH_KEY") {
         Some(k)
     } else {
-        let config = load_config();
-        let profile_name = cli_args
-            .profile
-            .clone()
-            .or_else(|| std::env::var("STELE_PROFILE").ok())
-            .unwrap_or_else(|| config.default_profile.clone());
-        config
-            .profiles
-            .get(&profile_name)
-            .and_then(|p| p.auth_key.clone())
+        profile.and_then(|p| p.auth_key.clone())
     };
 
-    (url, key)
+    let host = profile.and_then(|p| p.host.clone());
+
+    (url, key, host)
 }

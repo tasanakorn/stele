@@ -300,8 +300,8 @@ fn main() {
         return;
     }
 
-    let (url, key) = resolve_connection(&cli_args);
-    let client = SteleClient::new(url, key);
+    let (url, key, host) = resolve_connection(&cli_args);
+    let client = SteleClient::new(url, key).with_host(host);
     let json = cli.json;
 
     match cli.command {

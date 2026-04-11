@@ -27,6 +27,15 @@ func runHook(args []string) {
 		in.HookEventName = event
 	}
 
+	newClient := func() *client.Client {
+		c, err := client.NewFromConfig()
+		if err != nil {
+			logging.Debugf("client init failed: %v", err)
+			return nil
+		}
+		return c.WithRequestContext("", in.Cwd)
+	}
+
 	var out []byte
 	switch event {
 	case "UserPromptSubmit":
@@ -34,20 +43,54 @@ func runHook(args []string) {
 	case "PreToolUse":
 		out = hooks.HandlePreToolUse(in)
 	case "PostToolUse":
-		c, cerr := client.NewFromConfig()
-		if cerr != nil {
-			logging.Debugf("client init failed: %v", cerr)
-			out = hooks.Allow()
-		} else {
+		if c := newClient(); c != nil {
 			out = hooks.HandlePostToolUse(in, c)
+		} else {
+			out = hooks.Allow()
 		}
 	case "Stop":
-		c, cerr := client.NewFromConfig()
-		if cerr != nil {
-			logging.Debugf("client init failed: %v", cerr)
-			out = hooks.Allow()
-		} else {
+		if c := newClient(); c != nil {
 			out = hooks.HandleStop(in, c)
+		} else {
+			out = hooks.Allow()
+		}
+	case "SessionStart":
+		if c := newClient(); c != nil {
+			out = hooks.HandleSessionStart(in, c)
+		} else {
+			out = hooks.Allow()
+		}
+	case "PermissionRequest":
+		out = hooks.HandlePermissionRequest(in)
+	case "PostToolUseFailure":
+		if c := newClient(); c != nil {
+			out = hooks.HandlePostToolUseFailure(in, c)
+		} else {
+			out = hooks.Allow()
+		}
+	case "SubagentStart":
+		if c := newClient(); c != nil {
+			out = hooks.HandleSubagentStart(in, c)
+		} else {
+			out = hooks.Allow()
+		}
+	case "SubagentStop":
+		if c := newClient(); c != nil {
+			out = hooks.HandleSubagentStop(in, c)
+		} else {
+			out = hooks.Allow()
+		}
+	case "PreCompact":
+		if c := newClient(); c != nil {
+			out = hooks.HandlePreCompact(in, c)
+		} else {
+			out = hooks.Allow()
+		}
+	case "SessionEnd":
+		if c := newClient(); c != nil {
+			out = hooks.HandleSessionEnd(in, c)
+		} else {
+			out = hooks.Allow()
 		}
 	default:
 		out = hooks.Allow()

@@ -23,51 +23,90 @@ pub struct SteleClient {
     agent: Agent,
     base_url: String,
     auth_key: Option<String>,
+    host: Option<String>,
+    project_dir: Option<String>,
 }
 
 impl SteleClient {
     pub fn new(base_url: String, auth_key: Option<String>) -> Self {
+        let host = Self::detect_host();
+        let project_dir = Self::detect_project_dir();
         Self {
             agent: Agent::new(),
             base_url,
             auth_key,
+            host,
+            project_dir,
         }
+    }
+
+    pub fn with_host(mut self, host: Option<String>) -> Self {
+        if host.is_some() {
+            self.host = host;
+        }
+        self
+    }
+
+    fn detect_host() -> Option<String> {
+        if let Ok(h) = std::env::var("STELE_HOST") {
+            if !h.is_empty() {
+                return Some(Self::sanitize(&h));
+            }
+        }
+        let name = gethostname::gethostname().to_string_lossy().to_string();
+        let cleaned = Self::sanitize(&name);
+        if cleaned.is_empty() {
+            None
+        } else {
+            Some(cleaned)
+        }
+    }
+
+    fn detect_project_dir() -> Option<String> {
+        std::env::var("CLAUDE_PROJECT_DIR")
+            .ok()
+            .or_else(|| std::env::var("PWD").ok())
+            .filter(|s| !s.is_empty())
+            .map(|s| Self::sanitize(&s))
+    }
+
+    fn sanitize(s: &str) -> String {
+        s.chars()
+            .filter(|c| c.is_ascii_graphic() || *c == '/')
+            .collect()
+    }
+
+    fn apply_headers(&self, mut req: ureq::Request) -> ureq::Request {
+        if let Some(ref key) = self.auth_key {
+            req = req.set("X-Stele-Key", key);
+        }
+        if let Some(ref h) = self.host {
+            req = req.set("X-Steop-Host", h);
+        }
+        if let Some(ref p) = self.project_dir {
+            req = req.set("X-Steop-Project-Dir", p);
+        }
+        req
     }
 
     fn get(&self, path: &str) -> ureq::Request {
         let req = self.agent.get(&format!("{}{}", self.base_url, path));
-        if let Some(ref key) = self.auth_key {
-            req.set("X-Stele-Key", key)
-        } else {
-            req
-        }
+        self.apply_headers(req)
     }
 
     fn post(&self, path: &str) -> ureq::Request {
         let req = self.agent.post(&format!("{}{}", self.base_url, path));
-        if let Some(ref key) = self.auth_key {
-            req.set("X-Stele-Key", key)
-        } else {
-            req
-        }
+        self.apply_headers(req)
     }
 
     fn put(&self, path: &str) -> ureq::Request {
         let req = self.agent.put(&format!("{}{}", self.base_url, path));
-        if let Some(ref key) = self.auth_key {
-            req.set("X-Stele-Key", key)
-        } else {
-            req
-        }
+        self.apply_headers(req)
     }
 
     fn delete(&self, path: &str) -> ureq::Request {
         let req = self.agent.delete(&format!("{}{}", self.base_url, path));
-        if let Some(ref key) = self.auth_key {
-            req.set("X-Stele-Key", key)
-        } else {
-            req
-        }
+        self.apply_headers(req)
     }
 
     pub fn store_memory(

@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
 };
@@ -29,6 +29,8 @@ pub fn router(db: DbPool) -> Router {
         .route("/sessions", get(sessions_list))
         .route("/sessions/{id}", get(session_get))
         .route("/storage/scopes", get(storage_scopes_list))
+        .route("/log", post(log_post).get(log_list))
+        .route("/inbox", post(inbox_post).get(inbox_list))
         .layer(CorsLayer::permissive())
         .with_state(db)
 }
@@ -200,6 +202,8 @@ struct StateResponse {
     session_id: String,
     data: serde_json::Value,
     counters: BTreeMap<String, i64>,
+    host: String,
+    project_dir: String,
     created_at: String,
     updated_at: String,
 }
@@ -210,6 +214,8 @@ impl From<db::SteopState> for StateResponse {
             session_id: s.session_id,
             data: s.data,
             counters: s.counters,
+            host: s.host,
+            project_dir: s.project_dir,
             created_at: s.created_at,
             updated_at: s.updated_at,
         }
@@ -272,6 +278,7 @@ async fn state_get(State(db): State<DbPool>, Path(session_id): Path<String>) -> 
 async fn state_put(
     State(db): State<DbPool>,
     Path(session_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<StatePutBody>,
 ) -> impl IntoResponse {
     let conn = db.lock().await;
@@ -280,7 +287,16 @@ async fn state_put(
     } else {
         body.data
     };
-    match db::steop_state_put(&conn, &session_id, data, body.merge) {
+    let host = header_str(&headers, "x-steop-host");
+    let project_dir = header_str(&headers, "x-steop-project-dir");
+    match db::steop_state_put(
+        &conn,
+        &session_id,
+        data,
+        body.merge,
+        host.as_deref(),
+        project_dir.as_deref(),
+    ) {
         Ok(state) => {
             Json(serde_json::to_value(StateResponse::from(state)).unwrap()).into_response()
         }
@@ -309,10 +325,20 @@ async fn state_delete(
 async fn counter_incr(
     State(db): State<DbPool>,
     Path(session_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<CounterIncrBody>,
 ) -> impl IntoResponse {
     let conn = db.lock().await;
-    match db::steop_counter_incr(&conn, &session_id, &body.counter, body.delta) {
+    let host = header_str(&headers, "x-steop-host");
+    let project_dir = header_str(&headers, "x-steop-project-dir");
+    match db::steop_counter_incr(
+        &conn,
+        &session_id,
+        &body.counter,
+        body.delta,
+        host.as_deref(),
+        project_dir.as_deref(),
+    ) {
         Ok(value) => Json(
             serde_json::to_value(&CounterResponse {
                 counter: body.counter,
@@ -328,10 +354,20 @@ async fn counter_incr(
 async fn counter_reset(
     State(db): State<DbPool>,
     Path(session_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<CounterResetBody>,
 ) -> impl IntoResponse {
     let conn = db.lock().await;
-    match db::steop_counter_reset(&conn, &session_id, &body.counter, body.value) {
+    let host = header_str(&headers, "x-steop-host");
+    let project_dir = header_str(&headers, "x-steop-project-dir");
+    match db::steop_counter_reset(
+        &conn,
+        &session_id,
+        &body.counter,
+        body.value,
+        host.as_deref(),
+        project_dir.as_deref(),
+    ) {
         Ok(value) => Json(
             serde_json::to_value(&CounterResponse {
                 counter: body.counter,
@@ -536,6 +572,136 @@ async fn storage_scopes_list(State(db): State<DbPool>) -> impl IntoResponse {
             Json(serde_json::to_value(&StorageScopesResponse { scopes }).unwrap())
                 .into_response()
         }
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+// ── Logs + inbox ──
+
+fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
+#[derive(Deserialize)]
+struct LogPostBody {
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    project_dir: Option<String>,
+    event: String,
+    #[serde(default)]
+    data: serde_json::Value,
+}
+
+async fn log_post(
+    State(db): State<DbPool>,
+    headers: HeaderMap,
+    Json(body): Json<LogPostBody>,
+) -> Response {
+    let host = body
+        .host
+        .or_else(|| header_str(&headers, "x-steop-host"))
+        .unwrap_or_default();
+    let session_id = body.session_id.unwrap_or_default();
+    let project_dir = body
+        .project_dir
+        .or_else(|| header_str(&headers, "x-steop-project-dir"))
+        .unwrap_or_default();
+    let conn = db.lock().await;
+    match db::steop_log_insert(&conn, &host, &session_id, &project_dir, &body.event, &body.data) {
+        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+#[derive(Deserialize)]
+struct LogListQuery {
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    project_dir: Option<String>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+async fn log_list(State(db): State<DbPool>, Query(q): Query<LogListQuery>) -> Response {
+    let limit = q.limit.filter(|v| *v > 0).unwrap_or(200);
+    let conn = db.lock().await;
+    match db::steop_log_list(
+        &conn,
+        q.host.as_deref(),
+        q.session_id.as_deref(),
+        q.project_dir.as_deref(),
+        limit,
+    ) {
+        Ok(rows) => Json(serde_json::json!({ "logs": rows })).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+#[derive(Deserialize)]
+struct InboxPostBody {
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    project_dir: Option<String>,
+    #[serde(default)]
+    payload: serde_json::Value,
+}
+
+async fn inbox_post(
+    State(db): State<DbPool>,
+    headers: HeaderMap,
+    Json(body): Json<InboxPostBody>,
+) -> Response {
+    let host = body
+        .host
+        .or_else(|| header_str(&headers, "x-steop-host"))
+        .unwrap_or_default();
+    let session_id = body.session_id.unwrap_or_default();
+    let project_dir = body
+        .project_dir
+        .or_else(|| header_str(&headers, "x-steop-project-dir"))
+        .unwrap_or_default();
+    let conn = db.lock().await;
+    match db::steop_inbox_insert(&conn, &host, &session_id, &project_dir, &body.payload) {
+        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+#[derive(Deserialize)]
+struct InboxListQuery {
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    project_dir: Option<String>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+async fn inbox_list(State(db): State<DbPool>, Query(q): Query<InboxListQuery>) -> Response {
+    let limit = q.limit.filter(|v| *v > 0).unwrap_or(200);
+    let conn = db.lock().await;
+    match db::steop_inbox_list(
+        &conn,
+        q.host.as_deref(),
+        q.session_id.as_deref(),
+        q.project_dir.as_deref(),
+        limit,
+    ) {
+        Ok(rows) => Json(serde_json::json!({ "inbox": rows })).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }

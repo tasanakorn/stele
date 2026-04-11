@@ -2,6 +2,31 @@
 
 Maintained with the help of AI tooling. Each entry references the git hash it covers through.
 
+## 0.5.1
+
+### Added
+
+- **Full hook surface for steop** — all 11 Claude Code hook events now wired: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop`, `PreCompact`, `Stop`, `SessionEnd`. Most are log-only in v1; a few carry meaningful state behavior.
+- **Keyword injection in `UserPromptSubmit`** — prompts matching explicit `/steop:st-<phase>` or `<phase>:` triggers inject the corresponding SKILL.md body via `additionalContext`. Triggers: `st-flow`, `st-clarify`, `st-research`, `st-plan`, `st-execute`, `st-validate`. No implicit phrase matching.
+- **stele-server log facility** — `POST /api/v1/steop/log` + `GET /api/v1/steop/log` append-only structured event store. New `steop_logs` SQLite table. Filters by `host`, `session_id`, `project_dir`. Default limit 200.
+- **stele-server inbox facility** — `POST /api/v1/steop/inbox` + `GET /api/v1/steop/inbox` FIFO session-summary queue. New `steop_inbox` SQLite table. Stop and SessionEnd hooks persist session summaries here.
+- **Composite session identity** — `host` + `project_dir` as metadata across all steop tables. steop Go client and stele CLI + MCP proxy both send `X-Steop-Host` and `X-Steop-Project-Dir` headers on every request. Hostname auto-detected via `gethostname` on first config load, persisted to `~/.config/stele/config.toml`.
+- **`Profile.host` field** in both Go and Rust config schemas. Backfilled once on load if empty.
+- **Persistent-mode flag** in Stop handler (read-only in v1 — flag is stored but does not trigger session resume; full block-and-resume loop is deferred).
+- **`PostToolUse` state updates** — writes `last_tool` and `last_tool_at` to session state in addition to the existing counter increment.
+
+### Changed
+
+- **stele workspace version** bumped to `0.5.0` (additive REST contract expansion, idempotent schema migration for `steop_state` composite columns).
+- **steop plugin + binary version** bumped to `0.5.0`.
+- **steop dispatcher** (`cmd_hook.go`) refactored into a uniform `newClient()` closure that applies `WithRequestContext("", in.Cwd)` to every client-bearing handler.
+- **Go client `do()`** now injects `X-Steop-Host` and `X-Steop-Project-Dir` headers uniformly. New `WithRequestContext(host, projectDir)` builder and `fastClone()` (500ms timeout) for fire-and-forget log/inbox posts.
+- **Rust CLI `SteleClient`** refactored through a shared `apply_headers()` helper. Header sanitization strips non-ASCII-graphic characters.
+
+### Migration
+
+- `steop_state` table gains `host TEXT NOT NULL DEFAULT ''` and `project_dir TEXT NOT NULL DEFAULT ''` columns via idempotent `ALTER TABLE` on server startup (guarded by `pragma_table_info`). Existing rows are unaffected.
+
 ## 0.4.12
 
 ### Added

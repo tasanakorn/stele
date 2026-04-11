@@ -7,18 +7,27 @@ import (
 )
 
 type HookInput struct {
-	SessionID      string          `json:"session_id"`
-	TranscriptPath string          `json:"transcript_path"`
-	Cwd            string          `json:"cwd"`
-	PermissionMode string          `json:"permission_mode"`
-	HookEventName  string          `json:"hook_event_name"`
-	ToolName       string          `json:"tool_name,omitempty"`
-	ToolInput      json.RawMessage `json:"tool_input,omitempty"`
-	ToolResponse   json.RawMessage `json:"tool_response,omitempty"`
-	ToolUseID      string          `json:"tool_use_id,omitempty"`
+	SessionID            string          `json:"session_id"`
+	TranscriptPath       string          `json:"transcript_path"`
+	Cwd                  string          `json:"cwd"`
+	PermissionMode       string          `json:"permission_mode"`
+	HookEventName        string          `json:"hook_event_name"`
+	ToolName             string          `json:"tool_name,omitempty"`
+	ToolInput            json.RawMessage `json:"tool_input,omitempty"`
+	ToolResponse         json.RawMessage `json:"tool_response,omitempty"`
+	ToolUseID            string          `json:"tool_use_id,omitempty"`
 	Prompt               string          `json:"prompt,omitempty"`
 	StopHookActive       bool            `json:"stop_hook_active,omitempty"`
 	LastAssistantMessage string          `json:"last_assistant_message,omitempty"`
+	AgentID              string          `json:"agent_id,omitempty"`
+	AgentType            string          `json:"agent_type,omitempty"`
+	Model                string          `json:"model,omitempty"`
+	Output               string          `json:"output,omitempty"`
+	Success              *bool           `json:"success,omitempty"`
+	Trigger              string          `json:"trigger,omitempty"`
+	Error                string          `json:"error,omitempty"`
+	IsInterrupt          bool            `json:"is_interrupt,omitempty"`
+	Reason               string          `json:"reason,omitempty"`
 }
 
 // ReadInput decodes a HookInput JSON object from r.

@@ -3,6 +3,7 @@ package hooks
 import (
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
 	"github.com/tasanakorn/stele/apps/steop/internal/logging"
@@ -10,9 +11,13 @@ import (
 
 const maxBodyLen = 140
 
-// HandleStop fires a desktop notification via stele-server.
+// HandleStop fires a desktop notification via stele-server, posts a session
+// summary to the inbox endpoint, and clears transient state for the session.
 // Always returns Allow() to honor the non-blocking contract.
 func HandleStop(in *HookInput, c *client.Client) []byte {
+	if in == nil || c == nil {
+		return Allow()
+	}
 	req := client.NotifyRequest{
 		Title: defaultTitle(in.Cwd),
 		Body:  buildBody(in.LastAssistantMessage),
@@ -20,11 +25,32 @@ func HandleStop(in *HookInput, c *client.Client) []byte {
 	if err := c.Notify(req); err != nil {
 		logging.Debugf("notify call failed: %v", err)
 	}
-	if in != nil && in.SessionID != "" {
-		data := map[string]interface{}{"phase": "", "mode": ""}
-		if _, err := c.StatePut(in.SessionID, data, true); err != nil {
-			logging.Debugf("stop clear phase failed: %v", err)
+	if in.SessionID == "" {
+		return Allow()
+	}
+
+	state, stateErr := c.StateGet(in.SessionID)
+	if stateErr != nil {
+		logging.Debugf("stop state get failed: %v", stateErr)
+	}
+
+	if state != nil {
+		payload := map[string]interface{}{
+			"cwd":      in.Cwd,
+			"data":     state.Data,
+			"counters": state.Counters,
+			"ended_at": time.Now().UTC().Format(time.RFC3339),
 		}
+		if err := c.Inbox(client.InboxEnvelope{SessionID: in.SessionID, Payload: payload}); err != nil {
+			logging.Debugf("stop inbox post failed: %v", err)
+		}
+		if pm, ok := state.Data["persistent_mode"].(bool); ok && pm {
+			logging.Debugf("persistent_mode set but not honored in v1")
+		}
+	}
+
+	if _, err := c.StatePut(in.SessionID, map[string]interface{}{"phase": "", "mode": ""}, true); err != nil {
+		logging.Debugf("stop clear phase failed: %v", err)
 	}
 	return Allow()
 }

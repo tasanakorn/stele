@@ -38,6 +38,7 @@ pub fn handle_config_set(name: &str, url: &str, key: Option<String>, set_default
         Profile {
             server_url: url.to_string(),
             auth_key: key,
+            host: None,
         },
     );
     if set_default {

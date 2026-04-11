@@ -17,6 +17,23 @@ pub fn run(config: SteleConfig, default_profile: String) {
     let (default_url, default_key) = resolve_profile(&config, &default_profile);
     let default_mcp_url = format!("{}/mcp", default_url.trim_end_matches('/'));
 
+    // Detect composite session identity for steop hook correlation.
+    let host = {
+        let raw = if let Ok(h) = std::env::var("STELE_HOST") {
+            if h.is_empty() { None } else { Some(h) }
+        } else {
+            let name = gethostname::gethostname().to_string_lossy().to_string();
+            if name.is_empty() { None } else { Some(name) }
+        };
+        raw.map(|s| sanitize_header(&s)).filter(|s| !s.is_empty())
+    };
+    let project_dir = std::env::var("CLAUDE_PROJECT_DIR")
+        .ok()
+        .or_else(|| std::env::var("PWD").ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| sanitize_header(&s))
+        .filter(|s| !s.is_empty());
+
     // Per-server session tracking: mcp_url -> (session_id, auth_key)
     let mut sessions: HashMap<String, (String, Option<String>)> = HashMap::new();
 
@@ -98,6 +115,8 @@ pub fn run(config: SteleConfig, default_profile: String) {
                     &agent,
                     &mcp_url,
                     &auth_key,
+                    &host,
+                    &project_dir,
                     &mut sessions,
                     &msg,
                     &mut writer,
@@ -110,6 +129,8 @@ pub fn run(config: SteleConfig, default_profile: String) {
                     &agent,
                     &default_mcp_url,
                     &default_key,
+                    &host,
+                    &project_dir,
                     &mut sessions,
                     &msg,
                 );
@@ -130,6 +151,8 @@ pub fn run(config: SteleConfig, default_profile: String) {
                     &agent,
                     &default_mcp_url,
                     &default_key,
+                    &host,
+                    &project_dir,
                     &mut sessions,
                     &msg,
                     &mut writer,
@@ -144,8 +167,21 @@ pub fn run(config: SteleConfig, default_profile: String) {
         if let Some(ref k) = key {
             req = req.set("X-Stele-Key", k);
         }
+        if let Some(ref h) = host {
+            req = req.set("X-Steop-Host", h);
+        }
+        if let Some(ref p) = project_dir {
+            req = req.set("X-Steop-Project-Dir", p);
+        }
         let _ = req.call();
     }
+}
+
+/// Strip a string to ASCII-graphic characters (plus `/`) for safe HTTP header values.
+fn sanitize_header(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_graphic() || *c == '/')
+        .collect()
 }
 
 /// Resolve a profile name to (server_url, auth_key).
@@ -234,6 +270,8 @@ fn forward_request(
     agent: &Agent,
     mcp_url: &str,
     auth_key: &Option<String>,
+    host: &Option<String>,
+    project_dir: &Option<String>,
     sessions: &mut HashMap<String, (String, Option<String>)>,
     msg: &serde_json::Value,
     writer: &mut impl Write,
@@ -250,6 +288,12 @@ fn forward_request(
     }
     if let Some(ref key) = auth_key {
         req = req.set("X-Stele-Key", key);
+    }
+    if let Some(ref h) = host {
+        req = req.set("X-Steop-Host", h);
+    }
+    if let Some(ref p) = project_dir {
+        req = req.set("X-Steop-Project-Dir", p);
     }
 
     let resp = match req.send_string(&body) {
@@ -287,6 +331,8 @@ fn forward_request_capture(
     agent: &Agent,
     mcp_url: &str,
     auth_key: &Option<String>,
+    host: &Option<String>,
+    project_dir: &Option<String>,
     sessions: &mut HashMap<String, (String, Option<String>)>,
     msg: &serde_json::Value,
 ) -> Vec<String> {
@@ -302,6 +348,12 @@ fn forward_request_capture(
     }
     if let Some(ref key) = auth_key {
         req = req.set("X-Stele-Key", key);
+    }
+    if let Some(ref h) = host {
+        req = req.set("X-Steop-Host", h);
+    }
+    if let Some(ref p) = project_dir {
+        req = req.set("X-Steop-Project-Dir", p);
     }
 
     let resp = match req.send_string(&body) {

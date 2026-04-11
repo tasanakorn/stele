@@ -17,6 +17,7 @@ type Config struct {
 type Profile struct {
 	ServerURL string `toml:"server_url"`
 	AuthKey   string `toml:"auth_key"`
+	Host      string `toml:"host,omitempty"`
 }
 
 const defaultServerURL = "http://127.0.0.1:3100"
@@ -43,6 +44,7 @@ func Load() (*Config, error) {
 	c := &Config{
 		Profiles: make(map[string]Profile),
 	}
+	var loadedPath string
 	for _, p := range configPaths() {
 		data, err := os.ReadFile(p)
 		if err != nil {
@@ -54,10 +56,45 @@ func Load() (*Config, error) {
 		if err := toml.Unmarshal(data, c); err != nil {
 			return c, fmt.Errorf("parse config %s: %w", p, err)
 		}
-		return c, nil
+		loadedPath = p
+		break
 	}
-	// No config found — return empty, usable Config.
+
+	// Backfill Host from os.Hostname() for any profile missing one.
+	mutated := false
+	if c.Profiles != nil {
+		hostname, _ := os.Hostname()
+		for name, prof := range c.Profiles {
+			if prof.Host == "" && hostname != "" {
+				prof.Host = hostname
+				c.Profiles[name] = prof
+				mutated = true
+			}
+		}
+	}
+	if mutated && loadedPath != "" {
+		// Best-effort write back; swallow errors.
+		_ = Save(c, loadedPath)
+	}
 	return c, nil
+}
+
+// Save writes the config back to the given path using the TOML encoder.
+// Best-effort: callers typically swallow errors.
+func Save(c *Config, path string) error {
+	if c == nil || path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	enc := toml.NewEncoder(f)
+	return enc.Encode(c)
 }
 
 // Active returns the currently active profile. STELE_URL / STELE_AUTH_KEY
