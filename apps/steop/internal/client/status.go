@@ -2,7 +2,7 @@ package client
 
 // Status holds the statusline projection for a session.
 type Status struct {
-	SessionID    string `json:"session_id"`
+	ID           string `json:"id"`
 	Mode         string `json:"mode"`
 	Phase        string `json:"phase"`
 	Step         string `json:"step"`
@@ -13,8 +13,8 @@ type Status struct {
 }
 
 // StatusGet retrieves the statusline projection (never returns 404 — missing sessions return defaults).
-func (c *Client) StatusGet(sessionID string) (*Status, error) {
-	body := map[string]string{"session_id": sessionID}
+func (c *Client) StatusGet(id string) (*Status, error) {
+	body := map[string]string{"id": id}
 	var out Status
 	if err := c.rpc("steop.status.get", body, &out); err != nil {
 		return nil, err

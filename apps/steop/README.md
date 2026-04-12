@@ -6,8 +6,9 @@ counter + state, UserPromptSubmit keyword injection, SubagentStart/Stop
 lifecycle, SessionStart/End, PreCompact, Stop/Mailbox, PermissionRequest observe)
 and provides CLI helpers for session state, generic KV storage, logs, and
 the cross-host mailbox. It talks HTTP to `stele-server`'s `/api/v1/steop/*`
-endpoints using RPC-style `POST <method>` calls with JSON bodies carrying
-composite identity (`host`, `project_dir`, `session_id`).
+endpoints using RPC-style `POST <method>` calls with JSON bodies carrying a
+single colon-separated composite id (`host:project_dir` for project-level
+calls, `host:project_dir:uuid` for session-level calls).
 
 ## Build
 
@@ -59,7 +60,7 @@ go vet ./...
 | `STEOP_DEBUG`         | Set to `1` to enable debug logging to stderr.                                     |
 | `CLAUDE_PLUGIN_ROOT`  | Set by Claude Code; points at the plugin install dir. Used by the keyword-injection path in `UserPromptSubmit` to load `$root/skills/<name>/SKILL.md`. |
 
-Hook-provided fields (not env vars, but worth knowing): every hook handler reads `in.Cwd` from stdin JSON and populates `project_dir` in the JSON request body, alongside `host` (from `os.Hostname()` or config) and `session_id` (from stdin). These form the composite session identity — no headers are used.
+Hook-provided fields (not env vars, but worth knowing): every hook handler composes a single colon-separated `id` string from `host` (from `os.Hostname()` or config, with `:` stripped), `project_dir` (from `in.Cwd` on stdin), and the Claude Code session UUID (also from stdin). This composite string is the only identity sent in request bodies — no headers are used.
 
 ## Config
 
@@ -79,7 +80,7 @@ auth_key   = ""        # optional — sent as X-Stele-Key
 host       = "laptop"  # optional — auto-populated on first load via os.Hostname()
 ```
 
-The `host` field is auto-populated on first load and persisted. It flows into every request body as `host` for composite session identity (`host:project_dir:session_id`). It is not sent as a header.
+The `host` field is auto-populated on first load and persisted. Any `:` characters in the resolved host are replaced with `-` so it is safe as a segment in the colon-separated composite id. It flows into every request body as the first segment of the composite `id` string (`host:project_dir` or `host:project_dir:uuid`). It is not sent as a header.
 
 ## Hook output shapes
 

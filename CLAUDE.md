@@ -29,10 +29,41 @@ stele/
 ├── plugins/
 │   ├── stele/                     # Claude Code plugin (shared memory)
 │   └── steop/                     # Claude Code plugin (agentic workflow)
+├── docs/                          # See "Documentation Layout" below
 ├── .claude-plugin/                # Marketplace definition
 ├── CLAUDE.md
 └── README.md
 ```
+
+## Documentation Layout
+
+`docs/` is the single source of truth for all specs. The convention:
+
+- **`docs/*.md`** — **common, cross-module** specs that apply to the whole workspace (e.g. `architecture.md`, `versioning.md`). Anything a contributor touching any crate or plugin should be able to find without guessing a subfolder.
+- **`docs/prd/`** — **product requirements documents**. Cross-cutting forward-looking design docs that drive future implementation cycles. Not bound to one module's current implementation detail.
+- **`docs/<module>/`** — **module-specific detail**. Deep design, gap analyses, smoke tests, hook semantics — anything that only makes sense in the context of one subsystem. Current subfolders: `docs/stele/` (shared-memory server + MCP), `docs/steop/` (agentic workflow pipeline).
+
+Rule of thumb: if a doc mentions specific SQL tables, struct field names, or hook handlers, it belongs in a module subfolder. If it describes the workspace as a whole or a forward-looking design, it belongs at the `docs/` root (or `docs/prd/` for PRDs).
+
+```
+docs/
+├── architecture.md                # Cross-module architecture overview
+├── versioning.md                  # Workspace-wide SemVer rules & bump script
+├── prd/                           # Product requirements docs (forward-looking)
+│   └── prd-001-mailbox-v2.md
+├── stele/                         # stele-server / MCP / REST API details
+│   └── ...
+└── steop/                         # steop workflow pipeline details
+    ├── DESIGN.md
+    ├── smoke-tests.md
+    └── ...
+```
+
+### File naming conventions
+
+- **PRDs (`docs/prd/`)** — `prd-NNN-<slug>.md`, where `NNN` is a zero-padded sequential integer and `<slug>` is a short kebab-case descriptor. Example: `docs/prd/prd-001-mailbox-v2.md`. Numbers are allocated in filename order (check the highest existing number and add 1). Once assigned, a PRD's number is permanent even after the doc is superseded or archived.
+- **Module docs (`docs/<module>/`)** — free-form kebab-case filename describing the topic. Uppercase is reserved for canonical per-module entry points (`DESIGN.md`, `README.md`).
+- **Root docs (`docs/*.md`)** — kebab-case (`architecture.md`, `versioning.md`).
 
 ## Build & Run
 
@@ -169,34 +200,36 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled for brows
 
 RPC-style surface mounted under `/api/v1/steop/*`. Every method is `POST /api/v1/steop/<method>` with a JSON body — no path params, no query params, no header identity. Served by `apps/stele/crates/stele-server/src/steop_api.rs`. Used by the `steop` Go binary and the stele CLI.
 
-**Identity.** Every call carries composite SSH/SCP-style identifiers in the body: `host` + `project_dir` (project-level) or `host` + `project_dir` + `session_id` (session-level). Session IDs are globally unique Claude Code UUIDs; read methods accept `{session_id}` as a short form. Write methods require the full triple. The server does not validate identifiers — clients take care of completeness.
+**Identity.** Every call carries composite SSH/SCP-style identifiers in the body as a **single colon-separated `id` string**: `host:project_dir` (2-segment, project-level), `host:project_dir:uuid` (3-segment, session-level), or `host:project_dir:USER` (3-segment, user-level). The 3rd segment is a **closed set** (v0.8+): it must be either a canonical 8-4-4-4-12 Claude Code UUID or the literal string `USER` (case-sensitive). Anything else returns 400. The short-form bare session UUID that v0.6 accepted on `session.get`/`state.get`/`status.get` is removed — all three now require the full 3-segment id. The server does not validate identifiers beyond segment grammar; clients take care of completeness.
 
-| Method                 | Body                                                                                                    | Description                                           |
-| ---------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `steop.session.start`  | `host, project_dir, session_id, data?`                                                                  | Create/reactivate session (idempotent)                |
-| `steop.session.stop`   | `host, project_dir, session_id`                                                                         | Mark session stopped                                  |
-| `steop.session.touch`  | `host, project_dir, session_id`                                                                         | Refresh `last_active_at`                              |
-| `steop.session.get`    | `session_id` or full triple                                                                             | Get session row                                       |
-| `steop.session.list`   | `host?, project_dir?, state?, limit?`                                                                   | List sessions                                         |
-| `steop.project.list`   | `host?`                                                                                                 | List `host:project_dir` combos                        |
-| `steop.state.get`      | `session_id` or full triple                                                                             | Get session state + counters                          |
-| `steop.state.put`      | `host, project_dir, session_id, data, merge?=true`                                                      | Upsert `data` JSON                                    |
-| `steop.state.incr`     | `host, project_dir, session_id, counter, delta?=1`                                                      | Atomic counter increment                              |
-| `steop.state.reset`    | `host, project_dir, session_id, counter, value?=0`                                                      | Reset counter                                         |
-| `steop.state.delete`   | `host, project_dir, session_id`                                                                         | Delete session row                                    |
-| `steop.status.get`     | `session_id` or full triple                                                                             | Statusline projection (never 404s)                    |
-| `steop.storage.put`    | `host, project_dir, key, content, session_id?`                                                          | KV put (session if `session_id`, project otherwise)   |
-| `steop.storage.get`    | `host, project_dir, key, session_id?`                                                                   | KV get                                                |
-| `steop.storage.delete` | `host, project_dir, key, session_id?`                                                                   | KV delete                                             |
-| `steop.storage.list`   | `host, project_dir, session_id?`                                                                        | List keys                                             |
-| `steop.log.append`     | `host, project_dir, session_id, event, data?`                                                           | Append log entry                                      |
-| `steop.log.query`      | `host?, project_dir?, session_id?, limit?=200`                                                          | Query logs (DESC)                                     |
-| `steop.mailbox.send`   | `from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id?, kind, subject, payload` | Send message (session or project recipient)           |
-| `steop.mailbox.list`   | `to_host, to_project_dir, to_session_id?, limit?=200, include_acked?=false`                             | List messages for recipient (FIFO)                    |
-| `steop.mailbox.ack`    | `id`                                                                                                    | Mark message acked                                    |
-| `steop.notify`         | `title?, body?, subtitle?, sound?=false`                                                                | Fire desktop notification                             |
+| Method                 | Body                                                 | Description                                           |
+| ---------------------- | ---------------------------------------------------- | ----------------------------------------------------- |
+| `steop.session.start`  | `id, data?`                                          | Create/reactivate session (idempotent)                |
+| `steop.session.stop`   | `id`                                                 | Mark session stopped                                  |
+| `steop.session.touch`  | `id`                                                 | Refresh `last_active_at`                              |
+| `steop.session.get`    | `id`                                                 | Get session row (3-seg required)                      |
+| `steop.session.list`   | `host?, project_dir?, state?, limit?`                | List sessions (structured filters, not composite id)  |
+| `steop.project.list`   | `host?`                                              | List 2-seg project ids                                |
+| `steop.state.get`      | `id`                                                 | Get session state + counters (3-seg required)         |
+| `steop.state.put`      | `id, data, merge?=true`                              | Upsert `data` JSON                                    |
+| `steop.state.incr`     | `id, counter, delta?=1`                              | Atomic counter increment                              |
+| `steop.state.reset`    | `id, counter, value?=0`                              | Reset counter                                         |
+| `steop.state.delete`   | `id`                                                 | Delete session row                                    |
+| `steop.status.get`     | `id`                                                 | Statusline projection (3-seg required, never 404s)    |
+| `steop.storage.put`    | `id, key, content`                                   | KV put (3-seg = session, 2-seg = project)             |
+| `steop.storage.get`    | `id, key`                                            | KV get                                                |
+| `steop.storage.delete` | `id, key`                                            | KV delete                                             |
+| `steop.storage.list`   | `id`                                                 | List keys                                             |
+| `steop.log.append`     | `id, event, data?`                                   | Append log entry (3-seg required)                     |
+| `steop.log.query`      | `host?, project_dir?, session_id?, limit?=200`       | Query logs (structured filters, DESC)                 |
+| `steop.mailbox.send`    | `id, to, from?, subject?, message_type?, meta?, payload?` | Send message. `from` defaults to `id`. Returns full row.                 |
+| `steop.mailbox.list`    | `id, to?, status?=["NEW"], message_type?, limit?=200`     | List messages. `to` defaults to caller's `id`. FIFO order.              |
+| `steop.mailbox.get`     | `id, message_id`                                          | Fetch a single row. Side-effect free.                                   |
+| `steop.mailbox.read`    | `id, message_id`                                          | NEW → READ. 409 if not NEW.                                             |
+| `steop.mailbox.archive` | `id, message_id`                                          | NEW/READ → ARCHIVE. 409 if already ARCHIVE.                             |
+| `steop.notify`         | `title?, body?, subtitle?, sound?=false`             | Fire desktop notification                             |
 
-**Tables (v0.6.0):** `steop_sessions` (merges state + counters, PK `(host, project_dir, session_id)`, JSON `data` + `counters` columns), `steop_storage_session`, `steop_storage_project`, `steop_mailbox` (replaces `steop_inbox`), `steop_logs`. Sender on mailbox is **always** a session; recipient may be a project (`to_session_id=''`) or a session. See `docs/steop/DESIGN.md` for schema and semantics.
+**Tables (v0.8.0):** `steop_sessions` (merges state + counters, PK `(host, project_dir, session_id)`, JSON `data` + `counters` columns), `steop_storage_session`, `steop_storage_project`, `steop_mailbox` (`message_id, from_id, to_id, subject, message_type, meta, payload, created_at, status`; index `(to_id, status, created_at)`), `steop_logs`. Sender may be any principal (project, session, or user). Recipient may be any principal. Status lifecycle is `NEW → READ → ARCHIVE`. The server derives `from` from the caller's `id` when omitted. See `docs/steop/DESIGN.md` for schema, parsing, and semantics.
 
 ## rmcp Conventions
 

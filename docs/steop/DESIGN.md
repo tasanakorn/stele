@@ -1,4 +1,4 @@
-# Steop Design (v2, 0.6.0)
+# Steop Design (v2, 0.7.0)
 
 ## 1. Purpose
 
@@ -44,36 +44,55 @@ stele-server process
 
 ## 4. Identity model
 
-Steop addresses every resource with an **SSH/SCP-style composite identifier**. There are no implicit defaults and no header-based identity — v2 is body-only.
+Steop addresses every resource with an **SSH/SCP-style composite identifier** encoded as a single colon-separated string. There are no implicit defaults and no header-based identity — v0.7 is body-only and uses a single `id` field per call.
 
 ### Identifier grammar
 
 ```
-project_ref  = host ":" project_dir
-session_ref  = host ":" project_dir ":" session_id
+project_id  = host ":" project_dir
+session_id  = host ":" project_dir ":" uuid
+user_id     = host ":" project_dir ":" "USER"
 ```
 
 Examples:
 
-- `vm-02:/home/tas/stele`               — a project on host `vm-02`
-- `vm-02:/home/tas/stele:a1b2c3d4-...`  — a specific session inside that project
-- `laptop:/Users/tas/work:9f...`         — a session on a different machine
+- `vm-02:/home/tas/stele`                                     — project id
+- `vm-02:/home/tas/stele:a1b2c3d4-5678-4abc-9def-0123456789ab` — session id
+- `laptop:/Users/tas/work:9f8e7d6c-5b4a-4321-8765-abcdef012345` — session id on another host
+- `laptop:/Users/tas/work:USER`                               — user id (singleton per host:project_dir)
 
-`host` is the machine name (e.g. `os.Hostname()` in Go, `gethostname()` in Rust). `project_dir` is an absolute path. `session_id` is the Claude Code session UUID.
+`host` is the machine name (e.g. `os.Hostname()` in Go, `gethostname()` in Rust), with `:` characters stripped at the client so it is safe as a segment. `project_dir` is an absolute path. The session segment is always a canonical Claude Code UUID in 8-4-4-4-12 form. `USER` is the literal four-character string (uppercase ASCII) — it is a singleton per `host:project_dir`, not a named user.
 
-Because Claude Code session UUIDs are globally unique in practice, **read** methods (`session.get`, `state.get`, `status.get`) may accept a bare `session_id` as a short form. **Write** methods always require the full triple (`host`, `project_dir`, `session_id`).
+### Parsing
 
-### No server-side validation
+The server splits the composite id deterministically:
 
-The server does not validate that `host` looks like a hostname, that `project_dir` is absolute, or that identity fields are consistent across related calls. Clients are responsible for completeness. Empty strings are tolerated and treated as literal values.
+1. The first `:` splits `host` from the remainder.
+2. If the remainder has no further `:`, the id is project-level; `project_dir` = remainder. END.
+3. Find the **last** `:` in the remainder. Let `tail` be everything after it.
+4. If `tail` matches the UUID regex (`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`), the id is session-level; `project_dir` = substring before that last `:`. END.
+5. If `tail` == `"USER"` (exact, case-sensitive), the id is user-level; `project_dir` = substring before that last `:`. END.
+6. Otherwise → **400** `"id 3rd segment must be a session UUID or the literal 'USER'"`.
+
+This is a **tightening vs v0.7**: v0.7 silently accepted any non-UUID 3rd segment as a project-level path extension. v0.8 closes the 3rd-segment set to `{UUID, USER}` only. See `docs/prd/prd-001-mailbox-v2.md` §5 for the normative parser spec and error message catalogue.
+
+This lets `project_dir` safely contain `:` characters (e.g. Windows-style) as long as no project path ends with a literal 36-char UUID or the four-char string `USER`.
+
+### Arity dispatch
+
+Storage methods (`storage.put`/`get`/`delete`/`list`) accept either arity of id. A 2-segment id routes to `steop_storage_project`; a 3-segment id routes to `steop_storage_session`. Every other id-bearing method requires the full 3-segment form; the server returns `HTTP 400 {"error":"id must be 3-segment (host:project_dir:session_uuid)"}` on an incomplete id.
+
+### No server-side validation beyond parsing
+
+The server does not validate that `host` looks like a hostname, that `project_dir` is absolute, or that the UUID refers to a real Claude Code session. It only enforces the segment grammar above. Clients are responsible for completeness and semantic consistency across related calls.
 
 ### No headers
 
-v0.5 used `X-Steop-Host` and `X-Steop-Project-Dir` headers as an implicit identity channel. **v2 ignores these headers.** All identity is explicit in the request body.
+v0.5 used `X-Steop-Host` and `X-Steop-Project-Dir` headers as an implicit identity channel. **v0.6 ignored these headers and used structured `{host, project_dir, session_id}` triples.** v0.7 collapses the triple into a single `id` string in every request body. All identity is explicit in the request body.
 
 ## 5. Persistence model
 
-Five tables under the `steop_*` prefix. All are created idempotently by `ensure_steop_schema()` at server startup.
+Five tables under the `steop_*` prefix. All are created idempotently by `ensure_steop_schema()` at server startup. The **schema** still keeps `host`, `project_dir`, `session_id` as separate columns — only the **wire format** collapses them into a single composite id. The server parses the composite id on ingress and composes it back on egress.
 
 ### 5.1 `steop_sessions` — session registry + state + counters
 
@@ -96,7 +115,7 @@ CREATE INDEX IF NOT EXISTS idx_steop_sessions_host_proj  ON steop_sessions(host,
 CREATE INDEX IF NOT EXISTS idx_steop_sessions_session_id ON steop_sessions(session_id);
 ```
 
-The `session_id` index supports short-form read lookups. `data` and `counters` are opaque JSON; only top-level keys are projected by `steop.status.get`.
+The `idx_steop_sessions_session_id` index from v0.6 is obsolete for lookup (v0.7 always provides the full triple via the composite id) but is retained for schema stability. `data` and `counters` are opaque JSON; only top-level keys are projected by `steop.status.get`.
 
 ### 5.2 `steop_storage_session` — session-scoped KV
 
@@ -127,52 +146,68 @@ CREATE TABLE IF NOT EXISTS steop_storage_project (
 );
 ```
 
-The two storage tables are dispatched by presence of `session_id` in the request body. `steop.storage.put {host, project_dir, key, content}` writes the project table; adding `session_id` routes to the session table. There is no "global" scope — every blob is anchored to at least a project.
+The two storage tables are dispatched by the arity of the composite `id` in the request body. A 2-segment id (`host:project_dir`) routes to `steop_storage_project`; a 3-segment id (`host:project_dir:uuid`) routes to `steop_storage_session`. There is no "global" scope — every blob is anchored to at least a project.
 
 ### 5.4 `steop_mailbox` — inter-session messaging
 
-Replaces the v0.5 `steop_inbox` table. "Mailbox" is the subsystem name (not a place); messages are addressed to either a session or a project.
+Rewritten in v0.8.0 (drop-and-recreate; v0.7 rows are not preserved — see `docs/prd/prd-001-mailbox-v2.md` §9.1). Messages may flow between any combination of principals.
+
+#### Schema
 
 ```sql
 CREATE TABLE IF NOT EXISTS steop_mailbox (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_host        TEXT NOT NULL,
-    from_project_dir TEXT NOT NULL,
-    from_session_id  TEXT NOT NULL,
-    to_host          TEXT NOT NULL,
-    to_project_dir   TEXT NOT NULL,
-    to_session_id    TEXT NOT NULL DEFAULT '',  -- '' = project-level recipient
-    payload          TEXT NOT NULL DEFAULT '{}',
-    created_at       TEXT NOT NULL,
-    acked_at         TEXT,
-    kind             TEXT NOT NULL DEFAULT 'LEGACY:UNKNOWN',
-    subject          TEXT NOT NULL DEFAULT ''
+    message_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_id      TEXT NOT NULL,
+    to_id        TEXT NOT NULL,
+    subject      TEXT NOT NULL DEFAULT '',
+    message_type TEXT NOT NULL DEFAULT 'NOTE',
+    meta         TEXT NOT NULL DEFAULT '{}',   -- JSON: server-queryable metadata
+    payload      TEXT NOT NULL DEFAULT '{}',   -- JSON: opaque application data
+    created_at   TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'NEW'   -- 'NEW' | 'READ' | 'ARCHIVE'
 );
-CREATE INDEX IF NOT EXISTS idx_steop_mailbox_to
-    ON steop_mailbox(to_host, to_project_dir, to_session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_steop_mailbox_recipient
+    ON steop_mailbox(to_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_steop_mailbox_sender
+    ON steop_mailbox(from_id, created_at);
 ```
 
-Addressing rules:
+SQL columns use `from_id`/`to_id`; the wire format exposes them as `from`/`to` (the `_id` suffix is dropped at the HTTP boundary to avoid collision with the composite-string `id` field present on every steop RPC request).
 
-- **Sender** (`from_*`) is **always** a session — a message must originate from a concrete `(host, project_dir, session_id)`. There is no "project sent this" origin. Hooks and skills must have a live session to send mail.
-- **Recipient** (`to_*`) is either:
-  - a project — `to_session_id = ''`, inbox drains to any session in that project that polls for it
-  - a session — `to_session_id` is the full UUID, delivered to that session only
+#### Addressing rules
 
-Ack is explicit via `steop.mailbox.ack {id}`. Acked messages stay in the table (for audit) with a non-null `acked_at`; list operations return unacked by default.
+`from_id` and `to_id` are composite identifiers in any of the three forms: project (`host:project_dir`), session (`host:project_dir:uuid`), or user (`host:project_dir:USER`). The sender and recipient may each be any principal — project-level senders, session-level senders, and user-principal senders are all valid.
 
-#### Envelope fields
+#### Implicit `from` derivation
 
-Every message carries two envelope fields that describe its origin and intent without requiring readers to inspect `payload`:
+When `mailbox.send` omits the `from` field, the server derives it from the mandatory `id` field of the request body. Explicit `from` in the body overrides the implicit value. This means hooks can send mail without constructing a `from` string by hand — the session's own `id` is enough.
 
-- **`kind`** (required, non-empty) — structured message type. Vocabulary:
-  - `HOOK:Stop` — fired by the Stop hook with a session summary
-  - `HOOK:SessionEnd` — fired by the SessionEnd hook when Claude Code terminates a session
-  - `LEGACY:UNKNOWN` — default for rows created before envelope fields existed
-  - `TASK:*` — reserved for task-level messages from skills (e.g. `TASK:Result`, `TASK:Progress`)
-  - `NOTE:*` — reserved for human-authored or skill-authored notes
-  - `CHAT:MESSAGE` — reserved for direct session-to-session messages
-- **`subject`** (required, may be empty string) — human-readable one-line summary. For `HOOK:Stop` this is the truncated last assistant message. For `HOOK:SessionEnd` this is the session end reason or `"session ended"` if empty.
+#### Status lifecycle
+
+```
+         send                 mailbox.read                 mailbox.archive
+(none) ──────► NEW ──────────────────────► READ ─────────────────────────► ARCHIVE
+                │                                                                ▲
+                └────────────── mailbox.archive ────────────────────────────────┘
+```
+
+Legal transitions: `NEW → READ`, `NEW → ARCHIVE`, `READ → ARCHIVE`. Illegal transitions return 409. `mailbox.list` does **not** flip status — it is side-effect free. `mailbox.get` is likewise side-effect free.
+
+#### `meta` vs `payload`
+
+- **`meta`** — server-queryable structured metadata. JSON object, default `{}`. Use for fields the server or other callers might filter on (priority, tags, correlation IDs).
+- **`payload`** — opaque application data. JSON value (object, array, or scalar), default `{}`. Only meaningful to the final consumer.
+
+#### `message_type` vocabulary
+
+Unchanged from v0.7 `kind` (renamed for clarity). Reserved namespaces:
+
+- `HOOK:*` — hook-originated messages (`HOOK:Stop`, `HOOK:SessionEnd`, `HOOK:PreCompact`, …)
+- `TASK:*` — skill or agent task messages (`TASK:Result`, `TASK:Progress`)
+- `NOTE:*` — human or skill notes (`NOTE:INFO`, `NOTE:WARN`)
+- `CHAT:MESSAGE` — direct session-to-session chat
+
+The server does not enforce the vocabulary; it is convention.
 
 ### 5.5 `steop_logs` — append-only structured event log
 
@@ -190,7 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_steop_logs_session ON steop_logs(session_id, crea
 CREATE INDEX IF NOT EXISTS idx_steop_logs_proj    ON steop_logs(host, project_dir, created_at);
 ```
 
-v2 clients always populate all three identity fields (`host`, `project_dir`, `session_id`) in every log write.
+v0.7 clients always send a 3-segment composite `id` in every log write; the server splits it into the three columns on insert.
 
 ## 6. RPC API
 
@@ -202,68 +237,70 @@ There are no path parameters, no query parameters, and no header-based identity.
 
 #### Session lifecycle
 
-| Method                | Body                                                           | Returns                              |
-| --------------------- | -------------------------------------------------------------- | ------------------------------------ |
-| `steop.session.start` | `{host, project_dir, session_id, data?}`                       | `Session`                            |
-| `steop.session.stop`  | `{host, project_dir, session_id}`                              | `Session`                            |
-| `steop.session.touch` | `{host, project_dir, session_id}`                              | `Session`                            |
-| `steop.session.get`   | `{session_id}` **or** `{host, project_dir, session_id}`        | `Session` or 404                     |
-| `steop.session.list`  | `{host?, project_dir?, state?, limit?}`                        | `{sessions: Session[]}`              |
-| `steop.project.list`  | `{host?}`                                                      | `{projects: [{host, project_dir}]}`  |
+| Method                | Body                                                     | Returns                    |
+| --------------------- | -------------------------------------------------------- | -------------------------- |
+| `steop.session.start` | `{id, data?}`                                            | `Session`                  |
+| `steop.session.stop`  | `{id}`                                                   | `Session`                  |
+| `steop.session.touch` | `{id}`                                                   | `Session`                  |
+| `steop.session.get`   | `{id}`                                                   | `Session` or 404           |
+| `steop.session.list`  | `{host?, project_dir?, state?, limit?}`                  | `{sessions: Session[]}`    |
+| `steop.project.list`  | `{host?}`                                                | `{projects: [{id}]}`       |
 
-`start` is idempotent — if the row already exists, set `state='active'`, refresh `last_active_at`, clear `stopped_at`, and merge `data` if supplied. `stop` sets `state='stopped'` and `stopped_at=now`. `touch` only updates `last_active_at`.
+`id` on all lifecycle write methods is the 3-segment composite. `start` is idempotent — if the row already exists, set `state='active'`, refresh `last_active_at`, clear `stopped_at`, and merge `data` if supplied. `stop` sets `state='stopped'` and `stopped_at=now`. `touch` only updates `last_active_at`.
 
-`session.list` filters: no fields = all sessions; `{host}` = all sessions for a host; `{host, project_dir}` = all sessions for a project; `{state:"active"}` = filter by lifecycle state. Ordered by `last_active_at` DESC, default `limit=100`.
+`session.list` takes structured filter fields and does **not** use composite ids: no fields = all sessions; `{host}` = all sessions for a host; `{host, project_dir}` = all sessions for a project; `{state:"active"}` = filter by lifecycle state. Ordered by `last_active_at` DESC, default `limit=100`. `project.list` returns a list of project-level composite ids.
 
 #### Session state and counters
 
-| Method               | Body                                                          | Returns                  |
-| -------------------- | ------------------------------------------------------------- | ------------------------ |
-| `steop.state.get`    | `{session_id}` **or** `{host, project_dir, session_id}`       | `Session` or 404         |
-| `steop.state.put`    | `{host, project_dir, session_id, data, merge?=true}`          | `Session`                |
-| `steop.state.incr`   | `{host, project_dir, session_id, counter, delta?=1}`          | `{counter, value}`       |
-| `steop.state.reset`  | `{host, project_dir, session_id, counter, value?=0}`          | `{counter, value}`       |
-| `steop.state.delete` | `{host, project_dir, session_id}`                             | `{deleted: true|false}`  |
+| Method               | Body                                       | Returns                  |
+| -------------------- | ------------------------------------------ | ------------------------ |
+| `steop.state.get`    | `{id}`                                     | `Session` or 404         |
+| `steop.state.put`    | `{id, data, merge?=true}`                  | `Session`                |
+| `steop.state.incr`   | `{id, counter, delta?=1}`                  | `{counter, value}`       |
+| `steop.state.reset`  | `{id, counter, value?=0}`                  | `{counter, value}`       |
+| `steop.state.delete` | `{id}`                                     | `{deleted: true|false}`  |
 
-`state.put` merges into the `data` JSON column (shallow merge, top-level key replacement) unless `merge:false` replaces the object entirely. `incr`/`reset` operate on the `counters` JSON column. All write methods refresh `last_active_at` and create the session row if absent (implicit start; `state='active'`).
+All state methods require a 3-segment `id`. `state.put` merges into the `data` JSON column (shallow merge, top-level key replacement) unless `merge:false` replaces the object entirely. `incr`/`reset` operate on the `counters` JSON column. All write methods refresh `last_active_at` and create the session row if absent (implicit start; `state='active'`).
 
 #### Statusline projection
 
-| Method             | Body                                                    | Returns                              |
-| ------------------ | ------------------------------------------------------- | ------------------------------------ |
-| `steop.status.get` | `{session_id}` **or** `{host, project_dir, session_id}` | `StatusProjection` (always 200)      |
+| Method             | Body   | Returns                              |
+| ------------------ | ------ | ------------------------------------ |
+| `steop.status.get` | `{id}` | `StatusProjection` (always 200)      |
 
-Projects `{session_id, mode, phase, step, tool_calls, loop_count, step_retry, last_active_at}` from `data` + `counters`. Returns defaulted values for unknown sessions so the statusline render path has no error branch.
+`id` must be a 3-segment composite. Projects `{id, mode, phase, step, tool_calls, loop_count, step_retry, last_active_at}` from `data` + `counters`. Returns defaulted values for unknown sessions so the statusline render path has no error branch.
 
 #### Storage (generic KV)
 
-| Method                 | Body                                                     | Returns                               |
-| ---------------------- | -------------------------------------------------------- | ------------------------------------- |
-| `steop.storage.put`    | `{host, project_dir, key, content, session_id?}`         | `{key, updated_at}`                   |
-| `steop.storage.get`    | `{host, project_dir, key, session_id?}`                  | `StorageBlob` or 404                  |
-| `steop.storage.delete` | `{host, project_dir, key, session_id?}`                  | `{deleted: true|false}`               |
-| `steop.storage.list`   | `{host, project_dir, session_id?}`                       | `{items: [{key, updated_at, size}]}`  |
+| Method                 | Body                      | Returns                               |
+| ---------------------- | ------------------------- | ------------------------------------- |
+| `steop.storage.put`    | `{id, key, content}`      | `{key, updated_at}`                   |
+| `steop.storage.get`    | `{id, key}`               | `StorageBlob` or 404                  |
+| `steop.storage.delete` | `{id, key}`               | `{deleted: true|false}`               |
+| `steop.storage.list`   | `{id}`                    | `{items: [{key, updated_at, size}]}`  |
 
-Presence of `session_id` selects `steop_storage_session`; absence selects `steop_storage_project`. Writes are upserts that refresh `updated_at`.
+`id` is a 2-segment composite (project scope) or a 3-segment composite (session scope). Arity selects which table. Writes are upserts that refresh `updated_at`.
 
 #### Log
 
-| Method             | Body                                                     | Returns             |
-| ------------------ | -------------------------------------------------------- | ------------------- |
-| `steop.log.append` | `{host, project_dir, session_id, event, data?}`          | `{id}`              |
-| `steop.log.query`  | `{host?, project_dir?, session_id?, limit?=200}`         | `{logs: LogRow[]}`  |
+| Method             | Body                                               | Returns             |
+| ------------------ | -------------------------------------------------- | ------------------- |
+| `steop.log.append` | `{id, event, data?}`                               | `{id}`              |
+| `steop.log.query`  | `{host?, project_dir?, session_id?, limit?=200}`   | `{logs: LogRow[]}`  |
 
-`query` filters additively: no fields = all logs, `{session_id}` = one session, `{host, project_dir}` = one project, etc. Ordered by `created_at` DESC.
+`log.append` requires a 3-segment session id. `log.query` keeps structured filter fields (host, project_dir, session_id are separate scalars — this stays an ad-hoc filter surface, not a composite-id lookup) so callers can drain logs across a whole host or project without composing an id. Ordered by `created_at` DESC.
 
 #### Mailbox
 
-| Method               | Body                                                                                                                 | Returns                    |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `steop.mailbox.send` | `{from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id?, kind, subject, payload}`   | `{id}`                     |
-| `steop.mailbox.list` | `{to_host, to_project_dir, to_session_id?, limit?=200, include_acked?=false}`                                        | `{messages: MailboxRow[]}` |
-| `steop.mailbox.ack`  | `{id}`                                                                                                               | `{acked: true|false}`      |
+| Method                  | Body                                                      | Returns                       |
+| ----------------------- | --------------------------------------------------------- | ----------------------------- |
+| `steop.mailbox.send`    | `{id, to, from?, subject?, message_type?, meta?, payload?}` | `{message_id, from, to, created_at, ...}` |
+| `steop.mailbox.list`    | `{id, to?, status?, message_type?, limit?}`               | `{messages: MailboxRow[]}`    |
+| `steop.mailbox.get`     | `{id, message_id}`                                        | `MailboxRow` or 404           |
+| `steop.mailbox.read`    | `{id, message_id}`                                        | `{message_id, status:"READ"}` |
+| `steop.mailbox.archive` | `{id, message_id}`                                        | `{message_id, status:"ARCHIVE"}` |
 
-A `list` call with `{to_host, to_project_dir}` returns project-level messages (those with `to_session_id=''`); adding `to_session_id` returns session-level messages addressed to that session. Short identifiers are **not** supported in mailbox methods — addressing must always be fully qualified. Ordered by `created_at` ASC (FIFO).
+`id` is the caller's own composite identifier (mandatory on all steop RPC calls). `from` defaults to the caller's `id` when omitted. `to` may be any principal (project, session, or user). `status` on `mailbox.list` defaults to `["NEW"]`. Filter by recipient + status set. Insert default: `status=NEW`. Illegal status transitions return 409. `mailbox.get` is side-effect free. Ordered by `created_at` ASC (FIFO).
 
 #### Notifications
 
@@ -278,9 +315,7 @@ Unchanged from v0.5 semantics. No identity fields (notifications are local to th
 ```json
 // Session
 {
-  "host":           "string",
-  "project_dir":    "string",
-  "session_id":     "string",
+  "id":             "host:project_dir:uuid",
   "state":          "active | stopped",
   "started_at":     "string (RFC3339)",
   "last_active_at": "string (RFC3339)",
@@ -291,7 +326,7 @@ Unchanged from v0.5 semantics. No identity fields (notifications are local to th
 
 // StatusProjection
 {
-  "session_id":     "string",
+  "id":             "host:project_dir:uuid",
   "mode":           "string",
   "phase":          "string",
   "step":           "string",
@@ -303,40 +338,33 @@ Unchanged from v0.5 semantics. No identity fields (notifications are local to th
 
 // StorageBlob
 {
-  "host":        "string",
-  "project_dir": "string",
-  "session_id":  "string | null",
-  "key":         "string",
-  "content":     "string",
-  "created_at":  "string (RFC3339)",
-  "updated_at":  "string (RFC3339)"
+  "id":         "host:project_dir (2-seg) | host:project_dir:uuid (3-seg)",
+  "key":        "string",
+  "content":    "string",
+  "created_at": "string (RFC3339)",
+  "updated_at": "string (RFC3339)"
 }
 
 // LogRow
 {
-  "id":          1234,
-  "host":        "string",
-  "project_dir": "string",
-  "session_id":  "string",
-  "event":       "string",
-  "data":        {},
-  "created_at":  "string (RFC3339)"
+  "id":         1234,
+  "session_id": "host:project_dir:uuid",
+  "event":      "string",
+  "data":       {},
+  "created_at": "string (RFC3339)"
 }
 
 // MailboxRow
 {
-  "id":               1234,
-  "from_host":        "string",
-  "from_project_dir": "string",
-  "from_session_id":  "string",
-  "to_host":          "string",
-  "to_project_dir":   "string",
-  "to_session_id":    "string",
-  "kind":             "string",
-  "subject":          "string",
-  "payload":          {},
-  "created_at":       "string (RFC3339)",
-  "acked_at":         "string (RFC3339) | null"
+  "message_id":   1234,
+  "from":         "host:project_dir[:uuid|:USER]",
+  "to":           "host:project_dir[:uuid|:USER]",
+  "subject":      "string",
+  "message_type": "string",
+  "meta":         {},
+  "payload":      {},
+  "created_at":   "string (RFC3339)",
+  "status":       "NEW | READ | ARCHIVE"
 }
 ```
 
@@ -369,7 +397,7 @@ Clients that were relying on the `X-Steop-Host` / `X-Steop-Project-Dir` headers 
 | `PreToolUse`        | `HandlePreToolUse`         | No              | Regex-matches Bash commands for dangerous patterns; returns `DenyPreToolUse` or `Allow`.                              |
 | `PostToolUse`       | `HandlePostToolUse`        | Yes             | `steop.state.incr {counter:"tool_calls"}` + `steop.state.put {data:{last_tool, last_tool_at}, merge:true}` + `steop.log.append` |
 | `Stop`              | `HandleStop`               | Yes             | `steop.notify` + `steop.state.get` + `steop.mailbox.send` (to project-level) + `steop.state.put {data:{phase:null, mode:null}, merge:true}` |
-| `SessionStart`      | `HandleSessionStart`       | Yes             | `steop.session.start {host, project_dir, session_id, data:{cwd, permission_mode}}` + `steop.log.append {event:"session_start"}` |
+| `SessionStart`      | `HandleSessionStart`       | Yes             | `steop.session.start {id, data:{cwd, permission_mode}}` + `steop.log.append {id, event:"session_start"}` |
 | `SessionEnd`        | `HandleSessionEnd`         | Yes             | `steop.log.append {event:"session_end", data:{reason,...}}` + `steop.mailbox.send` (project-level summary) + `steop.session.stop` |
 | `PermissionRequest` | `HandlePermissionRequest`  | No              | Returns `Allow()` unconditionally (observe-only, v1).                                                                 |
 | `PostToolUseFailure`| `HandlePostToolUseFailure` | Yes             | `steop.log.append {event:"post_tool_use_failure", data:{tool_name, error, is_interrupt}}`                             |
@@ -381,96 +409,29 @@ Clients that were relying on the `X-Steop-Host` / `X-Steop-Project-Dir` headers 
 
 - **v0.1–0.4** — initial spike, hook skeleton, state API, counters.
 - **v0.5 (previous)** — REST API. Log + inbox append-only. Composite session identity (`host` + `project_dir`) via `X-Steop-*` headers. `steop_state` + `steop_counters` separate tables. PreToolUse safety rules. `persistent_mode` flag stored but not honored.
-- **v0.6 (current)** — RPC redesign. Breaking API migration: all `/api/v1/steop/*` endpoints are now `POST /api/v1/steop/<method>` RPC with body-only input. Composite SSH-style identity (`host:project_dir[:session_id]`) is mandatory and explicit. New tables: `steop_sessions` (merges state + counters), `steop_storage_session`, `steop_storage_project`, `steop_mailbox` (replaces `steop_inbox`). Explicit `session.start`/`stop`/`touch` lifecycle. Mailbox with project-level and session-level addressing plus explicit ack. Go and Rust clients migrated.
-- **v0.7** — consumers. `/stele:sync` drains the mailbox for past-session summaries. `steop recap` skill. Deliverable verification heuristics on `SubagentStop`.
+- **v0.6** — RPC redesign. Breaking API migration: all `/api/v1/steop/*` endpoints became `POST /api/v1/steop/<method>` RPC with body-only input. Structured `{host, project_dir, session_id}` triples carried composite identity. New tables: `steop_sessions` (merges state + counters), `steop_storage_session`, `steop_storage_project`, `steop_mailbox` (replaces `steop_inbox`). Explicit `session.start`/`stop`/`touch` lifecycle. Mailbox with project-level and session-level addressing plus explicit ack. Go and Rust clients migrated.
+- **v0.7 (current)** — composite id wire format. The `{host, project_dir, session_id}` triple collapses into a single colon-separated `id` string at the wire layer (`host:project_dir` or `host:project_dir:uuid`). Schema unchanged. Short-form session lookups removed — `session.get`/`state.get`/`status.get` all require the full 3-segment id. Go and Rust clients rewritten; tests passing. Consumer work (mailbox drain into `/stele:sync`, `steop recap`, deliverable verification on `SubagentStop`) moves to v0.8.
 - **v0.8** — persistent-mode honored. Stop hook returns `{"decision":"block","reason":"..."}` when `persistent_mode` flag is set, with safety guards against infinite loops.
 - **v1.0** — release surface. Prebuilt binaries, optional MCP tool wrappers around the RPC methods, FTS over log payloads.
 
 ## 9. Versioning
 
-The RPC contract under `/api/v1/steop/*` is versioned together with the stele-server workspace version. v0.6.0 is a breaking migration from v0.5 — endpoints, schema, and identity model all changed. Future additive changes (new methods, new optional fields) bump minor. Any further breaking change bumps minor again until v1.0, at which point SemVer kicks in and breaking changes require a `/api/v2/steop/*` prefix.
+The RPC contract under `/api/v1/steop/*` is versioned together with the stele-server workspace version. v0.6.0 was a breaking migration from v0.5 — endpoints, schema, and identity model all changed. v0.7.0 is another hard break: the wire format for identity collapsed from a `{host, project_dir, session_id}` triple into a single composite `id` string. Schema is stable across v0.6 → v0.7. Future additive changes (new methods, new optional fields) bump minor. Any further breaking change bumps minor again until v1.0, at which point SemVer kicks in and breaking changes require a `/api/v2/steop/*` prefix.
 
 The stele workspace version, the steop plugin version, and the Go binary version must always match. Use `scripts/bump-version.py` to move them in lock-step.
 
-## 10. Verifying v0.6 (smoke tests)
+## 10. Verifying v0.7 (smoke tests)
 
-```bash
-KEY=...
-URL=http://127.0.0.1:3100/api/v1/steop
-H="X-Stele-Key: $KEY"
-CT="Content-Type: application/json"
-
-# session lifecycle
-curl -sS -X POST "$URL/steop.session.start" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","data":{"phase":"plan"}}'
-
-curl -sS -X POST "$URL/steop.session.touch" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1"}'
-
-curl -sS -X POST "$URL/steop.session.get" -H "$H" -H "$CT" \
-  -d '{"session_id":"sess-1"}'
-
-curl -sS -X POST "$URL/steop.session.list" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","state":"active"}'
-
-# state + counters
-curl -sS -X POST "$URL/steop.state.put" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","data":{"phase":"execute"},"merge":true}'
-
-curl -sS -X POST "$URL/steop.state.incr" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","counter":"tool_calls","delta":1}'
-
-curl -sS -X POST "$URL/steop.state.reset" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","counter":"tool_calls","value":0}'
-
-# status
-curl -sS -X POST "$URL/steop.status.get" -H "$H" -H "$CT" \
-  -d '{"session_id":"sess-1"}'
-
-# storage (session-level)
-curl -sS -X POST "$URL/steop.storage.put" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","key":"plan","content":"{\"steps\":[1,2,3]}"}'
-
-curl -sS -X POST "$URL/steop.storage.get" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","key":"plan"}'
-
-curl -sS -X POST "$URL/steop.storage.list" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1"}'
-
-# storage (project-level, no session_id)
-curl -sS -X POST "$URL/steop.storage.put" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","key":"brief","content":"shared"}'
-
-# log
-curl -sS -X POST "$URL/steop.log.append" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1","event":"post_tool_use","data":{"tool_name":"Bash"}}'
-
-curl -sS -X POST "$URL/steop.log.query" -H "$H" -H "$CT" \
-  -d '{"session_id":"sess-1","limit":20}'
-
-# mailbox
-curl -sS -X POST "$URL/steop.mailbox.send" -H "$H" -H "$CT" \
-  -d '{"from_host":"laptop","from_project_dir":"/tmp/demo","from_session_id":"sess-1","to_host":"laptop","to_project_dir":"/tmp/demo","kind":"NOTE:INFO","subject":"demo message","payload":{"phase":"validate","tool_calls":42}}'
-
-curl -sS -X POST "$URL/steop.mailbox.list" -H "$H" -H "$CT" \
-  -d '{"to_host":"laptop","to_project_dir":"/tmp/demo"}'
-
-curl -sS -X POST "$URL/steop.mailbox.ack" -H "$H" -H "$CT" \
-  -d '{"id":1}'
-
-# session stop
-curl -sS -X POST "$URL/steop.session.stop" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","session_id":"sess-1"}'
-```
+See [smoke-tests.md](smoke-tests.md) for a copy-paste curl sequence that exercises every RPC method end-to-end against a running `stele-server`.
 
 ## 11. Known limitations
 
 - No server-side auth enforcement yet on steop endpoints beyond what the existing stele auth middleware provides.
-- No migrations subsystem. v0.6.0 is a hard break from v0.5 — old `steop_storage`, `steop_state`, `steop_counters`, `steop_inbox` tables are superseded by new tables. Users who need to preserve v0.5 data must export manually before upgrading.
+- No migrations subsystem. v0.6.0 was a hard break from v0.5 — old `steop_storage`, `steop_state`, `steop_counters`, `steop_inbox` tables are superseded by new tables. v0.7.0 is a hard break on the wire format only; the schema is stable so existing DB files continue to work, but every client must be rebuilt in lock-step.
 - The stele-server uses a shared tokio mutex around its SQLite connection, so all DB access (including steop) is serialized. Counters-as-JSON in `steop_sessions.counters` is race-free under this mutex. Fine for workflow-scale traffic; would need revisiting for high concurrency.
 - The `steop` binary must be rebuilt after every Go source change. No auto-rebuild on install.
 - Status projection has no background materializer; it computes on read.
 - Logs and mailbox are append-only with no TTL. Mailbox rows stay in the table after ack (for audit); rows accumulate until manually pruned.
-- The server does not validate identifier completeness. A client that sends `{host:"", project_dir:"", session_id:"x"}` will create a row with empty host/project_dir. Clients must take care.
+- The server only validates that the composite `id` parses into the expected number of segments. It does not validate that `host` looks like a hostname, that `project_dir` is absolute, or that the session UUID corresponds to a real Claude Code session. A client that sends `{id:"x: :uuid"}` will happily create a row with a space in `project_dir`. Clients must take care.
 - `persistent_mode` flag is stored but not honored — Stop always returns `Allow()`. Full block-and-resume loop is v0.8.
 - `PermissionRequest` handler is observe-only.

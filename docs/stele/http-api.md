@@ -402,13 +402,15 @@ Ordered `created_at` DESC. All filter fields are optional and combine additively
 
 #### Mailbox
 
-| Method               | Body                                                                                                   | Response                   |
-| -------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------- |
-| `steop.mailbox.send` | `{from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id?, payload}`    | `{id}`                     |
-| `steop.mailbox.list` | `{to_host, to_project_dir, to_session_id?, limit?=200, include_acked?=false}`                          | `{messages: MailboxRow[]}` |
-| `steop.mailbox.ack`  | `{id}`                                                                                                 | `{acked: true\|false}`     |
+| Method                  | Body                                                      | Response                   |
+| ----------------------- | --------------------------------------------------------- | -------------------------- |
+| `steop.mailbox.send`    | `{id, to, from?, subject?, message_type?, meta?, payload?}` | `MailboxRow`             |
+| `steop.mailbox.list`    | `{id, to?, status?=["NEW"], message_type?, limit?=200}`   | `{messages: MailboxRow[]}` |
+| `steop.mailbox.get`     | `{id, message_id}`                                        | `MailboxRow`               |
+| `steop.mailbox.read`    | `{id, message_id}`                                        | `{message_id, status:"READ"}`     |
+| `steop.mailbox.archive` | `{id, message_id}`                                        | `{message_id, status:"ARCHIVE"}`  |
 
-Sender (`from_*`) must always be a session. Recipient may be a project (`to_session_id` omitted or `""`) or a session (`to_session_id` set). Ordered `created_at` ASC (FIFO). Acked messages are retained for audit and excluded from `list` unless `include_acked:true`.
+Sender may be any principal (project, session, or user). Recipient may be any principal. The server derives `from` from the caller's `id` when `from` is omitted — explicit `from` overrides. Ordered `created_at` ASC (FIFO). Status lifecycle is `NEW -> READ -> ARCHIVE`: `mailbox.read` transitions `NEW -> READ`, `mailbox.archive` transitions `NEW -> ARCHIVE` or `READ -> ARCHIVE`. Illegal transitions return 409. `mailbox.get` is side-effect-free. Default `list` filter is `status:["NEW"]`; pass an explicit array to widen. See `docs/prd/prd-001-mailbox-v2.md` for the normative spec.
 
 #### Notifications
 
@@ -470,16 +472,15 @@ Fire-and-forget local OS notification. Desktop builds render via system notifica
 
 // MailboxRow
 {
-  "id":               1234,
-  "from_host":        "string",
-  "from_project_dir": "string",
-  "from_session_id":  "string",
-  "to_host":          "string",
-  "to_project_dir":   "string",
-  "to_session_id":    "string",
-  "payload":          {},
-  "created_at":       "string (RFC3339)",
-  "acked_at":         "string (RFC3339) | null"
+  "message_id":   1234,
+  "from":         "string (composite id: HOST:PROJECT_DIR[:SESSION_UUID|:USER])",
+  "to":           "string (composite id)",
+  "subject":      "string",
+  "message_type": "string (HOOK:* | TASK:* | NOTE:* | CHAT:MESSAGE)",
+  "meta":         {},
+  "payload":      {},
+  "created_at":   "string (RFC3339)",
+  "status":       "NEW | READ | ARCHIVE"
 }
 ```
 

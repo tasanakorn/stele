@@ -175,21 +175,20 @@ pub fn init_db(path: &str) -> rusqlite::Result<DbPool> {
         );
 
         CREATE TABLE IF NOT EXISTS steop_mailbox (
-            id               INTEGER PRIMARY KEY AUTOINCREMENT,
-            from_host        TEXT NOT NULL,
-            from_project_dir TEXT NOT NULL,
-            from_session_id  TEXT NOT NULL,
-            to_host          TEXT NOT NULL,
-            to_project_dir   TEXT NOT NULL,
-            to_session_id    TEXT NOT NULL DEFAULT '',
-            payload          TEXT NOT NULL DEFAULT '{}',
-            created_at       TEXT NOT NULL,
-            acked_at         TEXT,
-            kind             TEXT NOT NULL DEFAULT 'LEGACY:UNKNOWN',
-            subject          TEXT NOT NULL DEFAULT ''
+            message_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_id      TEXT NOT NULL,
+            to_id        TEXT NOT NULL,
+            subject      TEXT NOT NULL DEFAULT '',
+            message_type TEXT NOT NULL DEFAULT 'NOTE',
+            meta         TEXT NOT NULL DEFAULT '{}',
+            payload      TEXT NOT NULL DEFAULT '{}',
+            created_at   TEXT NOT NULL,
+            status       TEXT NOT NULL DEFAULT 'NEW'
         );
         CREATE INDEX IF NOT EXISTS idx_steop_mailbox_to
-            ON steop_mailbox(to_host, to_project_dir, to_session_id, created_at);
+            ON steop_mailbox(to_id, status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_steop_mailbox_from
+            ON steop_mailbox(from_id, created_at);
 
         CREATE TABLE IF NOT EXISTS steop_logs (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,38 +208,17 @@ pub fn init_db(path: &str) -> rusqlite::Result<DbPool> {
 }
 
 fn ensure_steop_schema(conn: &Connection) -> rusqlite::Result<()> {
+    // v0.8.0: drop legacy and pre-v0.8 mailbox tables so the schema-init
+    // CREATE TABLE IF NOT EXISTS block below recreates steop_mailbox with the
+    // v2 shape. Mailbox data is intentionally not preserved (see docs/prd/prd-001-mailbox-v2.md §9).
     conn.execute_batch(
         "DROP TABLE IF EXISTS steop_storage;
          DROP TABLE IF EXISTS steop_state;
          DROP TABLE IF EXISTS steop_counters;
          DROP TABLE IF EXISTS steop_inbox;
-         DROP TABLE IF EXISTS steop_logs;",
+         DROP TABLE IF EXISTS steop_logs;
+         DROP TABLE IF EXISTS steop_mailbox;",
     )?;
-    // Migrate: add envelope columns if missing
-    {
-        let mut existing: std::collections::HashSet<String> = std::collections::HashSet::new();
-        {
-            let mut stmt = conn.prepare("PRAGMA table_info(steop_mailbox)")?;
-            let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-            for r in rows {
-                existing.insert(r?);
-            }
-        }
-        if !existing.is_empty() {
-            if !existing.contains("kind") {
-                conn.execute(
-                    "ALTER TABLE steop_mailbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'LEGACY:UNKNOWN'",
-                    [],
-                )?;
-            }
-            if !existing.contains("subject") {
-                conn.execute(
-                    "ALTER TABLE steop_mailbox ADD COLUMN subject TEXT NOT NULL DEFAULT ''",
-                    [],
-                )?;
-            }
-        }
-    }
     Ok(())
 }
 
@@ -1274,9 +1252,7 @@ pub fn open_entities(
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SteopSession {
-    pub host: String,
-    pub project_dir: String,
-    pub session_id: String,
+    pub id: String,
     pub state: String,
     pub started_at: String,
     pub last_active_at: String,
@@ -1287,7 +1263,7 @@ pub struct SteopSession {
 
 #[derive(Debug, Clone, serde::Serialize, Default)]
 pub struct SteopStatusProjection {
-    pub session_id: String,
+    pub id: String,
     pub mode: String,
     pub phase: String,
     pub step: String,
@@ -1299,9 +1275,7 @@ pub struct SteopStatusProjection {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SteopStorageBlob {
-    pub host: String,
-    pub project_dir: String,
-    pub session_id: Option<String>,
+    pub id: String,
     pub key: String,
     pub content: String,
     pub created_at: String,
@@ -1324,8 +1298,6 @@ pub struct SteopStorageListItem {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SteopLogRow {
     pub id: i64,
-    pub host: String,
-    pub project_dir: String,
     pub session_id: String,
     pub event: String,
     pub data: serde_json::Value,
@@ -1334,18 +1306,17 @@ pub struct SteopLogRow {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SteopMailboxRow {
-    pub id: i64,
-    pub from_host: String,
-    pub from_project_dir: String,
-    pub from_session_id: String,
-    pub to_host: String,
-    pub to_project_dir: String,
-    pub to_session_id: String,
+    pub message_id: i64,
+    #[serde(rename = "from")]
+    pub from_id: String,
+    #[serde(rename = "to")]
+    pub to_id: String,
+    pub subject: String,
+    pub message_type: String,
+    pub meta: serde_json::Value,
     pub payload: serde_json::Value,
     pub created_at: String,
-    pub acked_at: Option<String>,
-    pub kind: String,
-    pub subject: String,
+    pub status: String,
 }
 
 fn steop_now() -> String {
@@ -1364,13 +1335,22 @@ fn steop_json_merge(base: &mut serde_json::Value, patch: serde_json::Value) {
     }
 }
 
+fn steop_compose_session_id(host: &str, project_dir: &str, session_id: &str) -> String {
+    format!("{}:{}:{}", host, project_dir, session_id)
+}
+
+fn steop_compose_project_id(host: &str, project_dir: &str) -> String {
+    format!("{}:{}", host, project_dir)
+}
+
 fn steop_row_to_session(row: &rusqlite::Row) -> rusqlite::Result<SteopSession> {
     let data_s: String = row.get("data")?;
     let counters_s: String = row.get("counters")?;
+    let host: String = row.get("host")?;
+    let project_dir: String = row.get("project_dir")?;
+    let session_id: String = row.get("session_id")?;
     Ok(SteopSession {
-        host: row.get("host")?,
-        project_dir: row.get("project_dir")?,
-        session_id: row.get("session_id")?,
+        id: steop_compose_session_id(&host, &project_dir, &session_id),
         state: row.get("state")?,
         started_at: row.get("started_at")?,
         last_active_at: row.get("last_active_at")?,
@@ -1491,26 +1471,17 @@ pub fn steop_session_touch(
 
 pub fn steop_session_get(
     conn: &Connection,
-    host: Option<&str>,
-    project_dir: Option<&str>,
+    host: &str,
+    project_dir: &str,
     session_id: &str,
 ) -> rusqlite::Result<Option<SteopSession>> {
     use rusqlite::OptionalExtension;
-    if let (Some(h), Some(pd)) = (host, project_dir) {
-        conn.query_row(
-            "SELECT * FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
-            rusqlite::params![h, pd, session_id],
-            steop_row_to_session,
-        )
-        .optional()
-    } else {
-        conn.query_row(
-            "SELECT * FROM steop_sessions WHERE session_id=?1 LIMIT 1",
-            rusqlite::params![session_id],
-            steop_row_to_session,
-        )
-        .optional()
-    }
+    conn.query_row(
+        "SELECT * FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
+        rusqlite::params![host, project_dir, session_id],
+        steop_row_to_session,
+    )
+    .optional()
 }
 
 pub fn steop_session_list(
@@ -1690,14 +1661,15 @@ pub fn steop_state_delete(
 
 pub fn steop_status_get(
     conn: &Connection,
-    host: Option<&str>,
-    project_dir: Option<&str>,
+    host: &str,
+    project_dir: &str,
     session_id: &str,
 ) -> rusqlite::Result<SteopStatusProjection> {
+    let composite = steop_compose_session_id(host, project_dir, session_id);
     let sess = steop_session_get(conn, host, project_dir, session_id)?;
     match sess {
         None => Ok(SteopStatusProjection {
-            session_id: session_id.to_string(),
+            id: composite,
             ..Default::default()
         }),
         Some(s) => {
@@ -1708,7 +1680,7 @@ pub fn steop_status_get(
             let loop_count = s.counters.get("loop_count").and_then(|v| v.as_i64()).unwrap_or(0);
             let step_retry = s.counters.get("step_retry").and_then(|v| v.as_i64()).unwrap_or(0);
             Ok(SteopStatusProjection {
-                session_id: s.session_id,
+                id: s.id,
                 mode,
                 phase,
                 step,
@@ -1753,15 +1725,18 @@ pub fn steop_storage_session_get(
         "SELECT host, project_dir, session_id, key, content, created_at, updated_at
          FROM steop_storage_session WHERE host=?1 AND project_dir=?2 AND session_id=?3 AND key=?4",
         rusqlite::params![host, project_dir, session_id, key],
-        |row| Ok(SteopStorageBlob {
-            host: row.get(0)?,
-            project_dir: row.get(1)?,
-            session_id: Some(row.get::<_, String>(2)?),
-            key: row.get(3)?,
-            content: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-        }),
+        |row| {
+            let h: String = row.get(0)?;
+            let pd: String = row.get(1)?;
+            let sid: String = row.get(2)?;
+            Ok(SteopStorageBlob {
+                id: steop_compose_session_id(&h, &pd, &sid),
+                key: row.get(3)?,
+                content: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        },
     )
     .optional()
 }
@@ -1830,15 +1805,17 @@ pub fn steop_storage_project_get(
         "SELECT host, project_dir, key, content, created_at, updated_at
          FROM steop_storage_project WHERE host=?1 AND project_dir=?2 AND key=?3",
         rusqlite::params![host, project_dir, key],
-        |row| Ok(SteopStorageBlob {
-            host: row.get(0)?,
-            project_dir: row.get(1)?,
-            session_id: None,
-            key: row.get(2)?,
-            content: row.get(3)?,
-            created_at: row.get(4)?,
-            updated_at: row.get(5)?,
-        }),
+        |row| {
+            let h: String = row.get(0)?;
+            let pd: String = row.get(1)?;
+            Ok(SteopStorageBlob {
+                id: steop_compose_project_id(&h, &pd),
+                key: row.get(2)?,
+                content: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        },
     )
     .optional()
 }
@@ -1936,11 +1913,12 @@ pub fn steop_log_query(
     let rows = stmt
         .query_map(param_refs.as_slice(), |row| {
             let data_s: String = row.get(5)?;
+            let h: String = row.get(1)?;
+            let pd: String = row.get(2)?;
+            let sid: String = row.get(3)?;
             Ok(SteopLogRow {
                 id: row.get(0)?,
-                host: row.get(1)?,
-                project_dir: row.get(2)?,
-                session_id: row.get(3)?,
+                session_id: steop_compose_session_id(&h, &pd, &sid),
                 event: row.get(4)?,
                 data: steop_parse_json(&data_s),
                 created_at: row.get(6)?,
@@ -1952,80 +1930,164 @@ pub fn steop_log_query(
 
 // ── Mailbox ──────────────────────────────────────────────────────────────────
 
+/// Outcome of `steop_mailbox_read` / `steop_mailbox_archive`. The `Conflict`
+/// variant carries the current status so the handler can return 409 with the
+/// server's actual state.
+#[derive(Debug)]
+pub enum MailboxTransition {
+    Ok,
+    NotFound,
+    Conflict(String),
+}
+
 pub fn steop_mailbox_send(
     conn: &Connection,
-    from_host: &str,
-    from_project_dir: &str,
-    from_session_id: &str,
-    to_host: &str,
-    to_project_dir: &str,
-    to_session_id: &str,
-    kind: &str,
+    from_id: &str,
+    to_id: &str,
     subject: &str,
+    message_type: &str,
+    meta: &serde_json::Value,
     payload: &serde_json::Value,
-) -> rusqlite::Result<i64> {
+) -> rusqlite::Result<SteopMailboxRow> {
     let now = steop_now();
     conn.execute(
         "INSERT INTO steop_mailbox
-         (from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id, kind, subject, payload, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         (from_id, to_id, subject, message_type, meta, payload, created_at, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'NEW')",
         rusqlite::params![
-            from_host, from_project_dir, from_session_id,
-            to_host, to_project_dir, to_session_id,
-            kind, subject, payload.to_string(), now
+            from_id,
+            to_id,
+            subject,
+            message_type,
+            meta.to_string(),
+            payload.to_string(),
+            now,
         ],
     )?;
-    Ok(conn.last_insert_rowid())
+    let rowid = conn.last_insert_rowid();
+    steop_mailbox_get(conn, rowid)
+        .map(|row| row.expect("row just inserted must exist"))
+}
+
+pub fn steop_mailbox_get(
+    conn: &Connection,
+    message_id: i64,
+) -> rusqlite::Result<Option<SteopMailboxRow>> {
+    use rusqlite::OptionalExtension;
+    OptionalExtension::optional(conn.query_row(
+        "SELECT message_id, from_id, to_id, subject, message_type, meta, payload, created_at, status
+         FROM steop_mailbox WHERE message_id = ?1",
+        rusqlite::params![message_id],
+        steop_row_to_mailbox,
+    ))
 }
 
 pub fn steop_mailbox_list(
     conn: &Connection,
-    to_host: &str,
-    to_project_dir: &str,
-    to_session_id: &str,
+    to_id: &str,
+    statuses: &[String],
+    message_type: Option<&str>,
     limit: i64,
-    include_acked: bool,
 ) -> rusqlite::Result<Vec<SteopMailboxRow>> {
-    let mut sql = String::from(
-        "SELECT id, from_host, from_project_dir, from_session_id, to_host, to_project_dir, to_session_id, payload, created_at, acked_at, kind, subject
-         FROM steop_mailbox WHERE to_host=?1 AND to_project_dir=?2 AND to_session_id=?3",
+    // Caller guarantees statuses is non-empty (handler defaults to ["NEW"]).
+    let placeholders: Vec<String> = (0..statuses.len())
+        .map(|i| format!("?{}", i + 2))
+        .collect();
+    let status_clause = format!("status IN ({})", placeholders.join(","));
+
+    let mut sql = format!(
+        "SELECT message_id, from_id, to_id, subject, message_type, meta, payload, created_at, status
+         FROM steop_mailbox WHERE to_id = ?1 AND {}",
+        status_clause
     );
-    if !include_acked {
-        sql.push_str(" AND acked_at IS NULL");
+
+    let next_idx = statuses.len() + 2;
+    if message_type.is_some() {
+        sql.push_str(&format!(" AND message_type = ?{}", next_idx));
     }
-    sql.push_str(" ORDER BY created_at ASC LIMIT ?4");
+    let limit_idx = if message_type.is_some() { next_idx + 1 } else { next_idx };
+    sql.push_str(&format!(" ORDER BY created_at ASC LIMIT ?{}", limit_idx));
 
     let mut stmt = conn.prepare(&sql)?;
+    let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    args.push(Box::new(to_id.to_string()));
+    for s in statuses {
+        args.push(Box::new(s.clone()));
+    }
+    if let Some(mt) = message_type {
+        args.push(Box::new(mt.to_string()));
+    }
+    args.push(Box::new(limit));
+
+    let param_refs: Vec<&dyn rusqlite::ToSql> =
+        args.iter().map(|b| b.as_ref() as &dyn rusqlite::ToSql).collect();
+
     let rows = stmt
-        .query_map(
-            rusqlite::params![to_host, to_project_dir, to_session_id, limit],
-            |row| {
-                let payload_s: String = row.get(7)?;
-                Ok(SteopMailboxRow {
-                    id: row.get(0)?,
-                    from_host: row.get(1)?,
-                    from_project_dir: row.get(2)?,
-                    from_session_id: row.get(3)?,
-                    to_host: row.get(4)?,
-                    to_project_dir: row.get(5)?,
-                    to_session_id: row.get(6)?,
-                    payload: steop_parse_json(&payload_s),
-                    created_at: row.get(8)?,
-                    acked_at: row.get(9)?,
-                    kind: row.get(10)?,
-                    subject: row.get(11)?,
-                })
-            },
-        )?
+        .query_map(param_refs.as_slice(), steop_row_to_mailbox)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
 
-pub fn steop_mailbox_ack(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
-    let now = steop_now();
-    let n = conn.execute(
-        "UPDATE steop_mailbox SET acked_at=?1 WHERE id=?2 AND acked_at IS NULL",
-        rusqlite::params![now, id],
+pub fn steop_mailbox_read(
+    conn: &Connection,
+    message_id: i64,
+) -> rusqlite::Result<MailboxTransition> {
+    use rusqlite::OptionalExtension;
+    let current: Option<String> = OptionalExtension::optional(conn.query_row(
+        "SELECT status FROM steop_mailbox WHERE message_id = ?1",
+        rusqlite::params![message_id],
+        |r| r.get(0),
+    ))?;
+    let current = match current {
+        None => return Ok(MailboxTransition::NotFound),
+        Some(s) => s,
+    };
+    if current != "NEW" {
+        return Ok(MailboxTransition::Conflict(current));
+    }
+    conn.execute(
+        "UPDATE steop_mailbox SET status='READ' WHERE message_id = ?1",
+        rusqlite::params![message_id],
     )?;
-    Ok(n > 0)
+    Ok(MailboxTransition::Ok)
+}
+
+pub fn steop_mailbox_archive(
+    conn: &Connection,
+    message_id: i64,
+) -> rusqlite::Result<MailboxTransition> {
+    use rusqlite::OptionalExtension;
+    let current: Option<String> = OptionalExtension::optional(conn.query_row(
+        "SELECT status FROM steop_mailbox WHERE message_id = ?1",
+        rusqlite::params![message_id],
+        |r| r.get(0),
+    ))?;
+    let current = match current {
+        None => return Ok(MailboxTransition::NotFound),
+        Some(s) => s,
+    };
+    if current == "ARCHIVE" {
+        return Ok(MailboxTransition::Conflict(current));
+    }
+    conn.execute(
+        "UPDATE steop_mailbox SET status='ARCHIVE' WHERE message_id = ?1",
+        rusqlite::params![message_id],
+    )?;
+    Ok(MailboxTransition::Ok)
+}
+
+fn steop_row_to_mailbox(row: &rusqlite::Row) -> rusqlite::Result<SteopMailboxRow> {
+    let meta_s: String = row.get(5)?;
+    let payload_s: String = row.get(6)?;
+    Ok(SteopMailboxRow {
+        message_id: row.get(0)?,
+        from_id: row.get(1)?,
+        to_id: row.get(2)?,
+        subject: row.get(3)?,
+        message_type: row.get(4)?,
+        meta: steop_parse_json(&meta_s),
+        payload: steop_parse_json(&payload_s),
+        created_at: row.get(7)?,
+        status: row.get(8)?,
+    })
 }

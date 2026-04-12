@@ -2771,7 +2771,7 @@ version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff32365de1b6743cb203b710788263c44a03de03802daf96092f2da4fe6ba4d7"
 dependencies = [
- "proc-macro-crate 2.0.2",
+ "proc-macro-crate 3.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -3626,6 +3626,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "regex"
+version = "1.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e10754a14b9137dd7b1e3e5b0493cc9171fdd105e0ab477f51b72e7f3ac0e276"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
 name = "regex-automata"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4151,7 +4163,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stele-cli"
-version = "0.6.2"
+version = "0.8.0"
 dependencies = [
  "clap",
  "dirs",
@@ -4165,7 +4177,7 @@ dependencies = [
 
 [[package]]
 name = "stele-common"
-version = "0.6.2"
+version = "0.8.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4173,7 +4185,7 @@ dependencies = [
 
 [[package]]
 name = "stele-server"
-version = "0.6.2"
+version = "0.8.0"
 dependencies = [
  "axum",
  "chrono",
@@ -4183,6 +4195,8 @@ dependencies = [
  "image",
  "muda",
  "notify-rust",
+ "once_cell",
+ "regex",
  "rmcp",
  "rusqlite",
  "schemars",

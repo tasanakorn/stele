@@ -1,10 +1,9 @@
 package client
 
-// Session represents a steop v0.6 session row.
+// Session represents a steop v0.7 session row. The composite id is the
+// 3-segment "host:project_dir:session_id" string.
 type Session struct {
-	Host         string                 `json:"host"`
-	ProjectDir   string                 `json:"project_dir"`
-	SessionID    string                 `json:"session_id"`
+	ID           string                 `json:"id"`
 	State        string                 `json:"state"`
 	StartedAt    string                 `json:"started_at"`
 	LastActiveAt string                 `json:"last_active_at"`
@@ -13,19 +12,14 @@ type Session struct {
 	Counters     map[string]int64       `json:"counters"`
 }
 
-// Project represents a host:project_dir combo.
+// Project represents a 2-segment composite project id.
 type Project struct {
-	Host       string `json:"host"`
-	ProjectDir string `json:"project_dir"`
+	ID string `json:"id"`
 }
 
 // SessionStart creates or reactivates a session.
-func (c *Client) SessionStart(host, projectDir, sessionID string, data map[string]interface{}) (*Session, error) {
-	body := map[string]interface{}{
-		"host":        host,
-		"project_dir": projectDir,
-		"session_id":  sessionID,
-	}
+func (c *Client) SessionStart(id string, data map[string]interface{}) (*Session, error) {
+	body := map[string]interface{}{"id": id}
 	if data != nil {
 		body["data"] = data
 	}
@@ -37,8 +31,8 @@ func (c *Client) SessionStart(host, projectDir, sessionID string, data map[strin
 }
 
 // SessionStop marks a session as stopped.
-func (c *Client) SessionStop(host, projectDir, sessionID string) (*Session, error) {
-	body := map[string]string{"host": host, "project_dir": projectDir, "session_id": sessionID}
+func (c *Client) SessionStop(id string) (*Session, error) {
+	body := map[string]string{"id": id}
 	var out Session
 	if err := c.rpc("steop.session.stop", body, &out); err != nil {
 		return nil, err
@@ -47,8 +41,8 @@ func (c *Client) SessionStop(host, projectDir, sessionID string) (*Session, erro
 }
 
 // SessionTouch refreshes last_active_at on a session.
-func (c *Client) SessionTouch(host, projectDir, sessionID string) (*Session, error) {
-	body := map[string]string{"host": host, "project_dir": projectDir, "session_id": sessionID}
+func (c *Client) SessionTouch(id string) (*Session, error) {
+	body := map[string]string{"id": id}
 	var out Session
 	if err := c.rpc("steop.session.touch", body, &out); err != nil {
 		return nil, err
@@ -56,9 +50,9 @@ func (c *Client) SessionTouch(host, projectDir, sessionID string) (*Session, err
 	return &out, nil
 }
 
-// SessionGet retrieves a session by session_id (short form lookup).
-func (c *Client) SessionGet(sessionID string) (*Session, error) {
-	body := map[string]string{"session_id": sessionID}
+// SessionGet retrieves a session by full composite id (3-segment).
+func (c *Client) SessionGet(id string) (*Session, error) {
+	body := map[string]string{"id": id}
 	var out Session
 	if err := c.rpc("steop.session.get", body, &out); err != nil {
 		return nil, err
@@ -90,7 +84,7 @@ func (c *Client) SessionList(host, projectDir, state string, limit int) ([]Sessi
 	return resp.Sessions, nil
 }
 
-// ProjectList lists distinct host:project_dir combos.
+// ProjectList lists distinct 2-segment project ids.
 func (c *Client) ProjectList(host string) ([]Project, error) {
 	body := map[string]interface{}{}
 	if host != "" {

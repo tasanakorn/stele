@@ -92,17 +92,42 @@ func detectProjectDir() string {
 }
 
 // sanitizeHeader strips non-printable characters so the result is safe to
-// set as an HTTP header value. Keeps ASCII-graphic runes plus '/' (for paths).
-// Matches the Rust CLI's SteleClient::sanitize behavior for parity.
+// set as an HTTP header value. Keeps ASCII-graphic runes plus '/' (for paths),
+// but always removes ':' so the value can be safely used as a colon-separated
+// segment in a composite steop id.
 func sanitizeHeader(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
+		if r == ':' {
+			b.WriteRune('-')
+			continue
+		}
 		if r == '/' || (r < unicode.MaxASCII && unicode.IsGraphic(r) && r != ' ') {
 			b.WriteRune(r)
 		}
 	}
 	return b.String()
+}
+
+// ComposeProjectID builds a 2-segment steop id "host:project_dir".
+func ComposeProjectID(host, projectDir string) string {
+	return host + ":" + projectDir
+}
+
+// ComposeSessionID builds a 3-segment steop id "host:project_dir:session_id".
+func ComposeSessionID(host, projectDir, sessionID string) string {
+	return host + ":" + projectDir + ":" + sessionID
+}
+
+// ProjectID returns the client's 2-segment composite project id.
+func (c *Client) ProjectID() string {
+	return ComposeProjectID(c.host, c.projectDir)
+}
+
+// SessionCompositeID returns the 3-segment composite session id for this client.
+func (c *Client) SessionCompositeID(sessionID string) string {
+	return ComposeSessionID(c.host, c.projectDir, sessionID)
 }
 
 // WithRequestContext returns a shallow copy of the client with host and

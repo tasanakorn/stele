@@ -133,7 +133,7 @@ func runStatusline(args []string) {
 
 func resolveStatuslineSession(c *client.Client, wanted string) (string, error) {
 	if wanted != "" {
-		return wanted, nil
+		return c.SessionCompositeID(wanted), nil
 	}
 	sessions, err := c.SessionList("", "", "", 1)
 	if err != nil {
@@ -142,7 +142,7 @@ func resolveStatuslineSession(c *client.Client, wanted string) (string, error) {
 	if len(sessions) == 0 {
 		return "", errors.New("no sessions")
 	}
-	return sessions[0].SessionID, nil
+	return sessions[0].ID, nil
 }
 
 // formatStatuslineLine renders the single steop line.

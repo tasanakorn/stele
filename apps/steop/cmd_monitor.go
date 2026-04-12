@@ -55,7 +55,7 @@ func runMonitor(args []string) {
 		return
 	}
 
-	id := positional[0]
+	id := c.SessionCompositeID(positional[0])
 	state, err := c.SessionGet(id)
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
@@ -82,33 +82,18 @@ func printSessionsTable(sessions []client.Session) {
 		fmt.Println("(no sessions)")
 		return
 	}
-	fmt.Printf("%-36s  %-8s  %-12s  %-10s  %s\n",
-		"SESSION_ID", "STATE", "HOST", "PROJECT_DIR", "LAST_ACTIVE")
+	fmt.Printf("%-60s  %-8s  %s\n", "ID", "STATE", "LAST_ACTIVE")
 	for _, s := range sessions {
 		state := s.State
 		if state == "" {
 			state = "-"
 		}
-		host := s.Host
-		if host == "" {
-			host = "-"
-		}
-		projectDir := s.ProjectDir
-		if len(projectDir) > 10 {
-			projectDir = "..." + projectDir[len(projectDir)-7:]
-		}
-		if projectDir == "" {
-			projectDir = "-"
-		}
-		fmt.Printf("%-36s  %-8s  %-12s  %-10s  %s\n",
-			s.SessionID, state, host, projectDir, s.LastActiveAt)
+		fmt.Printf("%-60s  %-8s  %s\n", s.ID, state, s.LastActiveAt)
 	}
 }
 
 func printSessionInspect(s *client.State) {
-	fmt.Printf("session_id    : %s\n", s.SessionID)
-	fmt.Printf("host          : %s\n", s.Host)
-	fmt.Printf("project_dir   : %s\n", s.ProjectDir)
+	fmt.Printf("id            : %s\n", s.ID)
 	fmt.Printf("state         : %s\n", s.State)
 	fmt.Printf("started_at    : %s\n", s.StartedAt)
 	fmt.Printf("last_active_at: %s\n", s.LastActiveAt)

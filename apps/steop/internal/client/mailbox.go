@@ -1,61 +1,88 @@
 package client
 
-// MailboxMessage is a message in the steop mailbox.
+// MailboxMessage is a v0.8 mailbox row. From and To are composite identifiers
+// (2- or 3-segment, see docs/steop/DESIGN.md §4). Status is one of
+// "NEW" | "READ" | "ARCHIVE".
 type MailboxMessage struct {
-	ID             int64       `json:"id"`
-	FromHost       string      `json:"from_host"`
-	FromProjectDir string      `json:"from_project_dir"`
-	FromSessionID  string      `json:"from_session_id"`
-	ToHost         string      `json:"to_host"`
-	ToProjectDir   string      `json:"to_project_dir"`
-	ToSessionID    string      `json:"to_session_id"`
-	Kind           string      `json:"kind"`
-	Subject        string      `json:"subject"`
-	Payload        interface{} `json:"payload"`
-	CreatedAt      string      `json:"created_at"`
-	AckedAt        *string     `json:"acked_at"`
+	MessageID   int64       `json:"message_id"`
+	From        string      `json:"from"`
+	To          string      `json:"to"`
+	Subject     string      `json:"subject"`
+	MessageType string      `json:"message_type"`
+	Meta        interface{} `json:"meta"`
+	Payload     interface{} `json:"payload"`
+	CreatedAt   string      `json:"created_at"`
+	Status      string      `json:"status"`
 }
 
-// MailboxSend sends a message from a session to a project or session.
-// Set toSessionID="" to send to the project level.
-func (c *Client) MailboxSend(fromHost, fromProjectDir, fromSessionID, toHost, toProjectDir, toSessionID, kind, subject string, payload interface{}) (int64, error) {
+// MailboxSendOptions carries the optional fields of a mailbox.send call.
+// Zero values are sent as server defaults (empty subject, message_type="NOTE",
+// empty meta/payload objects).
+type MailboxSendOptions struct {
+	// From overrides the implicit sender derivation. Leave empty to let the
+	// server derive from the caller's id.
+	From        string
+	Subject     string
+	MessageType string
+	Meta        interface{}
+	Payload     interface{}
+}
+
+// MailboxSend sends a message. The caller's own composite id (`id`) is used to
+// derive the implicit `from` unless opts.From is set. `to` is any 2-seg or
+// 3-seg composite id. Uses fastClone for fire-and-forget.
+func (c *Client) MailboxSend(id, to string, opts MailboxSendOptions) (*MailboxMessage, error) {
 	body := map[string]interface{}{
-		"from_host":        fromHost,
-		"from_project_dir": fromProjectDir,
-		"from_session_id":  fromSessionID,
-		"to_host":          toHost,
-		"to_project_dir":   toProjectDir,
-		"to_session_id":    toSessionID,
-		"kind":             kind,
-		"subject":          subject,
-		"payload":          payload,
+		"id": id,
+		"to": to,
 	}
-	var resp struct {
-		ID int64 `json:"id"`
+	if opts.From != "" {
+		body["from"] = opts.From
 	}
+	if opts.Subject != "" {
+		body["subject"] = opts.Subject
+	}
+	if opts.MessageType != "" {
+		body["message_type"] = opts.MessageType
+	}
+	if opts.Meta != nil {
+		body["meta"] = opts.Meta
+	}
+	if opts.Payload != nil {
+		body["payload"] = opts.Payload
+	}
+	var resp MailboxMessage
 	if err := c.fastClone().rpc("steop.mailbox.send", body, &resp); err != nil {
-		return 0, err
+		return nil, err
 	}
-	return resp.ID, nil
+	return &resp, nil
 }
 
-// MailboxSendFromSelf sends a message using the client's own host/projectDir as sender.
-// Uses fastClone for fire-and-forget.
-func (c *Client) MailboxSendFromSelf(sessionID, toHost, toProjectDir, toSessionID, kind, subject string, payload interface{}) (int64, error) {
-	return c.MailboxSend(c.host, c.projectDir, sessionID, toHost, toProjectDir, toSessionID, kind, subject, payload)
+// MailboxListOptions carries the optional fields of a mailbox.list call.
+type MailboxListOptions struct {
+	// To overrides the implicit recipient filter. Leave empty to default to
+	// the caller's own `id`.
+	To          string
+	Status      []string // default ["NEW"]
+	MessageType string
+	Limit       int
 }
 
-// MailboxList lists messages for a recipient.
-// toSessionID="" returns project-level messages.
-func (c *Client) MailboxList(toHost, toProjectDir, toSessionID string, limit int, includeAcked bool) ([]MailboxMessage, error) {
-	body := map[string]interface{}{
-		"to_host":        toHost,
-		"to_project_dir": toProjectDir,
-		"to_session_id":  toSessionID,
-		"include_acked":  includeAcked,
+// MailboxList queries the mailbox. The caller's own `id` is passed as the
+// identity and (unless opts.To is set) as the implicit recipient filter.
+func (c *Client) MailboxList(id string, opts MailboxListOptions) ([]MailboxMessage, error) {
+	body := map[string]interface{}{"id": id}
+	if opts.To != "" {
+		body["to"] = opts.To
 	}
-	if limit > 0 {
-		body["limit"] = limit
+	if len(opts.Status) > 0 {
+		body["status"] = opts.Status
+	}
+	if opts.MessageType != "" {
+		body["message_type"] = opts.MessageType
+	}
+	if opts.Limit > 0 {
+		body["limit"] = opts.Limit
 	}
 	var resp struct {
 		Messages []MailboxMessage `json:"messages"`
@@ -66,14 +93,34 @@ func (c *Client) MailboxList(toHost, toProjectDir, toSessionID string, limit int
 	return resp.Messages, nil
 }
 
-// MailboxAck marks a message as acknowledged.
-func (c *Client) MailboxAck(id int64) (bool, error) {
-	body := map[string]int64{"id": id}
+// MailboxGet fetches a single message by row id. Side-effect free.
+func (c *Client) MailboxGet(id string, messageID int64) (*MailboxMessage, error) {
+	body := map[string]interface{}{"id": id, "message_id": messageID}
+	var resp MailboxMessage
+	if err := c.rpc("steop.mailbox.get", body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// MailboxRead marks a NEW message as READ. Returns an error if the message is
+// not in NEW state (server returns 409).
+func (c *Client) MailboxRead(id string, messageID int64) error {
+	body := map[string]interface{}{"id": id, "message_id": messageID}
 	var resp struct {
-		Acked bool `json:"acked"`
+		MessageID int64  `json:"message_id"`
+		Status    string `json:"status"`
 	}
-	if err := c.rpc("steop.mailbox.ack", body, &resp); err != nil {
-		return false, err
+	return c.rpc("steop.mailbox.read", body, &resp)
+}
+
+// MailboxArchive archives a message. Legal from NEW or READ. Returns an error
+// if the message is already ARCHIVE (server returns 409).
+func (c *Client) MailboxArchive(id string, messageID int64) error {
+	body := map[string]interface{}{"id": id, "message_id": messageID}
+	var resp struct {
+		MessageID int64  `json:"message_id"`
+		Status    string `json:"status"`
 	}
-	return resp.Acked, nil
+	return c.rpc("steop.mailbox.archive", body, &resp)
 }

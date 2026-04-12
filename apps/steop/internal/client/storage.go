@@ -1,14 +1,13 @@
 package client
 
-// Blob is a storage value with full identity.
+// Blob is a storage value. id is 3-segment for session-scoped blobs or
+// 2-segment for project-scoped blobs.
 type Blob struct {
-	Host       string  `json:"host"`
-	ProjectDir string  `json:"project_dir"`
-	SessionID  *string `json:"session_id"`
-	Key        string  `json:"key"`
-	Content    string  `json:"content"`
-	CreatedAt  string  `json:"created_at"`
-	UpdatedAt  string  `json:"updated_at"`
+	ID        string `json:"id"`
+	Key       string `json:"key"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // BlobMeta is returned by put operations.
@@ -24,22 +23,13 @@ type BlobListItem struct {
 	Size      int64  `json:"size"`
 }
 
-func storageBody(host, projectDir, sessionID string) map[string]interface{} {
+// StoragePut upserts a key-value blob. id may be 2-segment (project scope) or 3-segment (session scope).
+func (c *Client) StoragePut(id, key, content string) (*BlobMeta, error) {
 	body := map[string]interface{}{
-		"host":        host,
-		"project_dir": projectDir,
+		"id":      id,
+		"key":     key,
+		"content": content,
 	}
-	if sessionID != "" {
-		body["session_id"] = sessionID
-	}
-	return body
-}
-
-// StoragePut upserts a key-value blob. sessionID="" routes to project scope.
-func (c *Client) StoragePut(host, projectDir, sessionID, key, content string) (*BlobMeta, error) {
-	body := storageBody(host, projectDir, sessionID)
-	body["key"] = key
-	body["content"] = content
 	var out BlobMeta
 	if err := c.rpc("steop.storage.put", body, &out); err != nil {
 		return nil, err
@@ -47,10 +37,9 @@ func (c *Client) StoragePut(host, projectDir, sessionID, key, content string) (*
 	return &out, nil
 }
 
-// StorageGet retrieves a blob. sessionID="" routes to project scope.
-func (c *Client) StorageGet(host, projectDir, sessionID, key string) (*Blob, error) {
-	body := storageBody(host, projectDir, sessionID)
-	body["key"] = key
+// StorageGet retrieves a blob.
+func (c *Client) StorageGet(id, key string) (*Blob, error) {
+	body := map[string]interface{}{"id": id, "key": key}
 	var out Blob
 	if err := c.rpc("steop.storage.get", body, &out); err != nil {
 		return nil, err
@@ -58,10 +47,9 @@ func (c *Client) StorageGet(host, projectDir, sessionID, key string) (*Blob, err
 	return &out, nil
 }
 
-// StorageDelete deletes a blob. sessionID="" routes to project scope.
-func (c *Client) StorageDelete(host, projectDir, sessionID, key string) (bool, error) {
-	body := storageBody(host, projectDir, sessionID)
-	body["key"] = key
+// StorageDelete deletes a blob.
+func (c *Client) StorageDelete(id, key string) (bool, error) {
+	body := map[string]interface{}{"id": id, "key": key}
 	var resp struct {
 		Deleted bool `json:"deleted"`
 	}
@@ -71,9 +59,9 @@ func (c *Client) StorageDelete(host, projectDir, sessionID, key string) (bool, e
 	return resp.Deleted, nil
 }
 
-// StorageList lists keys for a storage scope. sessionID="" routes to project scope.
-func (c *Client) StorageList(host, projectDir, sessionID string) ([]BlobListItem, error) {
-	body := storageBody(host, projectDir, sessionID)
+// StorageList lists keys for a storage scope.
+func (c *Client) StorageList(id string) ([]BlobListItem, error) {
+	body := map[string]interface{}{"id": id}
 	var resp struct {
 		Items []BlobListItem `json:"items"`
 	}

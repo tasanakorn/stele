@@ -28,8 +28,9 @@ func HandleStop(in *HookInput, c *client.Client) []byte {
 	if in.SessionID == "" {
 		return Allow()
 	}
+	sid := c.SessionCompositeID(in.SessionID)
 
-	state, stateErr := c.StateGet(in.SessionID)
+	state, stateErr := c.StateGet(sid)
 	if stateErr != nil {
 		logging.Debugf("stop state get failed: %v", stateErr)
 	}
@@ -42,7 +43,11 @@ func HandleStop(in *HookInput, c *client.Client) []byte {
 			"ended_at": time.Now().UTC().Format(time.RFC3339),
 		}
 		subject := buildBody(in.LastAssistantMessage)
-		if _, err := c.MailboxSendFromSelf(in.SessionID, c.Host(), c.ProjectDir(), "", "HOOK:Stop", subject, payload); err != nil {
+		if _, err := c.MailboxSend(sid, c.ProjectID(), client.MailboxSendOptions{
+			MessageType: "HOOK:Stop",
+			Subject:     subject,
+			Payload:     payload,
+		}); err != nil {
 			logging.Debugf("stop mailbox send failed: %v", err)
 		}
 		if pm, ok := state.Data["persistent_mode"].(bool); ok && pm {
@@ -50,7 +55,7 @@ func HandleStop(in *HookInput, c *client.Client) []byte {
 		}
 	}
 
-	if _, err := c.StatePut(c.Host(), c.ProjectDir(), in.SessionID, map[string]interface{}{"phase": nil, "mode": nil}, true); err != nil {
+	if _, err := c.StatePut(sid, map[string]interface{}{"phase": nil, "mode": nil}, true); err != nil {
 		logging.Debugf("stop clear phase failed: %v", err)
 	}
 	return Allow()

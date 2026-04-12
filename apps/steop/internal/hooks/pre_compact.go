@@ -11,10 +11,8 @@ func HandlePreCompact(in *HookInput, c *client.Client) []byte {
 		return Allow()
 	}
 	ev := client.LogEvent{
-		Host:       c.Host(),
-		ProjectDir: c.ProjectDir(),
-		SessionID:  in.SessionID,
-		Event:      "pre_compact",
+		ID:    c.SessionCompositeID(in.SessionID),
+		Event: "pre_compact",
 		Data: map[string]interface{}{
 			"trigger": in.Trigger,
 			"cwd":     in.Cwd,
