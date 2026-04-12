@@ -10,10 +10,11 @@ If a doc mentions specific SQL tables, struct field names, or hook handlers, it 
 
 ## Workspace-wide
 
-| Doc                                  | Description                                                           |
-| ------------------------------------ | --------------------------------------------------------------------- |
-| [architecture.md](architecture.md)   | Top-level map — components, how they talk, key design choices         |
-| [versioning.md](versioning.md)       | SemVer policy and the `scripts/bump-version.py` workflow              |
+| Doc                                                                                 | Description                                                           |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| [architecture.md](architecture.md)                                                  | Top-level map — components, how they talk, key design choices         |
+| [versioning.md](versioning.md)                                                      | SemVer policy and the `scripts/bump-version.py` workflow              |
+| [plugin-marketplace-troubleshooting.md](plugin-marketplace-troubleshooting.md)      | Recovering from stale Claude Code marketplace state when re-adding    |
 
 ## Product Requirements (`prd/`)
 
