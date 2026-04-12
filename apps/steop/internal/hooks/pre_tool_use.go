@@ -31,11 +31,15 @@ type bashToolInput struct {
 	Command string `json:"command"`
 }
 
-// HandlePreToolUse inspects a Bash command for dangerous patterns, then injects
-// identity flags into steop invocations. sessionID and projectDir come from the
-// hook's stdin JSON and CLAUDE_PROJECT_DIR env respectively.
+// HandlePreToolUse inspects a Bash or Monitor command for dangerous patterns,
+// then injects identity flags into steop invocations. sessionID and projectDir
+// come from the hook's stdin JSON and CLAUDE_PROJECT_DIR env respectively.
+// Both Bash and Monitor tool inputs use the same {"command":"..."} shape.
 func HandlePreToolUse(in *HookInput, sessionID, projectDir string) []byte {
-	if in == nil || in.ToolName != "Bash" || len(in.ToolInput) == 0 {
+	if in == nil || len(in.ToolInput) == 0 {
+		return Allow()
+	}
+	if in.ToolName != "Bash" && in.ToolName != "Monitor" {
 		return Allow()
 	}
 	var b bashToolInput

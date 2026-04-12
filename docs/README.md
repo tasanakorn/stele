@@ -21,17 +21,18 @@ If a doc mentions specific SQL tables, struct field names, or hook handlers, it 
 
 Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers are allocated sequentially and are permanent once assigned (even after the PRD is implemented or superseded).
 
-| PRD                                                        | Status              | Description                                  |
-| ---------------------------------------------------------- | ------------------- | -------------------------------------------- |
-| [prd-001-mailbox-v2](prd/prd-001-mailbox-v2.md)            | Implemented v0.8.0  | `steop_mailbox` table + `steop.mailbox.*` RPC           |
-| [prd-003-identity-injection](prd/prd-003-identity-injection.md) | Implemented v0.9.0  | PreToolUse identity injection + multi-session statusline |
-| [prd-004-st-prd-skill](prd/prd-004-st-prd-skill.md)            | Implemented v0.9.1  | `/steop:st-prd` skill for convention-enforced PRD authoring |
-| [prd-005-storage-session-fallback](prd/prd-005-storage-session-fallback.md) | Implemented v0.9.3  | `steop storage` session fallback + st-watch cleanup         |
-| [prd-006-st-send-smart-addressing](prd/prd-006-st-send-smart-addressing.md) | Implemented v0.10.0 | `/steop:st-send` skill with short-name resolution + mode-aware task routing |
-| [prd-007-st-send-session-resolve](prd/prd-007-st-send-session-resolve.md)   | Implemented v0.10.1 | Fix `st-send` to resolve to active session UUID instead of hardcoded `USER` |
-| [prd-008-watcher-lifecycle](prd/prd-008-watcher-lifecycle.md)                   | Implemented v0.11.0 | Watcher lifecycle state + heartbeat for cross-session liveness detection        |
-| [prd-009-st-watch-streamline](prd/prd-009-st-watch-streamline.md)                | Implemented v0.12.0 | Streamline st-watch startup: CLI auto-resume + single-turn monitoring entry     |
-| [prd-010-st-watch-fast-startup](prd/prd-010-st-watch-fast-startup.md)            | Implemented v0.12.1 | Fast startup: ready line, parallel RPCs, SKILL.md trimming for <1 min monitoring |
+| PRD                                                                             | Status              | Description                                                                                       |
+| ------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------- |
+| [prd-001-mailbox-v2](prd/prd-001-mailbox-v2.md)                                 | Implemented v0.8.0  | `steop_mailbox` table + `steop.mailbox.*` RPC                                                     |
+| [prd-003-identity-injection](prd/prd-003-identity-injection.md)                 | Implemented v0.9.0  | PreToolUse identity injection + multi-session statusline                                          |
+| [prd-004-st-prd-skill](prd/prd-004-st-prd-skill.md)                             | Implemented v0.9.1  | `/steop:st-prd` skill for convention-enforced PRD authoring                                       |
+| [prd-005-storage-session-fallback](prd/prd-005-storage-session-fallback.md)     | Implemented v0.9.3  | `steop storage` session fallback + st-watch cleanup                                               |
+| [prd-006-st-send-smart-addressing](prd/prd-006-st-send-smart-addressing.md)     | Implemented v0.10.0 | `/steop:st-send` skill with short-name resolution + mode-aware task routing                       |
+| [prd-007-st-send-session-resolve](prd/prd-007-st-send-session-resolve.md)       | Implemented v0.10.1 | Fix `st-send` to resolve to active session UUID instead of hardcoded `USER`                       |
+| [prd-008-watcher-lifecycle](prd/prd-008-watcher-lifecycle.md)                   | Implemented v0.11.0 | Watcher lifecycle state + heartbeat for cross-session liveness detection                          |
+| [prd-009-st-watch-streamline](prd/prd-009-st-watch-streamline.md)               | Implemented v0.12.0 | Streamline st-watch startup: CLI auto-resume + single-turn monitoring entry                       |
+| [prd-010-st-watch-fast-startup](prd/prd-010-st-watch-fast-startup.md)           | Implemented v0.12.1 | Fast startup: ready line, parallel RPCs, SKILL.md trimming for <1 min monitoring                  |
+| [prd-011-watcher-claim-based-cursor](prd/prd-011-watcher-claim-based-cursor.md) | Implemented v0.12.3 | Drop persistent `watcher:last_message_id` cursor; rely on server-side status=NEW + in-memory seen |
 
 ## Stele server (`stele/`)
 

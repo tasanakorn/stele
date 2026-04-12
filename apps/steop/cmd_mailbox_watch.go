@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -33,7 +32,7 @@ func runMailboxWatch(args []string) {
 			}
 			interval = v
 		case strings.HasPrefix(a, "--since="):
-			fmt.Fprintf(os.Stderr, "mailbox watch: --since is deprecated; resume is automatic via watcher:last_message_id\n")
+			fmt.Fprintf(os.Stderr, "mailbox watch: --since is deprecated; resume is automatic via server-side status=NEW filter\n")
 		case a == "--json":
 			// accepted but ignored — output is always NDJSON
 		}
@@ -43,33 +42,16 @@ func runMailboxWatch(args []string) {
 
 	seen := make(map[int64]bool)
 
-	// --- parallel init (PRD-010) ---
-	var lastID int64
-	var wg sync.WaitGroup
-
-	// Goroutine: read resume cursor (must complete before first poll).
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if blob, err := c.StorageGet(id, "watcher:last_message_id"); err == nil && blob != nil {
-			if v, err := strconv.ParseInt(blob.Content, 10, 64); err == nil {
-				lastID = v
-			}
-		}
-	}()
-
-	// Fire-and-forget: lifecycle writes via FastClone() (500ms timeout).
+	// Fire-and-forget lifecycle writes via FastClone() (500ms timeout).
 	now := time.Now().UTC().Format(time.RFC3339)
 	watchState := fmt.Sprintf(`{"status":"watching","task":null,"updated_at":%q}`, now)
 	fc := c.FastClone()
 	go fc.StoragePut(id, "watcher:state", watchState)
 	go fc.StoragePut(id, "watcher:heartbeat", now)
 
-	wg.Wait()
-	// --- end parallel init ---
-
 	// Emit ready line (PRD-010: immediate feedback for Monitor).
-	readyJSON := fmt.Sprintf(`{"type":"ready","last_message_id":%d,"interval":%d}`, lastID, interval)
+	// PRD-011: no persistent cursor — field is null.
+	readyJSON := fmt.Sprintf(`{"type":"ready","last_message_id":null,"interval":%d}`, interval)
 	os.Stdout.Write([]byte(readyJSON))
 	os.Stdout.Write([]byte("\n"))
 
@@ -86,9 +68,6 @@ func runMailboxWatch(args []string) {
 			return
 		}
 		for _, m := range msgs {
-			if m.MessageID <= lastID {
-				continue
-			}
 			if seen[m.MessageID] {
 				continue
 			}
@@ -99,9 +78,6 @@ func runMailboxWatch(args []string) {
 			}
 			os.Stdout.Write(b)
 			os.Stdout.Write([]byte("\n"))
-			// Checkpoint: persist cursor so restarts skip this message.
-			lastID = m.MessageID
-			c.StoragePut(id, "watcher:last_message_id", strconv.FormatInt(m.MessageID, 10))
 		}
 	}
 

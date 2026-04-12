@@ -7,15 +7,18 @@ description: Monitor mailbox for incoming task requests and process them autonom
 
 Monitor the session's mailbox for incoming `TASK:REQUEST` messages. When a task arrives, claim it, process it, and report the result back to the sender.
 
-## Step 1 — Start Watcher + Monitor
+## Step 1 — Start Watcher
 
-Issue both tool calls in parallel in a single turn:
+Issue a single **Monitor** tool call (with `persistent: true`):
 
-1. **Bash** (`run_in_background: true`): `steop mailbox watch --type TASK:REQUEST --interval 10`
-2. **Monitor**: stream stdout from the background watcher process.
+- `command`: `steop mailbox watch --type TASK:REQUEST --interval 10`
+- `description`: `Incoming TASK:REQUEST messages`
+- `persistent`: `true`
 
 The first line will be `{"type":"ready",...}` confirming the watcher initialized.
 Subsequent lines are NDJSON task messages — proceed to Step 2 for each.
+
+Do NOT also spawn the command via Bash — that would start a duplicate watcher.
 
 ## Step 2 — On Receiving a Task
 
