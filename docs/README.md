@@ -28,6 +28,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-004-st-prd-skill](prd/prd-004-st-prd-skill.md)            | Implemented v0.9.1  | `/steop:st-prd` skill for convention-enforced PRD authoring |
 | [prd-005-storage-session-fallback](prd/prd-005-storage-session-fallback.md) | Implemented v0.9.3  | `steop storage` session fallback + st-watch cleanup         |
 | [prd-006-st-send-smart-addressing](prd/prd-006-st-send-smart-addressing.md) | Implemented v0.10.0 | `/steop:st-send` skill with short-name resolution + mode-aware task routing |
+| [prd-007-st-send-session-resolve](prd/prd-007-st-send-session-resolve.md)   | Implemented v0.10.1 | Fix `st-send` to resolve to active session UUID instead of hardcoded `USER` |
 
 ## Stele server (`stele/`)
 

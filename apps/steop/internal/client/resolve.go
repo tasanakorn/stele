@@ -21,6 +21,7 @@ func ResolveTarget(c *Client, target string) (string, error) {
 
 	// Group matched sessions by project_dir.
 	type match struct {
+		id           string
 		projectDir   string
 		lastActiveAt time.Time
 	}
@@ -36,13 +37,31 @@ func ResolveTarget(c *Client, target string) (string, error) {
 		if projectDir != target && !strings.HasSuffix(projectDir, "/"+target) {
 			continue
 		}
-		t, _ := time.Parse(time.RFC3339, s.LastActiveAt)
-		matches = append(matches, match{projectDir: projectDir, lastActiveAt: t})
 		seen[projectDir] = true
+		// Only consider sessions with a real UUID 3rd segment.
+		if len(parts) < 3 || parts[2] == "USER" {
+			continue
+		}
+		t, _ := time.Parse(time.RFC3339, s.LastActiveAt)
+		matches = append(matches, match{id: s.ID, projectDir: projectDir, lastActiveAt: t})
 	}
 
-	if len(matches) == 0 {
+	if len(matches) == 0 && len(seen) == 0 {
 		return "", fmt.Errorf("no active sessions found matching %q", target)
+	}
+
+	// No UUID sessions but projectDir was seen — fall back to 2-segment ID.
+	if len(matches) == 0 {
+		if len(seen) > 1 {
+			var dirs []string
+			for d := range seen {
+				dirs = append(dirs, "  "+d)
+			}
+			return "", fmt.Errorf("ambiguous target %q matches multiple projects:\n%s\nUse a more specific name or pass a full composite ID.", target, strings.Join(dirs, "\n"))
+		}
+		for d := range seen {
+			return c.Host() + ":" + d, nil
+		}
 	}
 
 	if len(seen) > 1 {
@@ -61,5 +80,5 @@ func ResolveTarget(c *Client, target string) (string, error) {
 		}
 	}
 
-	return ComposeSessionID(c.Host(), best.projectDir, "USER"), nil
+	return best.id, nil
 }
