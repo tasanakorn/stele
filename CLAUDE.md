@@ -221,6 +221,7 @@ The `plugins/steop/` directory contains an agentic workflow pipeline plugin for 
 - **`/steop:st-plan`** — Plan phase: implementation blueprint
 - **`/steop:st-execute`** — Execute phase: implement changes per plan
 - **`/steop:st-validate`** — Validate phase: review correctness and completeness
+- **`/steop:st-send`** — Send a task to another Claude Code session by project name shorthand
 - **`/steop:st-watch`** — Monitor mailbox for task requests and process them autonomously
 - **`/steop:st-prd`** — PRD authoring: interactive clarify -> docs-first research -> convention-correct PRD file
 
@@ -234,7 +235,7 @@ consultant (Opus), researcher (inherit), architect (Opus), executor (inherit), r
 plugins/steop/
 ├── .claude-plugin/plugin.json
 ├── hooks/hooks.json
-├── skills/{install,st-flow,st-clarify,st-research,st-plan,st-execute,st-validate,st-watch,st-prd}/SKILL.md
+├── skills/{install,st-flow,st-clarify,st-research,st-plan,st-execute,st-validate,st-watch,st-send,st-prd}/SKILL.md
 ├── agents/{consultant,researcher,architect,executor,reviewer}.md
 └── README.md
 ```

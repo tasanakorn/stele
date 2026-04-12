@@ -24,7 +24,7 @@ func main() {
 	parseGlobalFlags()
 
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: steop <hook|state|storage|statusline|monitor|inspect|mailbox|version> ...")
+		fmt.Fprintln(os.Stderr, "usage: steop <hook|state|storage|statusline|monitor|inspect|mailbox|send|version> ...")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -40,6 +40,8 @@ func main() {
 		runMonitor(os.Args[2:])
 	case "mailbox":
 		runMailbox(os.Args[2:])
+	case "send":
+		runSend(os.Args[2:])
 	case "version":
 		runVersion()
 	default:

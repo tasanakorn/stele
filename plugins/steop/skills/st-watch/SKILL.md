@@ -1,6 +1,6 @@
 ---
 name: st-watch
-description: Monitor mailbox for incoming task requests and process them autonomously. Starts a polling loop that watches for TASK:REQUEST messages, claims them, and executes them via st-flow.
+description: Monitor mailbox for incoming task requests and process them autonomously. Starts a polling loop that watches for TASK:REQUEST messages, claims them, and routes them based on mode (st-flow for flow tasks, direct execution for normal tasks).
 ---
 
 # Watch for Task Requests
@@ -72,7 +72,10 @@ steop mailbox send \
 
 ### 4e. Process the task
 
-Execute the task using `/steop:st-flow` with `meta.description` as the user request. Include `payload` as additional context if present.
+Determine the execution mode from `meta.mode` (default to `"normal"` if absent or unrecognized):
+
+- **`flow`** — Execute the task using `/steop:st-flow` with `meta.description` as the user request. Include `payload` as additional context if present.
+- **`normal`** — Execute `meta.description` as a plain conversation turn (no pipeline). Include `payload` as additional context if present. Use your own judgment and available tools to complete the request directly.
 
 ### 4f. Report result
 
