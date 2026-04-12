@@ -135,6 +135,19 @@ After all phases complete (or a stop condition halts the pipeline), present a si
 - **Validation status** (from Validate)
 - **Issues** (if any remain)
 
+### PRD Status Update
+
+If the flow was invoked with a PRD reference (e.g. `st-flow implement per docs/prd/prd-NNN-...`) and validation passed:
+
+1. Read the PRD file and find the `**Status:**` line
+2. Update it to `**Status:** Implemented (<version>)` where `<version>` is the target version from the PRD (or current workspace version if not specified)
+3. Include the PRD file in the changes summary
+
+Do NOT update the PRD status if:
+- Validation failed and the pipeline halted
+- The flow was not associated with a PRD
+- The PRD status is already marked as implemented
+
 ```bash
 steop state clear-phase
 ```

@@ -61,7 +61,6 @@ docs/
 
 ### File naming conventions
 
-- **PRDs (`docs/prd/`)** — `prd-NNN-<slug>.md`, where `NNN` is a zero-padded sequential integer and `<slug>` is a short kebab-case descriptor. Example: `docs/prd/prd-001-mailbox-v2.md`. Numbers are allocated in filename order (check the highest existing number and add 1). Once assigned, a PRD's number is permanent even after the doc is superseded or archived. The `Author` field should use `git config user.name` for the first author (e.g. `**Author:** Tasanakorn (design) + Claude Code (PRD authoring)`).
 - **Module docs (`docs/<module>/`)** — free-form kebab-case filename describing the topic. Uppercase is reserved for canonical per-module entry points (`DESIGN.md`, `README.md`).
 - **Root docs (`docs/*.md`)** — kebab-case (`architecture.md`, `versioning.md`).
 
