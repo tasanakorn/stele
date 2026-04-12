@@ -222,6 +222,7 @@ The `plugins/steop/` directory contains an agentic workflow pipeline plugin for 
 - **`/steop:st-plan`** — Plan phase: implementation blueprint
 - **`/steop:st-execute`** — Execute phase: implement changes per plan
 - **`/steop:st-validate`** — Validate phase: review correctness and completeness
+- **`/steop:st-watch`** — Monitor mailbox for task requests and process them autonomously
 
 ### Agents (5)
 

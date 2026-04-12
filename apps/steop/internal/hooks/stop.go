@@ -55,6 +55,8 @@ func HandleStop(in *HookInput, c *client.Client) []byte {
 		}
 	}
 
+	cleanupWatcherTasks(c, sid)
+
 	if _, err := c.StatePut(sid, map[string]interface{}{"phase": nil, "mode": nil}, true); err != nil {
 		logging.Debugf("stop clear phase failed: %v", err)
 	}

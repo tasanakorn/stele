@@ -52,6 +52,7 @@ func HandleSessionEnd(in *HookInput, c *client.Client) []byte {
 	}); err != nil {
 		logging.Debugf("session_end mailbox send failed: %v", err)
 	}
+	cleanupWatcherTasks(c, sid)
 	if _, err := c.SessionStop(sid); err != nil {
 		logging.Debugf("session_end session stop failed: %v", err)
 	}

@@ -1,7 +1,7 @@
 # PRD — Mailbox Watcher & Task Delegation
 
-**Status:** Draft
-**Target version:** v0.9.0 (next minor — new feature surface)
+**Status:** Implemented (v0.9.0)
+**Target version:** v0.9.0
 **Scope:** `steop` CLI + `plugins/steop` skill
 **Builds on:** [prd-001-mailbox-v2.md](prd-001-mailbox-v2.md)
 **Author:** —
