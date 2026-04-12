@@ -69,85 +69,12 @@ Every hook receives a JSON object on stdin with **common fields** (always presen
 
 ```jsonc
 {
-  "session_id": "...",
+  "session_id":      "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "transcript_path": "<home>/.claude/projects/.../transcript.jsonl",
+  "cwd":             "/path/to/project",
   "hook_event_name": "SessionStart",
-  "source": "startup",   // "startup" | "resume" | "clear" | "compact"
-  "model": "claude-opus-4-6"
-}
-```
-
-#### Event: UserPromptSubmit
-
-```jsonc
-{
-  "session_id": "...",
-  "hook_event_name": "UserPromptSubmit",
-  "prompt": "Please implement feature X"
-}
-```
-
-#### Event: PreToolUse / PostToolUse / PostToolUseFailure
-
-```jsonc
-{
-  "session_id": "...",
-  "hook_event_name": "PreToolUse",
-  "tool_name": "Bash",
-  "tool_use_id": "tool_abc123",
-  "tool_input": {
-    "command": "npm test",
-    "description": "Run test suite",
-    "timeout": 120000
-  }
-}
-```
-
-PostToolUse adds:
-
-```jsonc
-{
-  "tool_response": "... tool output ..."   // raw JSON
-}
-```
-
-PostToolUseFailure adds:
-
-```jsonc
-{
-  "error": "command timed out"
-}
-```
-
-#### Event: Stop
-
-```jsonc
-{
-  "session_id": "...",
-  "hook_event_name": "Stop",
-  "stop_hook_active": true,
-  "last_assistant_message": "Done. The tests pass now.",
-  "trigger": "end_turn",        // "end_turn" | "interrupt" | ...
-  "reason": "end_turn"
-}
-```
-
-#### Event: SubagentStart / SubagentStop
-
-```jsonc
-{
-  "session_id": "...",
-  "hook_event_name": "SubagentStart",
-  "agent_id": "a0e3d459a64394831",
-  "agent_type": "researcher"
-}
-```
-
-SubagentStop adds:
-
-```jsonc
-{
-  "success": true,
-  "output": "... agent result ..."
+  "source":          "startup",          // "startup" | "resume" | "clear" | "compact"
+  "model":           "claude-opus-4-6"
 }
 ```
 
@@ -155,8 +82,125 @@ SubagentStop adds:
 
 ```jsonc
 {
-  "session_id": "...",
+  "session_id":      "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "transcript_path": "<home>/.claude/projects/.../transcript.jsonl",
+  "cwd":             "/path/to/project",
   "hook_event_name": "SessionEnd"
+}
+```
+
+#### Event: UserPromptSubmit
+
+```jsonc
+{
+  "session_id":      "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "transcript_path": "<home>/.claude/projects/.../transcript.jsonl",
+  "cwd":             "/path/to/project",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt":          "Please implement feature X"
+}
+```
+
+#### Event: PreToolUse
+
+```jsonc
+{
+  "session_id":      "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "transcript_path": "<home>/.claude/projects/.../transcript.jsonl",
+  "cwd":             "/path/to/project",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "default",
+  "tool_name":       "Bash",
+  "tool_use_id":     "tool_abc123",
+  "tool_input": {
+    "command":     "npm test",
+    "description": "Run test suite",
+    "timeout":     120000
+  }
+}
+```
+
+#### Event: PostToolUse
+
+```jsonc
+{
+  "session_id":      "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "transcript_path": "<home>/.claude/projects/.../transcript.jsonl",
+  "cwd":             "/path/to/project",
+  "hook_event_name": "PostToolUse",
+  "permission_mode": "default",
+  "tool_name":       "Bash",
+  "tool_use_id":     "tool_abc123",
+  "tool_input": {
+    "command":     "npm test",
+    "description": "Run test suite",
+    "timeout":     120000
+  },
+  "tool_response":   "... tool output ..."
+}
+```
+
+#### Event: PostToolUseFailure
+
+```jsonc
+{
+  "session_id":      "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "transcript_path": "<home>/.claude/projects/.../transcript.jsonl",
+  "cwd":             "/path/to/project",
+  "hook_event_name": "PostToolUseFailure",
+  "permission_mode": "default",
+  "tool_name":       "Bash",
+  "tool_use_id":     "tool_abc123",
+  "tool_input": {
+    "command":     "npm test",
+    "description": "Run test suite",
+    "timeout":     120000
+  },
+  "error":           "command timed out"
+}
+```
+
+#### Event: Stop
+
+```jsonc
+{
+  "session_id":             "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "transcript_path":        "<home>/.claude/projects/.../transcript.jsonl",
+  "cwd":                    "/path/to/project",
+  "hook_event_name":        "Stop",
+  "stop_hook_active":       true,
+  "last_assistant_message": "Done. The tests pass now.",
+  "trigger":                "end_turn",
+  "reason":                 "end_turn",
+  "is_interrupt":           false
+}
+```
+
+#### Event: SubagentStart
+
+```jsonc
+{
+  "session_id":      "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "transcript_path": "<home>/.claude/projects/.../transcript.jsonl",
+  "cwd":             "/path/to/project",
+  "hook_event_name": "SubagentStart",
+  "agent_id":        "a0e3d459a64394831",
+  "agent_type":      "researcher"
+}
+```
+
+#### Event: SubagentStop
+
+```jsonc
+{
+  "session_id":      "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "transcript_path": "<home>/.claude/projects/.../transcript.jsonl",
+  "cwd":             "/path/to/project",
+  "hook_event_name": "SubagentStop",
+  "agent_id":        "a0e3d459a64394831",
+  "agent_type":      "researcher",
+  "success":         true,
+  "output":          "... agent result ..."
 }
 ```
 
@@ -240,13 +284,18 @@ The spawned shell inherits the user's profile (`~/.zshrc` / `~/.bashrc`) plus Cl
 | `CLAUDE_PROJECT_DIR` | **not set**   | **(inspected)** | Not injected into Bash tool env (unlike hooks)           |
 | `CLAUDE_SESSION_ID`  | **not set**   | **(inspected)** | Session ID is never exposed as an env var                |
 
+### Note on Project Directory
+
+`CLAUDE_PROJECT_DIR` is not set in the Bash tool env, but `PWD` is the project root (Claude Code runs Bash commands from the project directory). The LLM also receives the project path in its system instructions (`Primary working directory: ...`) and can pass it as a CLI argument when needed.
+
+`session_id` is not available to the LLM via the Bash tool at all. It is only delivered to hooks (stdin JSON) and statusLine commands (stdin JSON).
+
 ### stdin / stdout
 
 - **stdin:** Not connected (no JSON payload).
 - **stdout:** Captured and returned to the LLM as the tool result.
 - **stderr:** Captured and returned alongside stdout.
 
-> **Key takeaway:** A Bash command like `steop state set <session> <json>` cannot auto-detect the session ID or project directory. The caller (the LLM) must pass these explicitly as CLI arguments.
 
 ---
 
@@ -427,4 +476,4 @@ The statusline command runs:
 
 2. **statusLine ignores `session_id` and `workspace.project_dir` from stdin** — The `Session` struct in `cmd_statusline_line1.go` does not extract `session_id`. With `--line2-only`, stdin is skipped entirely. The statusline falls back to `SessionList("","","",1)` which returns the globally most-recent session — wrong when multiple projects are active.
 
-3. **Sentinel file is global** — `set-phase` and `clear-phase` use a single file `~/.config/stele/steop-current-session`. Concurrent Claude Code sessions race on this file.
+3. **Sentinel file is global** — `set-phase` and `clear-phase` use a single file `~/.config/stele/steop-current-session`. Concurrent Claude Code sessions race on this file. Planned for deprecation in [prd-003](prd/prd-003-identity-injection.md) via PreToolUse `--x-session-id` injection.

@@ -23,7 +23,8 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 
 | PRD                                                        | Status              | Description                                  |
 | ---------------------------------------------------------- | ------------------- | -------------------------------------------- |
-| [prd-001-mailbox-v2](prd/prd-001-mailbox-v2.md)            | Implemented v0.8.0  | `steop_mailbox` table + `steop.mailbox.*` RPC |
+| [prd-001-mailbox-v2](prd/prd-001-mailbox-v2.md)            | Implemented v0.8.0  | `steop_mailbox` table + `steop.mailbox.*` RPC           |
+| [prd-003-identity-injection](prd/prd-003-identity-injection.md) | Draft          | PreToolUse identity injection + multi-session statusline |
 
 ## Stele server (`stele/`)
 
