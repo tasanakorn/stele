@@ -1,6 +1,6 @@
 # PRD — Identity Injection & Multi-Session Statusline
 
-**Status:** Draft
+**Status:** Implemented (v0.9.0)
 **Target version:** v0.9.0
 **Scope:** steop PreToolUse hook, steop CLI flag handling, statusline line 2
 **Author:** Tasanakorn (design) + Claude Code (PRD authoring)
