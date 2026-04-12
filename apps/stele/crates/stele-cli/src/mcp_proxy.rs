@@ -1,8 +1,46 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
+use std::time::{Duration, Instant, SystemTime};
 use ureq::Agent;
 
-use crate::config::SteleConfig;
+use crate::config::{self, SteleConfig};
+
+const CONFIG_TTL: Duration = Duration::from_secs(30);
+
+/// Cached config that reloads when the file changes, checked at most every TTL.
+struct ConfigCache {
+    config: SteleConfig,
+    last_check: Instant,
+    last_mtime: Option<SystemTime>,
+}
+
+impl ConfigCache {
+    fn new(config: SteleConfig) -> Self {
+        let last_mtime = std::fs::metadata(config::config_path())
+            .and_then(|m| m.modified())
+            .ok();
+        Self {
+            config,
+            last_check: Instant::now(),
+            last_mtime,
+        }
+    }
+
+    /// Return a reference to the config, reloading if the file changed.
+    fn get(&mut self) -> &SteleConfig {
+        if self.last_check.elapsed() >= CONFIG_TTL {
+            self.last_check = Instant::now();
+            let current_mtime = std::fs::metadata(config::config_path())
+                .and_then(|m| m.modified())
+                .ok();
+            if current_mtime != self.last_mtime {
+                self.config = config::load_config();
+                self.last_mtime = current_mtime;
+            }
+        }
+        &self.config
+    }
+}
 
 /// Run the MCP stdio-to-Streamable-HTTP proxy with local tool handling.
 ///
@@ -12,10 +50,7 @@ use crate::config::SteleConfig;
 /// Tracks `mcp-session-id` per server URL for session continuity.
 pub fn run(config: SteleConfig, default_profile: String) {
     let agent = Agent::new();
-
-    // Resolve the default server connection
-    let (default_url, default_key) = resolve_profile(&config, &default_profile);
-    let default_mcp_url = format!("{}/mcp", default_url.trim_end_matches('/'));
+    let mut cache = ConfigCache::new(config);
 
     // Detect composite session identity for steop hook correlation.
     let host = {
@@ -68,6 +103,11 @@ pub fn run(config: SteleConfig, default_profile: String) {
             .unwrap_or("")
             .to_string();
 
+        // Re-resolve default connection from (possibly reloaded) config
+        let cfg = cache.get();
+        let (default_url, default_key) = resolve_profile(cfg, &default_profile);
+        let default_mcp_url = format!("{}/mcp", default_url.trim_end_matches('/'));
+
         match method.as_str() {
             "tools/call" => {
                 let tool_name = msg
@@ -79,7 +119,7 @@ pub fn run(config: SteleConfig, default_profile: String) {
                 if tool_name == "list_profiles" {
                     // Handle locally
                     let id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
-                    let resp = handle_list_profiles(&config, &default_profile, &id);
+                    let resp = handle_list_profiles(cfg, &default_profile, &id);
                     let _ = writeln!(writer, "{}", resp);
                     let _ = writer.flush();
                     continue;
@@ -88,7 +128,7 @@ pub fn run(config: SteleConfig, default_profile: String) {
                 // Extract optional profile param, resolve target server
                 let profile_override = extract_profile_param(&mut msg);
                 let (mcp_url, auth_key) = if let Some(ref pname) = profile_override {
-                    if !config.profiles.contains_key(pname.as_str()) {
+                    if !cfg.profiles.contains_key(pname.as_str()) {
                         let id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
                         let err = serde_json::json!({
                             "jsonrpc": "2.0",
@@ -102,7 +142,7 @@ pub fn run(config: SteleConfig, default_profile: String) {
                         let _ = writer.flush();
                         continue;
                     }
-                    let (url, key) = resolve_profile(&config, pname);
+                    let (url, key) = resolve_profile(cfg, pname);
                     (
                         format!("{}/mcp", url.trim_end_matches('/')),
                         key,

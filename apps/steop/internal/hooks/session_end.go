@@ -34,6 +34,9 @@ func HandleSessionEnd(in *HookInput, c *client.Client) []byte {
 		"reason":          in.Reason,
 		"transcript_path": in.TranscriptPath,
 	}
+	if c.ProjectDirResolved() {
+		payload["resolved_project_dir"] = true
+	}
 	if state != nil {
 		payload["data"] = state.Data
 		payload["counters"] = state.Counters

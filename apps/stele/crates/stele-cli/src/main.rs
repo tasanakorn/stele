@@ -296,6 +296,7 @@ fn main() {
             .clone()
             .or_else(|| std::env::var("STELE_PROFILE").ok())
             .unwrap_or_else(|| config.default_profile.clone());
+
         mcp_proxy::run(config, default_profile);
         return;
     }

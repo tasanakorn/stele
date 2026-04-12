@@ -1439,6 +1439,14 @@ pub fn steop_session_stop(
     if n == 0 {
         return Ok(None);
     }
+    // Cascade-stop sibling rows: subagents may create session rows under
+    // different project_dirs (due to CWD detection) but share the same
+    // session UUID.  Stop them all so they don't remain orphaned as active.
+    conn.execute(
+        "UPDATE steop_sessions SET state='stopped', stopped_at=?1, last_active_at=?1
+         WHERE host=?2 AND session_id=?3 AND state='active'",
+        rusqlite::params![now, host, session_id],
+    )?;
     let sess = conn.query_row(
         "SELECT * FROM steop_sessions WHERE host=?1 AND project_dir=?2 AND session_id=?3",
         rusqlite::params![host, project_dir, session_id],

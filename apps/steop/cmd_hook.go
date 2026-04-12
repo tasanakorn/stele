@@ -33,7 +33,13 @@ func runHook(args []string) {
 			logging.Debugf("client init failed: %v", err)
 			return nil
 		}
-		return c.WithRequestContext("", os.Getenv("CLAUDE_PROJECT_DIR"))
+		c = c.WithRequestContext("", os.Getenv("CLAUDE_PROJECT_DIR"))
+		if c.ProjectDir() == "" && in.SessionID != "" {
+			if c.ResolveProjectDir(in.SessionID) {
+				logging.Debugf("project_dir resolved from server for session %s", in.SessionID)
+			}
+		}
+		return c
 	}
 
 	var out []byte

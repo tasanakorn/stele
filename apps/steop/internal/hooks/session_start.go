@@ -11,10 +11,14 @@ func HandleSessionStart(in *HookInput, c *client.Client) []byte {
 		return Allow()
 	}
 	sid := c.SessionCompositeID(in.SessionID)
-	if _, err := c.SessionStart(sid, map[string]interface{}{
+	startData := map[string]interface{}{
 		"cwd":             in.Cwd,
 		"permission_mode": in.PermissionMode,
-	}); err != nil {
+	}
+	if c.ProjectDirResolved() {
+		startData["resolved_project_dir"] = true
+	}
+	if _, err := c.SessionStart(sid, startData); err != nil {
 		logging.Debugf("session_start session register failed: %v", err)
 	}
 	ev := client.LogEvent{

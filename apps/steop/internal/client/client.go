@@ -20,11 +20,12 @@ import (
 var ErrNotFound = errors.New("not found")
 
 type Client struct {
-	baseURL    string
-	authKey    string
-	http       *http.Client
-	host       string
-	projectDir string
+	baseURL            string
+	authKey            string
+	http               *http.Client
+	host               string
+	projectDir         string
+	projectDirResolved bool // true when project_dir was looked up from the server
 }
 
 // New constructs a Client with the given base URL and auth key. Host and
@@ -75,18 +76,13 @@ func detectHost() string {
 	return sanitizeHeader(h)
 }
 
-// detectProjectDir returns the sanitized project directory. Precedence:
-// CLAUDE_PROJECT_DIR env var, PWD env var, os.Getwd(). Returns empty string
-// if nothing resolves.
+// detectProjectDir returns the sanitized project directory from
+// CLAUDE_PROJECT_DIR only. No fallback to PWD or os.Getwd() — those diverge
+// for subagents, causing orphaned session rows under the wrong project_dir.
+// The hook JSON "cwd" field carries the actual working directory for metadata.
 func detectProjectDir() string {
 	if v := os.Getenv("CLAUDE_PROJECT_DIR"); v != "" {
 		return sanitizeHeader(v)
-	}
-	if v := os.Getenv("PWD"); v != "" {
-		return sanitizeHeader(v)
-	}
-	if wd, err := os.Getwd(); err == nil {
-		return sanitizeHeader(wd)
 	}
 	return ""
 }
@@ -128,6 +124,37 @@ func (c *Client) ProjectID() string {
 // SessionCompositeID returns the 3-segment composite session id for this client.
 func (c *Client) SessionCompositeID(sessionID string) string {
 	return ComposeSessionID(c.host, c.projectDir, sessionID)
+}
+
+// ResolveProjectDir looks up the project_dir from the server using session.list
+// when CLAUDE_PROJECT_DIR was not available. Called once; subsequent calls are
+// no-ops. Returns true if project_dir is now populated.
+func (c *Client) ResolveProjectDir(sessionID string) bool {
+	if c.projectDir != "" {
+		return true
+	}
+	sessions, err := c.SessionList(c.host, "", "", 0)
+	if err != nil {
+		return false
+	}
+	for _, s := range sessions {
+		// Match by session_id suffix in the composite id
+		if strings.HasSuffix(s.ID, ":"+sessionID) {
+			parts := strings.SplitN(s.ID, ":", 3)
+			if len(parts) == 3 {
+				c.projectDir = parts[1]
+				c.projectDirResolved = true
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ProjectDirResolved returns true if the project_dir was looked up from the
+// server rather than taken from CLAUDE_PROJECT_DIR.
+func (c *Client) ProjectDirResolved() bool {
+	return c.projectDirResolved
 }
 
 // WithRequestContext returns a shallow copy of the client with host and
