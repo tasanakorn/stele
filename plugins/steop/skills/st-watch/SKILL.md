@@ -12,7 +12,7 @@ Monitor the session's mailbox for incoming `TASK:REQUEST` messages. When a task 
 Check for a previous watcher checkpoint so restarted watchers don't re-emit old messages:
 
 ```bash
-steop storage --session=$SESSION_ID get watcher:last_message_id
+steop storage get watcher:last_message_id
 ```
 
 If found, note the `content` value as `LAST_MESSAGE_ID`. If not found or error, proceed without `--since`.
@@ -52,13 +52,13 @@ If the response is HTTP 409 (already claimed by another watcher), skip this task
 Read the current active tasks list:
 
 ```bash
-steop storage --session=$SESSION_ID get watcher:active_tasks
+steop storage get watcher:active_tasks
 ```
 
 Append the new task entry and write back:
 
 ```bash
-steop storage --session=$SESSION_ID put watcher:active_tasks '[{"task_id":"<task_id>","request_message_id":<message_id>,"from":"<from>"}]'
+steop storage put watcher:active_tasks '[{"task_id":"<task_id>","request_message_id":<message_id>,"from":"<from>"}]'
 ```
 
 ### 4d. Send CHECKIN
@@ -109,7 +109,7 @@ steop mailbox archive <message_id>
 Remove the completed task from `watcher:active_tasks` and update the checkpoint:
 
 ```bash
-steop storage --session=$SESSION_ID put watcher:last_message_id '<message_id>'
+steop storage put watcher:last_message_id '<message_id>'
 ```
 
 ## Step 5 — Continue Monitoring

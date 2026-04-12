@@ -18,6 +18,9 @@ func runStorage(args []string) {
 			positional = append(positional, a)
 		}
 	}
+	if sessionID == "" && globalSessionID != "" {
+		sessionID = globalSessionID
+	}
 
 	if len(positional) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: steop storage [--session=<id>] <put|get|delete|list> ...")
