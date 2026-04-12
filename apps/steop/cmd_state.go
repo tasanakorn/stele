@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
-	"github.com/tasanakorn/stele/apps/steop/internal/hooks"
 )
 
 func runState(args []string) {
@@ -19,6 +18,9 @@ func runState(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "state: client init: %v\n", err)
 		os.Exit(1)
+	}
+	if globalProjectDir != "" {
+		c = c.WithRequestContext("", globalProjectDir)
 	}
 
 	switch args[0] {
@@ -114,7 +116,7 @@ func runState(args []string) {
 				i++
 			}
 		}
-		sid := hooks.ReadSentinel()
+		sid := globalSessionID
 		if sid == "" {
 			return
 		}
@@ -128,7 +130,7 @@ func runState(args []string) {
 		}
 
 	case "clear-phase":
-		sid := hooks.ReadSentinel()
+		sid := globalSessionID
 		if sid == "" {
 			return
 		}

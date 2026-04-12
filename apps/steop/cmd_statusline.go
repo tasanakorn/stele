@@ -82,11 +82,11 @@ func runStatusline(args []string) {
 		opts.noColor = true
 	}
 
+	// Always parse stdin to extract session_id for exact session lookup,
+	// even in --line2-only mode where line 1 is not rendered.
 	var sess *Session
-	if !opts.jsonOut && !opts.line2Only {
-		if s, ok := parseSession(os.Stdin); ok {
-			sess = s
-		}
+	if s, ok := parseSession(os.Stdin); ok {
+		sess = s
 	}
 
 	var (
@@ -96,7 +96,7 @@ func runStatusline(args []string) {
 	c, err := client.NewFromConfig()
 	if err != nil {
 		statusMsg = "offline"
-	} else if sid, err := resolveStatuslineSession(c, opts.session); err != nil {
+	} else if sid, err := resolveStatuslineSession(c, opts.session, sess); err != nil {
 		if strings.Contains(err.Error(), "no sessions") {
 			statusMsg = "idle"
 		} else {
@@ -123,7 +123,7 @@ func runStatusline(args []string) {
 	}
 
 	line2 := formatStatuslineLine(status, statusMsg, opts.noColor)
-	if sess != nil {
+	if sess != nil && !opts.jsonOut && !opts.line2Only {
 		if line1 := formatStatuslineLine1(sess, opts.noColor); line1 != "" {
 			fmt.Println(line1)
 		}
@@ -131,10 +131,20 @@ func runStatusline(args []string) {
 	fmt.Println(line2)
 }
 
-func resolveStatuslineSession(c *client.Client, wanted string) (string, error) {
+func resolveStatuslineSession(c *client.Client, wanted string, sess *Session) (string, error) {
+	// Priority 1: explicit --session= flag
 	if wanted != "" {
 		return c.SessionCompositeID(wanted), nil
 	}
+	// Priority 2: session_id from stdin JSON (exact own-session lookup)
+	if sess != nil && sess.SessionID != "" {
+		cc := c
+		if sess.Workspace != nil && sess.Workspace.ProjectDir != "" {
+			cc = c.WithRequestContext("", sess.Workspace.ProjectDir)
+		}
+		return cc.SessionCompositeID(sess.SessionID), nil
+	}
+	// Priority 3: global most-recent (fallback for manual invocation)
 	sessions, err := c.SessionList("", "", "", 1)
 	if err != nil {
 		return "", err

@@ -18,20 +18,12 @@ func writeSkill(t *testing.T, root, name, body string) {
 	}
 }
 
-// isolate points HOME at a temporary dir so WriteSentinel side effects do not
-// touch the user's real ~/.config/stele.
-func isolate(t *testing.T) {
-	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-}
-
 func isInject(out []byte) bool {
 	return bytes.Contains(out, []byte(`"hookEventName":"UserPromptSubmit"`)) &&
 		bytes.Contains(out, []byte(`"additionalContext"`))
 }
 
 func TestUserPromptSubmitInjectsStFlow(t *testing.T) {
-	isolate(t)
 	root := t.TempDir()
 	writeSkill(t, root, "st-flow", "FLOW SKILL BODY")
 	t.Setenv("CLAUDE_PLUGIN_ROOT", root)
@@ -47,7 +39,6 @@ func TestUserPromptSubmitInjectsStFlow(t *testing.T) {
 }
 
 func TestUserPromptSubmitFlowColonAlias(t *testing.T) {
-	isolate(t)
 	root := t.TempDir()
 	writeSkill(t, root, "st-flow", "FLOW BODY")
 	t.Setenv("CLAUDE_PLUGIN_ROOT", root)
@@ -59,7 +50,6 @@ func TestUserPromptSubmitFlowColonAlias(t *testing.T) {
 }
 
 func TestUserPromptSubmitStPlanBareForm(t *testing.T) {
-	isolate(t)
 	root := t.TempDir()
 	writeSkill(t, root, "st-plan", "PLAN BODY")
 	t.Setenv("CLAUDE_PLUGIN_ROOT", root)
@@ -74,7 +64,6 @@ func TestUserPromptSubmitStPlanBareForm(t *testing.T) {
 }
 
 func TestUserPromptSubmitPlainPromptAllows(t *testing.T) {
-	isolate(t)
 	root := t.TempDir()
 	writeSkill(t, root, "st-flow", "FLOW BODY")
 	t.Setenv("CLAUDE_PLUGIN_ROOT", root)
@@ -86,7 +75,6 @@ func TestUserPromptSubmitPlainPromptAllows(t *testing.T) {
 }
 
 func TestUserPromptSubmitNoPluginRootAllows(t *testing.T) {
-	isolate(t)
 	t.Setenv("CLAUDE_PLUGIN_ROOT", "")
 
 	out := HandleUserPromptSubmit(&HookInput{SessionID: "s1", Prompt: "/steop:st-flow go"})

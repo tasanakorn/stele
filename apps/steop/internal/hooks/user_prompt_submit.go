@@ -34,15 +34,11 @@ func loadSkillBody(name string) (string, bool) {
 	return string(data), true
 }
 
-// HandleUserPromptSubmit records the session id sentinel and, when the prompt
-// matches a steop skill trigger, injects the SKILL.md body as additional
-// context for the model.
+// HandleUserPromptSubmit checks the prompt for steop skill triggers and, when
+// matched, injects the SKILL.md body as additional context for the model.
 func HandleUserPromptSubmit(in *HookInput) []byte {
 	if in == nil || in.SessionID == "" {
 		return Allow()
-	}
-	if err := WriteSentinel(in.SessionID); err != nil {
-		logging.Debugf("user_prompt_submit sentinel write failed: %v", err)
 	}
 	prompt := strings.TrimSpace(in.Prompt)
 	if prompt == "" {

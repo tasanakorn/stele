@@ -18,6 +18,7 @@ import (
 // is distinguishable from "zero".
 
 type Session struct {
+	SessionID     string                `json:"session_id,omitempty"`
 	Model         *SessionModel         `json:"model,omitempty"`
 	Workspace     *SessionWorkspace     `json:"workspace,omitempty"`
 	ContextWindow *SessionContextWindow `json:"context_window,omitempty"`

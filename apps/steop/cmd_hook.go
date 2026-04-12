@@ -47,7 +47,7 @@ func runHook(args []string) {
 	case "UserPromptSubmit":
 		out = hooks.HandleUserPromptSubmit(in)
 	case "PreToolUse":
-		out = hooks.HandlePreToolUse(in)
+		out = hooks.HandlePreToolUse(in, in.SessionID, os.Getenv("CLAUDE_PROJECT_DIR"))
 	case "PostToolUse":
 		if c := newClient(); c != nil {
 			out = hooks.HandlePostToolUse(in, c)
