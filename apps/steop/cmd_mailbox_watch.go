@@ -67,6 +67,12 @@ func runMailboxWatch(args []string) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	// Best-effort watcher lifecycle keys.
+	now := time.Now().UTC().Format(time.RFC3339)
+	watchState := fmt.Sprintf(`{"status":"watching","task":null,"updated_at":%q}`, now)
+	c.StoragePut(id, "watcher:state", watchState)
+	c.StoragePut(id, "watcher:heartbeat", now)
+
 	poll := func() {
 		msgs, err := c.MailboxList(id, client.MailboxListOptions{
 			Status:      []string{"NEW"},
@@ -100,7 +106,10 @@ func runMailboxWatch(args []string) {
 		select {
 		case <-ticker.C:
 			poll()
+			c.StoragePut(id, "watcher:heartbeat", time.Now().UTC().Format(time.RFC3339))
 		case <-sigCh:
+			c.StorageDelete(id, "watcher:state")
+			c.StorageDelete(id, "watcher:heartbeat")
 			return
 		}
 	}

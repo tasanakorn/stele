@@ -57,6 +57,13 @@ func HandleStop(in *HookInput, c *client.Client) []byte {
 
 	cleanupWatcherTasks(c, sid)
 
+	if _, err := c.StorageDelete(sid, "watcher:state"); err != nil {
+		logging.Debugf("stop watcher:state cleanup: %v", err)
+	}
+	if _, err := c.StorageDelete(sid, "watcher:heartbeat"); err != nil {
+		logging.Debugf("stop watcher:heartbeat cleanup: %v", err)
+	}
+
 	if _, err := c.StatePut(sid, map[string]interface{}{"phase": nil, "mode": nil}, true); err != nil {
 		logging.Debugf("stop clear phase failed: %v", err)
 	}

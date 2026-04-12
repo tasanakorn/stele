@@ -70,6 +70,12 @@ steop mailbox send \
   --meta='{"task_id":"<task_id>","request_message_id":<message_id>}'
 ```
 
+### 4d-1. Update watcher state
+
+```bash
+steop storage put watcher:state '{"status":"running","task":"<description>","updated_at":"<now_RFC3339>"}'
+```
+
 ### 4e. Process the task
 
 Determine the execution mode from `meta.mode` (default to `"normal"` if absent or unrecognized):
@@ -105,6 +111,12 @@ steop mailbox send \
 
 ```bash
 steop mailbox archive <message_id>
+```
+
+### 4g-1. Reset watcher state
+
+```bash
+steop storage put watcher:state '{"status":"watching","task":null,"updated_at":"<now_RFC3339>"}'
 ```
 
 ### 4h. Update tracking
