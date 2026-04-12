@@ -18,6 +18,11 @@ pub struct Config {
     /// Open settings dialog (desktop only, used internally)
     #[arg(long, hide = true)]
     pub settings: bool,
+
+    /// Pre-shared auth key. Clients must send it as `X-Stele-Key`.
+    /// Overrides both STELE_AUTH_KEY and config.toml.
+    #[arg(long, env = "STELE_AUTH_KEY")]
+    pub auth_key: Option<String>,
 }
 
 #[cfg(feature = "desktop")]

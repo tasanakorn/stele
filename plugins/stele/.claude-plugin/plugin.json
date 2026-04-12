@@ -1,6 +1,6 @@
 {
   "name": "stele",
-  "version": "0.8.0",
+  "version": "0.8.2",
   "description": "Shared team memory for Claude Code — flat memories + knowledge graph via MCP",
   "author": {
     "name": "tasanakorn"

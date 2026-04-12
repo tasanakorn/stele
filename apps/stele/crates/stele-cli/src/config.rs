@@ -52,7 +52,35 @@ pub fn load_config() -> SteleConfig {
         Ok(s) => s,
         Err(_) => return SteleConfig::default(),
     };
-    let mut config: SteleConfig = toml::from_str(&contents).unwrap_or_default();
+
+    // Parse as a generic Table so unknown top-level keys (e.g. stele-server's
+    // `[server]` section on macOS, where CLI and server share config.toml via
+    // case-insensitive APFS) are ignored during deserialization but preserved
+    // on save.
+    let table: toml::Table = toml::from_str(&contents).unwrap_or_default();
+
+    let default_profile = table
+        .get("default_profile")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "local".to_string());
+
+    let profiles: HashMap<String, Profile> = table
+        .get("profiles")
+        .cloned()
+        .and_then(|v| v.try_into().ok())
+        .unwrap_or_default();
+
+    let mut config = if profiles.is_empty() {
+        // File exists but has no CLI-side content yet (e.g. only `[server]`
+        // from the daemon). Seed the default profile so the CLI remains usable.
+        SteleConfig::default()
+    } else {
+        SteleConfig {
+            default_profile,
+            profiles,
+        }
+    };
 
     // Backfill missing per-profile host with the current machine's hostname.
     let raw = gethostname::gethostname().to_string_lossy().to_string();
@@ -83,7 +111,26 @@ pub fn save_config(config: &SteleConfig) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let contents = toml::to_string_pretty(config).map_err(|e| e.to_string())?;
+
+    // Round-trip through a generic Table so unknown top-level keys written by
+    // other binaries (notably stele-server's `[server]` section) are preserved.
+    // The CLI owns only `default_profile` and `profiles` — any other keys stay
+    // untouched.
+    let mut merged: toml::Table = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .unwrap_or_default();
+
+    merged.insert(
+        "default_profile".to_string(),
+        toml::Value::String(config.default_profile.clone()),
+    );
+    merged.insert(
+        "profiles".to_string(),
+        toml::Value::try_from(&config.profiles).map_err(|e| e.to_string())?,
+    );
+
+    let contents = toml::to_string_pretty(&merged).map_err(|e| e.to_string())?;
     std::fs::write(&path, contents).map_err(|e| e.to_string())?;
     Ok(())
 }

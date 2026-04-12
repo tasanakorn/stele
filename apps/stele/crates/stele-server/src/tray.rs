@@ -1,6 +1,7 @@
+use crate::auth::{self, AuthState};
 use crate::settings;
 use crate::BindState;
-use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tray_icon::{TrayIcon, TrayIconBuilder};
@@ -23,6 +24,14 @@ struct TrayHandler {
     settings_child: Option<std::process::Child>,
     last_poll: Instant,
     last_known_ip: String,
+    auth_state: Arc<AuthState>,
+    auth_status_item: MenuItem,
+    auth_copy_item: MenuItem,
+    auth_clear_item: MenuItem,
+    auth_generate_id: muda::MenuId,
+    auth_set_id: muda::MenuId,
+    auth_copy_id: muda::MenuId,
+    auth_clear_id: muda::MenuId,
 }
 
 impl ApplicationHandler for TrayHandler {
@@ -48,6 +57,14 @@ impl ApplicationHandler for TrayHandler {
                 open_url(&self.dashboard_url);
             } else if event.id() == &self.settings_id {
                 self.open_settings();
+            } else if event.id() == &self.auth_generate_id {
+                self.handle_auth_generate();
+            } else if event.id() == &self.auth_set_id {
+                self.handle_auth_set();
+            } else if event.id() == &self.auth_copy_id {
+                self.handle_auth_copy();
+            } else if event.id() == &self.auth_clear_id {
+                self.handle_auth_clear();
             }
         }
 
@@ -151,6 +168,61 @@ impl TrayHandler {
             let _ = child.wait();
         }
     }
+
+    fn handle_auth_generate(&mut self) {
+        let key = auth::generate_key();
+        self.auth_state.blocking_set(Some(key.clone()));
+        self.persist_auth(Some(&key));
+        self.refresh_auth_menu();
+        copy_to_clipboard(&key);
+    }
+
+    fn handle_auth_set(&mut self) {
+        let key = match prompt_for_key() {
+            Some(k) => k,
+            None => return, // user cancelled or prompt unavailable
+        };
+        if key.is_empty() {
+            tracing::info!("Set Key: empty input, ignored");
+            return;
+        }
+        self.auth_state.blocking_set(Some(key.clone()));
+        self.persist_auth(Some(&key));
+        self.refresh_auth_menu();
+        tracing::info!("Auth key set manually");
+    }
+
+    fn handle_auth_copy(&mut self) {
+        if let Some(key) = self.auth_state.blocking_get() {
+            copy_to_clipboard(&key);
+        }
+    }
+
+    fn handle_auth_clear(&mut self) {
+        self.auth_state.blocking_set(None);
+        self.persist_auth(None);
+        self.refresh_auth_menu();
+    }
+
+    fn persist_auth(&self, key: Option<&str>) {
+        let config_path = settings::settings_path(&self.db_path);
+        let mut s = settings::load_settings(&config_path);
+        s.server.auth_key = key.map(|k| k.to_string());
+        if let Err(e) = settings::save_settings(&config_path, &s) {
+            tracing::error!("Failed to persist auth key: {e}");
+        }
+    }
+
+    fn refresh_auth_menu(&self) {
+        let has_key = self.auth_state.blocking_get().is_some();
+        self.auth_status_item.set_text(if has_key {
+            "Auth Key: set"
+        } else {
+            "Auth Key: none"
+        });
+        self.auth_copy_item.set_enabled(has_key);
+        self.auth_clear_item.set_enabled(has_key);
+    }
 }
 
 pub fn run(
@@ -158,6 +230,7 @@ pub fn run(
     bind_addr: &str,
     bind_state: Arc<BindState>,
     db_path: &str,
+    auth_state: Arc<AuthState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let dashboard_url = crate::dashboard_url(bind_addr);
 
@@ -166,6 +239,26 @@ pub fn run(
         .rsplit_once(':')
         .map(|(ip, port)| (ip.to_string(), port.to_string()))
         .unwrap_or_else(|| (bind_addr.to_string(), "3100".to_string()));
+
+    // Build auth submenu
+    let has_key = auth_state.blocking_get().is_some();
+    let auth_status = MenuItem::new(
+        if has_key { "Auth Key: set" } else { "Auth Key: none" },
+        false,
+        None,
+    );
+    let auth_generate = MenuItem::new("Generate Key", true, None);
+    let auth_set = MenuItem::new("Set Key\u{2026}", true, None);
+    let auth_copy = MenuItem::new("Copy Key", has_key, None);
+    let auth_clear = MenuItem::new("Clear Key", has_key, None);
+
+    let auth_submenu = Submenu::new("Auth Key", true);
+    auth_submenu.append(&auth_status)?;
+    auth_submenu.append(&PredefinedMenuItem::separator())?;
+    auth_submenu.append(&auth_generate)?;
+    auth_submenu.append(&auth_set)?;
+    auth_submenu.append(&auth_copy)?;
+    auth_submenu.append(&auth_clear)?;
 
     // Build menu
     let menu = Menu::new();
@@ -186,6 +279,8 @@ pub fn run(
     menu.append(&status)?;
     menu.append(&version_item)?;
     menu.append(&PredefinedMenuItem::separator())?;
+    menu.append(&auth_submenu)?;
+    menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&settings_item)?;
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&dashboard)?;
@@ -205,6 +300,11 @@ pub fn run(
         .with_tooltip("Stele")
         .build()?;
 
+    let auth_generate_id = auth_generate.id().clone();
+    let auth_set_id = auth_set.id().clone();
+    let auth_copy_id = auth_copy.id().clone();
+    let auth_clear_id = auth_clear.id().clone();
+
     let mut handler = TrayHandler {
         ct,
         _tray: tray,
@@ -219,6 +319,14 @@ pub fn run(
         settings_child: None,
         last_poll: Instant::now(),
         last_known_ip: current_ip,
+        auth_state,
+        auth_status_item: auth_status,
+        auth_copy_item: auth_copy,
+        auth_clear_item: auth_clear,
+        auth_generate_id,
+        auth_set_id,
+        auth_copy_id,
+        auth_clear_id,
     };
 
     let event_loop = EventLoop::new()?;
@@ -239,4 +347,54 @@ fn open_url(url: &str) {
 
     #[cfg(target_os = "linux")]
     let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+}
+
+/// Prompt the user for an auth key via a native input dialog.
+/// Returns `Some(key)` on OK, `None` on Cancel or when no prompt backend is available.
+fn prompt_for_key() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        // osascript emits: "text returned:<KEY>" (prefixed with button info).
+        // Escape embedded quotes in the script literal — none here, so keep it raw.
+        let script = r#"display dialog "Enter auth key (leave empty to cancel):" default answer "" with title "Stele Auth Key" buttons {"Cancel", "OK"} default button "OK""#;
+        let output = match std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => {
+                tracing::warn!("Failed to launch osascript for key prompt: {e}");
+                return None;
+            }
+        };
+        if !output.status.success() {
+            return None; // user cancelled
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // stdout looks like: "button returned:OK, text returned:mykey\n"
+        let key = stdout
+            .split("text returned:")
+            .nth(1)?
+            .trim_end_matches('\n')
+            .trim()
+            .to_string();
+        Some(key)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        tracing::warn!("Manual key entry is only supported on macOS for now");
+        None
+    }
+}
+
+fn copy_to_clipboard(text: &str) {
+    match arboard::Clipboard::new() {
+        Ok(mut cb) => {
+            if let Err(e) = cb.set_text(text) {
+                tracing::warn!("Failed to copy to clipboard: {e}");
+            }
+        }
+        Err(e) => tracing::warn!("Failed to open clipboard: {e}"),
+    }
 }

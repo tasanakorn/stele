@@ -1,4 +1,5 @@
 mod api;
+mod auth;
 mod config;
 mod db;
 mod notify;
@@ -10,6 +11,7 @@ mod steop_api;
 #[cfg(feature = "desktop")]
 mod tray;
 
+use auth::AuthState;
 use clap::Parser;
 use config::Config;
 use db::DbPool;
@@ -26,12 +28,21 @@ pub struct BindState {
     pub rebind_signal: tokio::sync::Notify,
 }
 
+fn resolve_auth_key(config: &Config, db_path: &str) -> Option<String> {
+    if let Some(k) = config.auth_key.clone() {
+        return Some(k);
+    }
+    let path = settings::settings_path(db_path);
+    settings::load_settings(&path).server.auth_key
+}
+
 /// Start the axum + MCP server. Loops to support live rebinding.
 async fn run_server(
     config: Config,
     pool: DbPool,
     ct: CancellationToken,
     bind_state: Arc<BindState>,
+    auth_state: Arc<AuthState>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Pin the notification bundle identifier so mac-notification-sys skips
     // its default LaunchServices lookup (which pops a "Choose Application"
@@ -43,6 +54,7 @@ async fn run_server(
 
         let mcp_pool = pool.clone();
         let child_ct = ct.child_token();
+        #[allow(clippy::field_reassign_with_default)]
         let service = StreamableHttpService::new(
             move || Ok(SteleServer::new(mcp_pool.clone())),
             Arc::new(LocalSessionManager::default()),
@@ -58,10 +70,22 @@ async fn run_server(
         );
 
         let mcp_path = config.mcp_path.clone();
+
+        let mcp_with_auth = tower::ServiceBuilder::new()
+            .layer(axum::middleware::from_fn_with_state(
+                auth_state.clone(),
+                auth::auth_layer,
+            ))
+            .service(service);
+
         let app = axum::Router::new()
-            .nest_service(&mcp_path, service)
+            .nest_service(&mcp_path, mcp_with_auth)
             .nest("/api", api::router(pool.clone()))
-            .nest("/api/v1/steop", steop_api::router(pool.clone()));
+            .nest("/api/v1/steop", steop_api::router(pool.clone()))
+            .layer(axum::middleware::from_fn_with_state(
+                auth_state.clone(),
+                auth::auth_layer,
+            ));
 
         let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
             Ok(l) => l,
@@ -172,11 +196,15 @@ fn main() {
         rebind_signal: tokio::sync::Notify::new(),
     });
 
+    let initial_key = resolve_auth_key(&config, &config.db);
+    let auth_state = AuthState::new(initial_key);
+
     // Spawn the server on a background thread with its own tokio runtime
     let server_config = config.clone();
     let server_pool = pool.clone();
     let server_ct = ct.clone();
     let server_bind_state = bind_state.clone();
+    let server_auth_state = auth_state.clone();
     let server_handle = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
         if let Err(e) = rt.block_on(run_server(
@@ -184,13 +212,14 @@ fn main() {
             server_pool,
             server_ct,
             server_bind_state,
+            server_auth_state,
         )) {
             tracing::error!("Server error: {e}");
         }
     });
 
     // Run tray event loop on main thread (required by macOS and Windows)
-    if let Err(e) = tray::run(ct.clone(), &bind_addr, bind_state, &config.db) {
+    if let Err(e) = tray::run(ct.clone(), &bind_addr, bind_state, &config.db, auth_state) {
         tracing::error!("Tray app error: {e}");
         // Fall back to waiting for Ctrl+C
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -227,6 +256,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         rebind_signal: tokio::sync::Notify::new(),
     });
 
+    let initial_key = resolve_auth_key(&config, &config.db);
+    let auth_state = AuthState::new(initial_key);
+
     let shutdown_ct = ct.clone();
     tokio::spawn(async move {
         tokio::signal::ctrl_c()
@@ -236,7 +268,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         shutdown_ct.cancel();
     });
 
-    run_server(config, pool, ct, bind_state).await?;
+    run_server(config, pool, ct, bind_state, auth_state).await?;
 
     Ok(())
 }

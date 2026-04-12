@@ -42,6 +42,10 @@ Creates a compressed DMG with a `/Applications` symlink for drag-to-install.
 
 The bind address is configurable via tray menu > Settings. Settings are persisted in `config.toml` next to the DB file.
 
+### Auth Key (macOS tray)
+
+The tray menu includes an "Auth Key" submenu with Generate, Copy, and Clear actions. Generating a key enables authentication immediately (no restart needed) and copies the key to the clipboard. The key is persisted to `config.toml` so it survives restarts.
+
 ## Linux Headless
 
 Build the headless server (no desktop/tray dependencies):
@@ -68,6 +72,7 @@ Environment is configured via `/etc/default/stele`:
 ```
 STELE_BIND=0.0.0.0:3100
 STELE_DB=/var/lib/stele/stele.db
+STELE_AUTH_KEY=<your-key>
 ```
 
 ## Docker
@@ -80,7 +85,7 @@ docker run -v stele-data:/data -p 3100:3100 stele
 - Multi-stage build: `rust:slim` builder, `debian:bookworm-slim` runtime
 - Builds the headless server only
 - Volume `/data` for persistent SQLite DB
-- Default environment: `STELE_BIND=0.0.0.0:3100`, `STELE_DB=/data/stele.db`
+- Default environment: `STELE_BIND=0.0.0.0:3100`, `STELE_DB=/data/stele.db`; set `STELE_AUTH_KEY` to enable authentication
 - Exposes port 3100
 
 ## CLI Installation

@@ -33,12 +33,18 @@ pub fn handle_config_path() {
 
 pub fn handle_config_set(name: &str, url: &str, key: Option<String>, set_default: bool) {
     let mut config = load_config();
+    // Preserve the existing host (set by the backfill on first load) when
+    // updating a profile — `None` here would silently erase it.
+    let existing_host = config
+        .profiles
+        .get(name)
+        .and_then(|p| p.host.clone());
     config.profiles.insert(
         name.to_string(),
         Profile {
             server_url: url.to_string(),
             auth_key: key,
-            host: None,
+            host: existing_host,
         },
     );
     if set_default {

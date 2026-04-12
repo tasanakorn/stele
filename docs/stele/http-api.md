@@ -10,6 +10,24 @@ Stele exposes a JSON API at `/api/v1`. The stele memory and graph endpoints are 
 
 ---
 
+## Authentication
+
+By default, stele-server is open with no authentication required. When a pre-shared key is configured (via `--auth-key`, `STELE_AUTH_KEY`, or `auth_key` in `config.toml`), all HTTP and MCP routes require clients to send the key in the `X-Stele-Key` request header.
+
+- **Header:** `X-Stele-Key: <key>`
+- **When auth is disabled:** all routes are open (default behavior unchanged).
+- **When auth is enabled:** missing or incorrect key returns `401 Unauthorized`:
+
+```json
+{ "error": "unauthorized" }
+```
+
+CORS preflight (`OPTIONS`) requests are not blocked — the middleware only enforces the header on actual requests.
+
+The stele CLI sends `X-Stele-Key` automatically when a key is configured in its profile.
+
+---
+
 ## Memory Endpoints
 
 ### POST /api/v1/memories

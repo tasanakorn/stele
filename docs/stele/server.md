@@ -51,12 +51,23 @@ Desktop-only feature implemented in `settings.rs`:
 - The dialog is launched as a subprocess from the tray menu via `--settings --db <path>`. Running it as a subprocess keeps the GUI on a separate process so it does not interfere with the main server thread.
 - While the subprocess is alive the tray module polls `config.toml` every 500 ms. When a change is detected the tray signals the `BindState` notifier, which triggers a live rebind in `run_server()`.
 
+## Auth Middleware
+
+Implemented in `auth.rs`, used by both desktop and headless builds:
+
+- `AuthState` holds an `RwLock<Option<String>>` key that can be updated at runtime without restarting the server. Desktop tray actions (Generate / Copy / Clear) write to it via `blocking_set`; the async middleware reads it via `.read().await`.
+- Key resolution precedence: CLI flag `--auth-key` > env var `STELE_AUTH_KEY` > `auth_key` in `config.toml` > open (no auth).
+- The `nest_service` call for the MCP endpoint requires the middleware to be applied **before** wrapping — `tower::ServiceBuilder` handles this separately from the top-level `.layer()` call, which covers all REST routes. Both use the same `Arc<AuthState>` so they stay in sync.
+- Keys are 32 random bytes encoded as URL-safe base64 (no padding), 43 characters long.
+- Comparison is constant-time to resist timing attacks.
+
 ## Tray Module
 
 Implemented in `tray.rs` (desktop feature only):
 
 - Implements winit's `ApplicationHandler` trait to receive OS-level window and menu events.
-- Menu items: a status label showing the current bind address, Settings, Open Dashboard (opens the web UI in the default browser), and Quit.
+- Menu items: a status label showing the current bind address, an "Auth Key" submenu, Settings, Open Dashboard (opens the web UI in the default browser), and Quit.
+- "Auth Key" submenu contains: Generate Key (creates and copies a new key), Copy Key, Clear Key. Status row shows "Auth Key: set" or "Auth Key: none". Changes are persisted to `config.toml` immediately and take effect for the live server without a restart.
 - Polls `config.toml` every 500 ms while the settings subprocess is alive. Updates the tray status label when the address changes and signals the server rebind notifier.
 - Quit menu item cancels the parent `CancellationToken`, which propagates shutdown to the background server thread.
 

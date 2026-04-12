@@ -11,12 +11,15 @@ pub struct Settings {
 pub struct ServerSettings {
     #[serde(default = "default_bind_ip")]
     pub bind_ip: String,
+    #[serde(default)]
+    pub auth_key: Option<String>,
 }
 
 impl Default for ServerSettings {
     fn default() -> Self {
         Self {
             bind_ip: default_bind_ip(),
+            auth_key: None,
         }
     }
 }
@@ -33,14 +36,37 @@ pub fn settings_path(db_path: &str) -> PathBuf {
 }
 
 pub fn load_settings(path: &Path) -> Settings {
-    match std::fs::read_to_string(path) {
-        Ok(content) => toml::from_str(&content).unwrap_or_default(),
-        Err(_) => Settings::default(),
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Settings::default();
+    };
+    // Parse as a generic table so unknown top-level keys (e.g. stele-cli's
+    // `default_profile` / `[profiles.*]`) coexist without being lost.
+    let table: toml::Table = toml::from_str(&content).unwrap_or_default();
+    match table.get("server") {
+        Some(v) => v
+            .clone()
+            .try_into::<ServerSettings>()
+            .map(|server| Settings { server })
+            .unwrap_or_default(),
+        None => Settings::default(),
     }
 }
 
 pub fn save_settings(path: &Path, settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
-    let content = toml::to_string_pretty(settings)?;
+    // Read the existing file as a generic Table so unknown top-level keys
+    // written by other binaries (e.g. stele-cli's `default_profile` and
+    // `[profiles.*]`) are preserved across round-trips. On macOS the CLI and
+    // server share the same config.toml path via case-insensitive APFS; on
+    // Linux the files are distinct and this merge is a harmless no-op.
+    let mut merged: toml::Table = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .unwrap_or_default();
+
+    let server_value = toml::Value::try_from(&settings.server)?;
+    merged.insert("server".to_string(), server_value);
+
+    let content = toml::to_string_pretty(&merged)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -169,8 +195,12 @@ impl SettingsApp {
             return;
         }
 
+        let existing = load_settings(&self.config_path);
         let settings = Settings {
-            server: ServerSettings { bind_ip: ip },
+            server: ServerSettings {
+                bind_ip: ip,
+                auth_key: existing.server.auth_key,
+            },
         };
 
         match save_settings(&self.config_path, &settings) {

@@ -88,7 +88,7 @@ cargo run -p stele-cli -- recall "search query" --scope myproject
 cargo run -p stele-server -- --bind 0.0.0.0:3100 --db /path/to/stele.db --mcp-path /mcp
 ```
 
-Server CLI flags have env var equivalents: `STELE_BIND`, `STELE_DB`, `STELE_MCP_PATH`.
+Server CLI flags have env var equivalents: `STELE_BIND`, `STELE_DB`, `STELE_MCP_PATH`, `STELE_AUTH_KEY`. If `--auth-key` / `STELE_AUTH_KEY` is set (or `auth_key` is persisted in `config.toml`), all HTTP/MCP routes require clients to send `X-Stele-Key`; the CLI already does this automatically via `stele config set --key <key>`.
 
 Build profiles are configured in the workspace `Cargo.toml` to minimize disk usage (`incremental = false`, `codegen-units = 1`, `opt-level = "s"`).
 
