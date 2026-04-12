@@ -31,6 +31,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-007-st-send-session-resolve](prd/prd-007-st-send-session-resolve.md)   | Implemented v0.10.1 | Fix `st-send` to resolve to active session UUID instead of hardcoded `USER` |
 | [prd-008-watcher-lifecycle](prd/prd-008-watcher-lifecycle.md)                   | Implemented v0.11.0 | Watcher lifecycle state + heartbeat for cross-session liveness detection        |
 | [prd-009-st-watch-streamline](prd/prd-009-st-watch-streamline.md)                | Implemented v0.12.0 | Streamline st-watch startup: CLI auto-resume + single-turn monitoring entry     |
+| [prd-010-st-watch-fast-startup](prd/prd-010-st-watch-fast-startup.md)            | Implemented v0.12.1 | Fast startup: ready line, parallel RPCs, SKILL.md trimming for <1 min monitoring |
 
 ## Stele server (`stele/`)
 

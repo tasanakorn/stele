@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -42,22 +43,38 @@ func runMailboxWatch(args []string) {
 
 	seen := make(map[int64]bool)
 
-	// Auto-resume: read last emitted message ID from storage.
+	// --- parallel init (PRD-010) ---
 	var lastID int64
-	if blob, err := c.StorageGet(id, "watcher:last_message_id"); err == nil && blob != nil {
-		if v, err := strconv.ParseInt(blob.Content, 10, 64); err == nil {
-			lastID = v
+	var wg sync.WaitGroup
+
+	// Goroutine: read resume cursor (must complete before first poll).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if blob, err := c.StorageGet(id, "watcher:last_message_id"); err == nil && blob != nil {
+			if v, err := strconv.ParseInt(blob.Content, 10, 64); err == nil {
+				lastID = v
+			}
 		}
-	}
+	}()
+
+	// Fire-and-forget: lifecycle writes via FastClone() (500ms timeout).
+	now := time.Now().UTC().Format(time.RFC3339)
+	watchState := fmt.Sprintf(`{"status":"watching","task":null,"updated_at":%q}`, now)
+	fc := c.FastClone()
+	go fc.StoragePut(id, "watcher:state", watchState)
+	go fc.StoragePut(id, "watcher:heartbeat", now)
+
+	wg.Wait()
+	// --- end parallel init ---
+
+	// Emit ready line (PRD-010: immediate feedback for Monitor).
+	readyJSON := fmt.Sprintf(`{"type":"ready","last_message_id":%d,"interval":%d}`, lastID, interval)
+	os.Stdout.Write([]byte(readyJSON))
+	os.Stdout.Write([]byte("\n"))
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	// Best-effort watcher lifecycle keys.
-	now := time.Now().UTC().Format(time.RFC3339)
-	watchState := fmt.Sprintf(`{"status":"watching","task":null,"updated_at":%q}`, now)
-	c.StoragePut(id, "watcher:state", watchState)
-	c.StoragePut(id, "watcher:heartbeat", now)
 
 	poll := func() {
 		msgs, err := c.MailboxList(id, client.MailboxListOptions{

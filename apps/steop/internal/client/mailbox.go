@@ -30,7 +30,7 @@ type MailboxSendOptions struct {
 
 // MailboxSend sends a message. The caller's own composite id (`id`) is used to
 // derive the implicit `from` unless opts.From is set. `to` is any 2-seg or
-// 3-seg composite id. Uses fastClone for fire-and-forget.
+// 3-seg composite id. Uses FastClone for fire-and-forget.
 func (c *Client) MailboxSend(id, to string, opts MailboxSendOptions) (*MailboxMessage, error) {
 	body := map[string]interface{}{
 		"id": id,
@@ -52,7 +52,7 @@ func (c *Client) MailboxSend(id, to string, opts MailboxSendOptions) (*MailboxMe
 		body["payload"] = opts.Payload
 	}
 	var resp MailboxMessage
-	if err := c.fastClone().rpc("steop.mailbox.send", body, &resp); err != nil {
+	if err := c.FastClone().rpc("steop.mailbox.send", body, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

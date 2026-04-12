@@ -1,6 +1,6 @@
 ---
 name: st-watch
-description: Monitor mailbox for incoming task requests and process them autonomously. Starts a polling loop that watches for TASK:REQUEST messages, claims them, and routes them based on mode (st-flow for flow tasks, direct execution for normal tasks).
+description: Monitor mailbox for incoming task requests and process them autonomously. Starts a polling loop that watches for TASK:REQUEST messages, claims them, and routes them based on mode.
 ---
 
 # Watch for Task Requests
@@ -9,15 +9,13 @@ Monitor the session's mailbox for incoming `TASK:REQUEST` messages. When a task 
 
 ## Step 1 — Start Watcher + Monitor
 
-Launch the watcher and begin monitoring in a single turn. Issue both tool calls in parallel:
+Issue both tool calls in parallel in a single turn:
 
-**Background process** (`run_in_background: true`):
+1. **Bash** (`run_in_background: true`): `steop mailbox watch --type TASK:REQUEST --interval 10`
+2. **Monitor**: stream stdout from the background watcher process.
 
-```bash
-steop mailbox watch --type TASK:REQUEST --interval 10
-```
-
-**Monitor tool**: stream stdout lines from the background watcher process. Each line is a complete JSON object representing a new `TASK:REQUEST` message.
+The first line will be `{"type":"ready",...}` confirming the watcher initialized.
+Subsequent lines are NDJSON task messages — proceed to Step 2 for each.
 
 ## Step 2 — On Receiving a Task
 
@@ -33,63 +31,35 @@ Extract: `message_id`, `from`, `meta.task_id`, `meta.description`, and `payload`
 steop mailbox read <message_id>
 ```
 
-If the response is HTTP 409 (already claimed by another watcher), skip this task and continue monitoring.
+If HTTP 409 (already claimed), skip this task and continue monitoring.
 
-### 2c. Track the active task
+### 2c. Track + notify
 
 ```bash
 steop storage put watcher:active_tasks '[{"task_id":"<task_id>","request_message_id":<message_id>,"from":"<from>"}]'
+steop mailbox send --to=<from> --type=TASK:CHECKIN --meta='{"task_id":"<task_id>","request_message_id":<message_id>}'
 ```
 
-### 2d. Send CHECKIN
+### 2d. Process the task
+
+Determine execution mode from `meta.mode` (default `"normal"`):
+
+- **`flow`** — Run `/steop:st-flow` with `meta.description`. Include `payload` as context.
+- **`normal`** — Execute `meta.description` directly. Include `payload` as context.
+
+### 2e. Report result + cleanup
+
+Send result back to `<from>`, archive the request, and clear active tasks:
 
 ```bash
-steop mailbox send \
-  --to=<from> \
-  --type=TASK:CHECKIN \
-  --meta='{"task_id":"<task_id>","request_message_id":<message_id>}'
-```
+# On success:
+steop mailbox send --to=<from> --type=TASK:DONE --subject="Completed: <desc>" \
+  --meta='{"task_id":"<task_id>","request_message_id":<message_id>}' --payload='<result_json>'
+# On failure:
+steop mailbox send --to=<from> --type=TASK:FAILED --subject="Failed: <desc>" \
+  --meta='{"task_id":"<task_id>","request_message_id":<message_id>,"error":"<err>"}' --payload='<error_json>'
 
-### 2e. Process the task
-
-Determine the execution mode from `meta.mode` (default to `"normal"` if absent or unrecognized):
-
-- **`flow`** — Execute the task using `/steop:st-flow` with `meta.description` as the user request. Include `payload` as additional context if present.
-- **`normal`** — Execute `meta.description` as a plain conversation turn (no pipeline). Include `payload` as additional context if present. Use your own judgment and available tools to complete the request directly.
-
-### 2f. Report result
-
-**On success:**
-
-```bash
-steop mailbox send \
-  --to=<from> \
-  --type=TASK:DONE \
-  --subject="Completed: <description>" \
-  --meta='{"task_id":"<task_id>","request_message_id":<message_id>}' \
-  --payload='<result_summary_json>'
-```
-
-**On failure:**
-
-```bash
-steop mailbox send \
-  --to=<from> \
-  --type=TASK:FAILED \
-  --subject="Failed: <description>" \
-  --meta='{"task_id":"<task_id>","request_message_id":<message_id>,"error":"<error_summary>"}' \
-  --payload='<error_details_json>'
-```
-
-### 2g. Archive the original request
-
-```bash
 steop mailbox archive <message_id>
-```
-
-### 2h. Cleanup active tasks
-
-```bash
 steop storage put watcher:active_tasks '[]'
 ```
 

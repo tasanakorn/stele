@@ -7,7 +7,7 @@ type LogEvent struct {
 	Data  interface{} `json:"data,omitempty"`
 }
 
-// Log appends a log entry. Uses fastClone for fire-and-forget semantics.
+// Log appends a log entry. Uses FastClone for fire-and-forget semantics.
 func (c *Client) Log(ev LogEvent) error {
-	return c.fastClone().rpc("steop.log.append", ev, nil)
+	return c.FastClone().rpc("steop.log.append", ev, nil)
 }

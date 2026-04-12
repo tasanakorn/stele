@@ -170,9 +170,9 @@ func (c *Client) WithRequestContext(host, projectDir string) *Client {
 	return &clone
 }
 
-// fastClone returns a shallow copy with a very short HTTP timeout suitable for
+// FastClone returns a shallow copy with a very short HTTP timeout suitable for
 // fire-and-forget best-effort POSTs.
-func (c *Client) fastClone() *Client {
+func (c *Client) FastClone() *Client {
 	clone := *c
 	clone.http = &http.Client{Timeout: 500 * time.Millisecond}
 	return &clone
