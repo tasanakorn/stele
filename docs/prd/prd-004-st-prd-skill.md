@@ -1,7 +1,7 @@
 # PRD — `/steop:st-prd` Skill (PRD Authoring)
 
-**Status:** Implemented (v0.10.0)
-**Target version:** v0.10.0
+**Status:** Implemented (v0.9.1)
+**Target version:** v0.9.1
 **Scope:** steop plugin — new `st-prd` skill, agent, and CLAUDE.md integration
 **Author:** Tasanakorn (design) + Claude Code (PRD authoring)
 
