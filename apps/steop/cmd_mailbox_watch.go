@@ -16,7 +16,6 @@ import (
 func runMailboxWatch(args []string) {
 	msgType := ""
 	interval := 10
-	since := int64(0)
 
 	for _, a := range args {
 		switch {
@@ -33,12 +32,7 @@ func runMailboxWatch(args []string) {
 			}
 			interval = v
 		case strings.HasPrefix(a, "--since="):
-			v, err := strconv.ParseInt(a[len("--since="):], 10, 64)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "mailbox watch: invalid --since: %q\n", a[len("--since="):])
-				os.Exit(2)
-			}
-			since = v
+			fmt.Fprintf(os.Stderr, "mailbox watch: --since is deprecated; resume is automatic via watcher:last_message_id\n")
 		case a == "--json":
 			// accepted but ignored — output is always NDJSON
 		}
@@ -48,19 +42,11 @@ func runMailboxWatch(args []string) {
 
 	seen := make(map[int64]bool)
 
-	// Pre-seed seen set from --since: mark all messages with ID <= since as seen.
-	if since > 0 {
-		msgs, err := c.MailboxList(id, client.MailboxListOptions{
-			Status:      []string{"NEW", "READ", "ARCHIVE"},
-			MessageType: msgType,
-			Limit:       0,
-		})
-		if err == nil {
-			for _, m := range msgs {
-				if m.MessageID <= since {
-					seen[m.MessageID] = true
-				}
-			}
+	// Auto-resume: read last emitted message ID from storage.
+	var lastID int64
+	if blob, err := c.StorageGet(id, "watcher:last_message_id"); err == nil && blob != nil {
+		if v, err := strconv.ParseInt(blob.Content, 10, 64); err == nil {
+			lastID = v
 		}
 	}
 
@@ -83,6 +69,9 @@ func runMailboxWatch(args []string) {
 			return
 		}
 		for _, m := range msgs {
+			if m.MessageID <= lastID {
+				continue
+			}
 			if seen[m.MessageID] {
 				continue
 			}
@@ -93,6 +82,9 @@ func runMailboxWatch(args []string) {
 			}
 			os.Stdout.Write(b)
 			os.Stdout.Write([]byte("\n"))
+			// Checkpoint: persist cursor so restarts skip this message.
+			lastID = m.MessageID
+			c.StoragePut(id, "watcher:last_message_id", strconv.FormatInt(m.MessageID, 10))
 		}
 	}
 
@@ -106,7 +98,9 @@ func runMailboxWatch(args []string) {
 		select {
 		case <-ticker.C:
 			poll()
-			c.StoragePut(id, "watcher:heartbeat", time.Now().UTC().Format(time.RFC3339))
+			now := time.Now().UTC().Format(time.RFC3339)
+			c.StoragePut(id, "watcher:state", fmt.Sprintf(`{"status":"watching","task":null,"updated_at":%q}`, now))
+			c.StoragePut(id, "watcher:heartbeat", now)
 		case <-sigCh:
 			c.StorageDelete(id, "watcher:state")
 			c.StorageDelete(id, "watcher:heartbeat")

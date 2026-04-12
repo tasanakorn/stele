@@ -5,41 +5,29 @@ description: Monitor mailbox for incoming task requests and process them autonom
 
 # Watch for Task Requests
 
-Monitor the session's mailbox for incoming `TASK:REQUEST` messages. When a task arrives, claim it, process it via `/steop:st-flow`, and report the result back to the sender.
+Monitor the session's mailbox for incoming `TASK:REQUEST` messages. When a task arrives, claim it, process it, and report the result back to the sender.
 
-## Step 1 — Resume State
+## Step 1 — Start Watcher + Monitor
 
-Check for a previous watcher checkpoint so restarted watchers don't re-emit old messages:
+Launch the watcher and begin monitoring in a single turn. Issue both tool calls in parallel:
 
-```bash
-steop storage get watcher:last_message_id
-```
-
-If found, note the `content` value as `LAST_MESSAGE_ID`. If not found or error, proceed without `--since`.
-
-## Step 2 — Start the Watcher Process
-
-Run the watcher as a background process using `run_in_background: true`:
+**Background process** (`run_in_background: true`):
 
 ```bash
-steop mailbox watch --type TASK:REQUEST --interval 10 [--since=LAST_MESSAGE_ID]
+steop mailbox watch --type TASK:REQUEST --interval 10
 ```
 
-Include `--since=LAST_MESSAGE_ID` only if Step 1 returned a value.
+**Monitor tool**: stream stdout lines from the background watcher process. Each line is a complete JSON object representing a new `TASK:REQUEST` message.
 
-## Step 3 — Monitor for Incoming Tasks
-
-Use the **Monitor** tool to stream stdout lines from the background watcher process. Each line is a complete JSON object representing a new `TASK:REQUEST` message.
-
-## Step 4 — On Receiving a Task
+## Step 2 — On Receiving a Task
 
 Process one task at a time. Do not claim a new task while one is in progress.
 
-### 4a. Parse the JSON line
+### 2a. Parse the JSON line
 
 Extract: `message_id`, `from`, `meta.task_id`, `meta.description`, and `payload`.
 
-### 4b. Claim the task
+### 2b. Claim the task
 
 ```bash
 steop mailbox read <message_id>
@@ -47,21 +35,13 @@ steop mailbox read <message_id>
 
 If the response is HTTP 409 (already claimed by another watcher), skip this task and continue monitoring.
 
-### 4c. Track the active task
-
-Read the current active tasks list:
-
-```bash
-steop storage get watcher:active_tasks
-```
-
-Append the new task entry and write back:
+### 2c. Track the active task
 
 ```bash
 steop storage put watcher:active_tasks '[{"task_id":"<task_id>","request_message_id":<message_id>,"from":"<from>"}]'
 ```
 
-### 4d. Send CHECKIN
+### 2d. Send CHECKIN
 
 ```bash
 steop mailbox send \
@@ -70,20 +50,14 @@ steop mailbox send \
   --meta='{"task_id":"<task_id>","request_message_id":<message_id>}'
 ```
 
-### 4d-1. Update watcher state
-
-```bash
-steop storage put watcher:state '{"status":"running","task":"<description>","updated_at":"<now_RFC3339>"}'
-```
-
-### 4e. Process the task
+### 2e. Process the task
 
 Determine the execution mode from `meta.mode` (default to `"normal"` if absent or unrecognized):
 
 - **`flow`** — Execute the task using `/steop:st-flow` with `meta.description` as the user request. Include `payload` as additional context if present.
 - **`normal`** — Execute `meta.description` as a plain conversation turn (no pipeline). Include `payload` as additional context if present. Use your own judgment and available tools to complete the request directly.
 
-### 4f. Report result
+### 2f. Report result
 
 **On success:**
 
@@ -107,26 +81,18 @@ steop mailbox send \
   --payload='<error_details_json>'
 ```
 
-### 4g. Archive the original request
+### 2g. Archive the original request
 
 ```bash
 steop mailbox archive <message_id>
 ```
 
-### 4g-1. Reset watcher state
+### 2h. Cleanup active tasks
 
 ```bash
-steop storage put watcher:state '{"status":"watching","task":null,"updated_at":"<now_RFC3339>"}'
+steop storage put watcher:active_tasks '[]'
 ```
 
-### 4h. Update tracking
+## Step 3 — Continue Monitoring
 
-Remove the completed task from `watcher:active_tasks` and update the checkpoint:
-
-```bash
-steop storage put watcher:last_message_id '<message_id>'
-```
-
-## Step 5 — Continue Monitoring
-
-Return to the Monitor tool to wait for the next task. Repeat from Step 4 for each new message.
+Return to the Monitor tool to wait for the next task. Repeat from Step 2 for each new message.
