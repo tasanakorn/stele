@@ -31,6 +31,9 @@ func runStorage(args []string) {
 		fmt.Fprintf(os.Stderr, "storage: client init: %v\n", err)
 		os.Exit(1)
 	}
+	if globalProjectDir != "" {
+		c = c.WithRequestContext("", globalProjectDir)
+	}
 
 	// Resolve composite id: session-scoped (3-segment) when --session= is set,
 	// otherwise project-scoped (2-segment).
