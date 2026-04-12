@@ -94,6 +94,8 @@ Build profiles are configured in the workspace `Cargo.toml` to minimize disk usa
 
 There are no tests yet. No linter or formatter is configured beyond standard `cargo clippy` / `cargo fmt`.
 
+**Build artifacts:** When building Go binaries, use `-o` to output into a `target/` directory under the module (e.g. `cd apps/steop && go build -o target/steop .`). `**/target` is gitignored.
+
 ## Architecture
 
 Single async process: axum serves HTTP, rmcp handles MCP protocol framing, SQLite stores everything. The CLI is a sync ureq client that talks to the server's REST API and also acts as an MCP stdio↔HTTP proxy.
