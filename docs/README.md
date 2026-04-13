@@ -39,6 +39,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-015-hook-inject-position](prd/prd-015-hook-inject-position.md)             | Implemented v0.12.6 | Move PreToolUse identity flags to directly after the `steop` token so redirections don't hide them          |
 | [prd-016-hook-scope-public-flags](prd/prd-016-hook-scope-public-flags.md)       | Implemented v0.13.1 | Restrict PreToolUse hook to Bash; add public --session-id / --project-dir flags + steop identity command.                 |
 | [prd-017-st-watch-monitor-identity-wiring](prd/prd-017-st-watch-monitor-identity-wiring.md) | Implemented v0.13.3 | Wire /steop:st-watch to resolve identity via `steop identity` and embed public flags in Monitor command (PRD-016 consumer). |
+| [prd-018-st-xp-skill](prd/prd-018-st-xp-skill.md)                               | Proposed            | XP-style fast-feedback workflow skill (Clarify/Execute/Validate, parallel executors, cap 3)       |
 
 ## Stele server (`stele/`)
 
