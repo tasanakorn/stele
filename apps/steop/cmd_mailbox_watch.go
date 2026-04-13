@@ -17,21 +17,39 @@ func runMailboxWatch(args []string) {
 	msgType := ""
 	interval := 10
 
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		// flagVal returns the value for a flag, supporting both --flag=value and
+		// --flag value forms. Returns ("", false) if a doesn't match the prefix.
+		flagVal := func(prefix string) (string, bool) {
+			eq := prefix + "="
+			if strings.HasPrefix(a, eq) {
+				return a[len(eq):], true
+			}
+			if a == prefix && i+1 < len(args) {
+				i++
+				return args[i], true
+			}
+			return "", false
+		}
 		switch {
-		case strings.HasPrefix(a, "--type="):
-			msgType = a[len("--type="):]
-		case strings.HasPrefix(a, "--interval="):
-			v, err := strconv.Atoi(a[len("--interval="):])
-			if err != nil || v < 2 {
-				fmt.Fprintf(os.Stderr, "mailbox watch: --interval must be >= 2\n")
-				os.Exit(2)
+		case strings.HasPrefix(a, "--type"):
+			if v, ok := flagVal("--type"); ok {
+				msgType = v
 			}
-			if v > 300 {
-				v = 300
+		case strings.HasPrefix(a, "--interval"):
+			if v, ok := flagVal("--interval"); ok {
+				n, err := strconv.Atoi(v)
+				if err != nil || n < 2 {
+					fmt.Fprintf(os.Stderr, "mailbox watch: --interval must be >= 2\n")
+					os.Exit(2)
+				}
+				if n > 300 {
+					n = 300
+				}
+				interval = n
 			}
-			interval = v
-		case strings.HasPrefix(a, "--since="):
+		case strings.HasPrefix(a, "--since"):
 			fmt.Fprintf(os.Stderr, "mailbox watch: --since is deprecated; resume is automatic via server-side status=NEW filter\n")
 		case a == "--json":
 			// accepted but ignored — output is always NDJSON

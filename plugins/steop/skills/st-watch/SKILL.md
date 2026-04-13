@@ -11,7 +11,7 @@ Monitor the session's mailbox for incoming `TASK:REQUEST` messages. When a task 
 
 Issue a single **Monitor** tool call (with `persistent: true`):
 
-- `command`: `steop mailbox watch --type TASK:REQUEST --interval 10`
+- `command`: `steop mailbox watch --type=TASK:REQUEST --interval=10`
 - `description`: `Incoming TASK:REQUEST messages`
 - `persistent`: `true`
 
