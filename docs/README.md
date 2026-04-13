@@ -65,4 +65,5 @@ Agentic workflow pipeline plugin plus its `steop` companion binary.
 | [smoke-tests.md](steop/smoke-tests.md)                          | Copy-paste curl sequence exercising every `steop.*` RPC    |
 | [gap-analysis.md](steop/gap-analysis.md)                        | steop vs cerbrix vs omc — feature comparison snapshot      |
 | [hook-gap.md](steop/hook-gap.md)                                | Deep dive on hook-event coverage (companion to gap doc)    |
+| [idle-detection.md](steop/idle-detection.md)                    | Detecting true Claude Code idle (signals + composite recipe) |
 | [cerbrix-gap-analysis.md](steop/cerbrix-gap-analysis.md)        | cerbrix feature catalog + planning ledger                  |
