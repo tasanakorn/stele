@@ -31,15 +31,15 @@ type bashToolInput struct {
 	Command string `json:"command"`
 }
 
-// HandlePreToolUse inspects a Bash or Monitor command for dangerous patterns,
+// HandlePreToolUse inspects a Bash command for dangerous patterns,
 // then injects identity flags into steop invocations. sessionID and projectDir
 // come from the hook's stdin JSON and CLAUDE_PROJECT_DIR env respectively.
-// Both Bash and Monitor tool inputs use the same {"command":"..."} shape.
+// Only Bash tool inputs are processed; all other tools (including Monitor) pass through.
 func HandlePreToolUse(in *HookInput, sessionID, projectDir string) []byte {
 	if in == nil || len(in.ToolInput) == 0 {
 		return Allow()
 	}
-	if in.ToolName != "Bash" && in.ToolName != "Monitor" {
+	if in.ToolName != "Bash" {
 		return Allow()
 	}
 	var b bashToolInput
@@ -77,7 +77,7 @@ func injectIdentity(cmd, sessionID, projectDir string) string {
 		return cmd
 	}
 	// Don't inject if flags are already present (respect explicit overrides).
-	if strings.Contains(cmd, "--x-session-id") || strings.Contains(cmd, "--x-project-dir") {
+	if strings.Contains(cmd, "--x-session-id") || strings.Contains(cmd, "--x-project-dir") || strings.Contains(cmd, "--session-id") || strings.Contains(cmd, "--project-dir") {
 		return cmd
 	}
 

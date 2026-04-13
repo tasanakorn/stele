@@ -8,7 +8,7 @@
       { "matcher": "*", "hooks": [{ "type": "command", "command": "steop hook UserPromptSubmit", "timeout": 5 }] }
     ],
     "PreToolUse": [
-      { "matcher": "Bash|Monitor", "hooks": [{ "type": "command", "command": "steop hook PreToolUse", "timeout": 5 }] }
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "steop hook PreToolUse", "timeout": 5 }] }
     ],
     "PermissionRequest": [
       { "matcher": "*", "hooks": [{ "type": "command", "command": "steop hook PermissionRequest", "timeout": 5 }] }

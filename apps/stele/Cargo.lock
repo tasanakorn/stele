@@ -4193,7 +4193,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stele-cli"
-version = "0.13.0"
+version = "0.13.3"
 dependencies = [
  "clap",
  "dirs",
@@ -4207,7 +4207,7 @@ dependencies = [
 
 [[package]]
 name = "stele-common"
-version = "0.13.0"
+version = "0.13.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -4215,7 +4215,7 @@ dependencies = [
 
 [[package]]
 name = "stele-server"
-version = "0.13.0"
+version = "0.13.3"
 dependencies = [
  "arboard",
  "axum",

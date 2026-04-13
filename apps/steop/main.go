@@ -7,7 +7,8 @@ import (
 )
 
 // Global identity overrides injected by the PreToolUse hook via
-// --x-session-id=<val> and --x-project-dir=<val> flags.
+// --x-session-id=<val> / --session-id=<val> and
+// --x-project-dir=<val> / --project-dir=<val> flags.
 var (
 	globalSessionID  string
 	globalProjectDir string
@@ -24,7 +25,7 @@ func main() {
 	parseGlobalFlags()
 
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: steop <hook|state|storage|statusline|monitor|inspect|mailbox|send|version> ...")
+		fmt.Fprintln(os.Stderr, "usage: steop <hook|state|storage|statusline|monitor|inspect|mailbox|send|identity|version> ...")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -42,6 +43,8 @@ func main() {
 		runMailbox(os.Args[2:])
 	case "send":
 		runSend(os.Args[2:])
+	case "identity":
+		runIdentity(os.Args[2:])
 	case "version":
 		runVersion()
 	default:
@@ -50,17 +53,24 @@ func main() {
 	}
 }
 
-// parseGlobalFlags scans os.Args for --x-session-id=<val> and
-// --x-project-dir=<val>, stores their values, and strips them from os.Args
-// so subcommand handlers see clean arguments.
+// parseGlobalFlags scans os.Args for --x-session-id=<val> / --session-id=<val>
+// and --x-project-dir=<val> / --project-dir=<val>, stores their values, and
+// strips them from os.Args so subcommand handlers see clean arguments.
+// The --x-* forms are injected by the PreToolUse hook; the plain forms are the
+// public aliases intended for manual invocations and Monitor/subprocess contexts.
+// Last occurrence wins when both forms appear.
 func parseGlobalFlags() {
 	var cleaned []string
 	for _, arg := range os.Args {
 		switch {
 		case strings.HasPrefix(arg, "--x-session-id="):
 			globalSessionID = arg[len("--x-session-id="):]
+		case strings.HasPrefix(arg, "--session-id="):
+			globalSessionID = arg[len("--session-id="):]
 		case strings.HasPrefix(arg, "--x-project-dir="):
 			globalProjectDir = arg[len("--x-project-dir="):]
+		case strings.HasPrefix(arg, "--project-dir="):
+			globalProjectDir = arg[len("--project-dir="):]
 		default:
 			cleaned = append(cleaned, arg)
 		}

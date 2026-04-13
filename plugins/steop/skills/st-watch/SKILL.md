@@ -7,19 +7,41 @@ description: Monitor mailbox for incoming task requests and process them autonom
 
 Monitor the session's mailbox for incoming `TASK:REQUEST` messages. When a task arrives, claim it, process it, and report the result back to the sender.
 
-## Step 1 — Start Watcher
+## Step 1 — Resolve identity, then start watcher
 
-Issue a single **Monitor** tool call (with `persistent: true`):
+The PreToolUse hook injects `--x-session-id` / `--x-project-dir` into `steop` invocations launched from **Bash** only. The Monitor tool does NOT receive injection (see PRD-016). The watcher must therefore be told its identity explicitly, or session-level polling falls back to an implicit "most recently active session" lookup.
 
-- `command`: `steop mailbox watch --type=TASK:REQUEST --interval=10`
+First, read the resolved identity via Bash (the hook injects into Bash, so `steop identity` echoes back the real values):
+
+```bash
+steop identity
+```
+
+This prints JSON like:
+
+```json
+{
+  "session_id": "<uuid>",
+  "project_dir": "/absolute/path",
+  "host": "<hostname>",
+  "session_composite_id": "<host>:<dir>:<uuid>",
+  "project_composite_id": "<host>:<dir>"
+}
+```
+
+Extract `session_id` and `project_dir`. Then issue a single **Monitor** tool call (with `persistent: true`):
+
+- `command`: `steop mailbox watch --session-id=<uuid> --project-dir='<path>' --type=TASK:REQUEST --interval=10`
 - `description`: `Incoming TASK:REQUEST messages`
 - `persistent`: `true`
 
-The watcher emits NDJSON lines. The **first line** is always a ready signal:
+The watcher emits NDJSON lines. The **first line** is always a ready signal that now echoes the identity for debug confirmation:
 
 ```json
-{"message_type":"WATCHER:READY","interval":<n>}
+{"message_type":"WATCHER:READY","interval":<n>,"session_id":"<uuid>","project_dir":"<path>"}
 ```
+
+Verify the READY line's `session_id` / `project_dir` match what `steop identity` returned. If they differ, the watcher will poll the wrong mailbox.
 
 **Filter rule:** Process a line only if `message_type == "TASK:REQUEST"`. Ignore `WATCHER:READY` and every other `WATCHER:*` line — these are lifecycle signals, not tasks. For each `TASK:REQUEST` line, proceed to Step 2.
 

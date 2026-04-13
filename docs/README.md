@@ -37,6 +37,8 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-013-watcher-meta-event-format](prd/prd-013-watcher-meta-event-format.md)   | Proposed            | Make st-watch work end-to-end: explicit per-message_type conditions, restore WATCHER:READY line    |
 | [prd-014-mailbox-watch-flag-parsing](prd/prd-014-mailbox-watch-flag-parsing.md) | Implemented v0.13.0 | mailbox watch parsing + emission throttle: `mailbox.update_meta` RPC + one-in-flight gate via `meta.task_status=DONE` ack |
 | [prd-015-hook-inject-position](prd/prd-015-hook-inject-position.md)             | Implemented v0.12.6 | Move PreToolUse identity flags to directly after the `steop` token so redirections don't hide them          |
+| [prd-016-hook-scope-public-flags](prd/prd-016-hook-scope-public-flags.md)       | Implemented v0.13.1 | Restrict PreToolUse hook to Bash; add public --session-id / --project-dir flags + steop identity command.                 |
+| [prd-017-st-watch-monitor-identity-wiring](prd/prd-017-st-watch-monitor-identity-wiring.md) | Implemented v0.13.3 | Wire /steop:st-watch to resolve identity via `steop identity` and embed public flags in Monitor command (PRD-016 consumer). |
 
 ## Stele server (`stele/`)
 

@@ -1,6 +1,6 @@
 # Claude Code Integration Guide
 
-How Claude Code delivers identity, context, and session state to external processes. This document covers three integration surfaces: **Hooks**, **Bash Tool**, and **statusLine Commands**.
+How Claude Code delivers identity, context, and session state to external processes. This document covers four integration surfaces: **Hooks**, **Bash Tool**, **Monitor Tool**, and **statusLine Commands**.
 
 > Sources: official Claude Code documentation + runtime inspection on **v2.1.104** (2026-04-12). Each field is marked **(doc)** when sourced from official docs or **(inspected)** when verified by runtime observation. Behaviour may change across versions.
 
@@ -10,11 +10,12 @@ How Claude Code delivers identity, context, and session state to external proces
 
 How `CLAUDE_PROJECT_DIR` and `session_id` are delivered across each integration surface:
 
-| Surface    | `project_dir`                              | `session_id`                               | Source      |
-| ---------- | ------------------------------------------ | ------------------------------------------ | ----------- |
-| Hooks      | env `CLAUDE_PROJECT_DIR`                   | stdin JSON `session_id`                    | (doc)       |
-| Bash tool  | **none**                                   | **none**                                   | (inspected) |
-| statusLine | stdin JSON `workspace.project_dir`         | stdin JSON `session_id`                    | (doc)       |
+| Surface      | `project_dir`                              | `session_id`                               | Source      |
+| ------------ | ------------------------------------------ | ------------------------------------------ | ----------- |
+| Hooks        | env `CLAUDE_PROJECT_DIR`                   | stdin JSON `session_id`                    | (doc)       |
+| Bash tool    | **none**                                   | **none**                                   | (inspected) |
+| Monitor tool | **none**                                   | **none**                                   | (inspected) |
+| statusLine   | stdin JSON `workspace.project_dir`         | stdin JSON `session_id`                    | (doc)       |
 
 ---
 
@@ -299,7 +300,50 @@ The spawned shell inherits the user's profile (`~/.zshrc` / `~/.bashrc`) plus Cl
 
 ---
 
-## 3. statusLine Commands
+## 3. Monitor Tool
+
+The Monitor tool spawns a long-running subprocess and streams its stdout lines back to the LLM as notifications. Each newline-terminated line fires a per-line notification that the LLM sees as an incoming event; the tool's raw output is also visible in the Monitor tool view.
+
+### Environment Variables
+
+Same inheritance model as the Bash tool: user profile plus `CLAUDECODE=1`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`. `CLAUDE_PROJECT_DIR` and `CLAUDE_SESSION_ID` are **not** set.
+
+### stdin / stdout
+
+- **stdin:** not connected (empty, not a TTY).
+- **stdout:** line-delimited stream. Each `\n`-terminated line is delivered as a separate notification to the LLM — as long as no PreToolUse hook rewrites the invocation (see below).
+- **stderr:** merged into the Monitor view when the command uses `2>&1`; otherwise captured separately.
+
+### PreToolUse hook rewrite breaks per-line notifications {#monitor-hook-rewrite}
+
+**Verified on v2.1.104 (2026-04-13):** when a PreToolUse hook returns `hookSpecificOutput.updatedInput` for a Monitor tool call, the rewritten command runs and its stdout is still shown in the Monitor view, but **per-line notifications to the LLM stop firing**. The LLM's instructions to "react to each stdout line" silently never trigger. Other tools matching the same rewrite response (Bash) behave normally — the defect is specific to Monitor.
+
+Empirical repro:
+
+- `python /tmp/probe.py` (no `steop` token → hook returns plain `Allow()`) → LLM receives one notification per stdout line.
+- `steop mailbox watch ...` (hook rewrites command to inject `--x-session-id` / `--x-project-dir`) → LLM receives no notifications even though the Monitor view updates each line.
+
+Rewrite response bodies of every shape tested produce the same outcome:
+
+```json
+{ "hookSpecificOutput": { "hookEventName": "PreToolUse",
+                          "permissionDecision": "allow",
+                          "updatedInput": { "command": "..." } } }
+```
+
+**Mitigation:** restrict PreToolUse matchers that might return `updatedInput` to `Bash` only; never match `Monitor`. If a Monitor command genuinely needs extra arguments, have the caller embed them up front rather than relying on hook rewriting. In the steop integration, PRD-016 narrows the `Bash|Monitor` matcher to `Bash` and introduces the `steop identity` subcommand so skills can resolve identity via Bash first, then pass it explicitly into the Monitor invocation.
+
+### Example: safe Monitor command pattern
+
+```text
+steop mailbox watch --session-id=<uuid> --project-dir='<path>' --type=TASK:REQUEST --interval=10
+```
+
+The LLM fetches `<uuid>` / `<path>` by running `steop identity` via Bash (where hook injection works), then embeds the resolved values into the Monitor command literal — no rewrite required, notifications fire cleanly.
+
+---
+
+## 4. statusLine Commands
 
 When `statusLine` is configured as a command in settings, Claude Code pipes session metadata to the command's stdin for rendering a status bar.
 
@@ -439,41 +483,43 @@ The statusline command runs:
 
 ---
 
-## 4. Cross-Surface Comparison
+## 5. Cross-Surface Comparison
 
 ### Environment Variables
 
-| Variable                   | Hooks              | Bash tool            | statusLine           |
-| -------------------------- | ------------------ | -------------------- | -------------------- |
-| `CLAUDECODE`               | set **(doc)**      | `"1"` **(inspected)**| not set              |
-| `CLAUDE_CODE_ENTRYPOINT`   | —                  | set **(inspected)**  | not set              |
-| `CLAUDE_CODE_EXECPATH`     | —                  | set **(inspected)**  | not set              |
-| `CLAUDE_PROJECT_DIR`       | set **(doc)**      | not set **(inspected)** | not set           |
-| `CLAUDE_SESSION_ID`        | not set            | not set **(inspected)** | not set           |
+| Variable                   | Hooks              | Bash tool            | Monitor tool          | statusLine           |
+| -------------------------- | ------------------ | -------------------- | --------------------- | -------------------- |
+| `CLAUDECODE`               | set **(doc)**      | `"1"` **(inspected)**| `"1"` **(inspected)** | not set              |
+| `CLAUDE_CODE_ENTRYPOINT`   | —                  | set **(inspected)**  | set **(inspected)**   | not set              |
+| `CLAUDE_CODE_EXECPATH`     | —                  | set **(inspected)**  | set **(inspected)**   | not set              |
+| `CLAUDE_PROJECT_DIR`       | set **(doc)**      | not set **(inspected)** | not set **(inspected)** | not set           |
+| `CLAUDE_SESSION_ID`        | not set            | not set **(inspected)** | not set **(inspected)** | not set           |
 
 ### Identity Availability
 
-| Identity piece  | Hooks                              | Bash tool                         | statusLine                                    |
-| --------------- | ---------------------------------- | --------------------------------- | --------------------------------------------- |
-| `session_id`    | stdin JSON `session_id`            | not available (LLM must pass)     | stdin JSON `session_id`                       |
-| `project_dir`   | env `CLAUDE_PROJECT_DIR` **(doc)** | not available **(inspected)**     | stdin JSON `workspace.project_dir`            |
-| `host`          | `STELE_HOST` / config / hostname   | `STELE_HOST` / config / hostname  | `STELE_HOST` / config / hostname              |
+| Identity piece  | Hooks                              | Bash tool                         | Monitor tool                                 | statusLine                                    |
+| --------------- | ---------------------------------- | --------------------------------- | -------------------------------------------- | --------------------------------------------- |
+| `session_id`    | stdin JSON `session_id`            | not available (LLM must pass)     | not available (LLM must embed in command)    | stdin JSON `session_id`                       |
+| `project_dir`   | env `CLAUDE_PROJECT_DIR` **(doc)** | not available **(inspected)**     | not available **(inspected)**                | stdin JSON `workspace.project_dir`            |
+| `host`          | `STELE_HOST` / config / hostname   | `STELE_HOST` / config / hostname  | `STELE_HOST` / config / hostname             | `STELE_HOST` / config / hostname              |
 
 ### Input / Output
 
-| Aspect         | Hooks                          | Bash tool              | statusLine                     |
-| -------------- | ------------------------------ | ---------------------- | ------------------------------ |
-| **stdin**      | JSON payload                   | not connected          | JSON payload                   |
-| **stdout**     | JSON response (`{}` or block)  | captured as tool result| rendered in status bar         |
-| **stderr**     | ignored (debug logging)        | captured with stdout   | ignored                        |
-| **Exit code**  | non-zero = hook failure        | returned to LLM        | ignored (must not stall)       |
+| Aspect         | Hooks                          | Bash tool              | Monitor tool                                      | statusLine                     |
+| -------------- | ------------------------------ | ---------------------- | ------------------------------------------------- | ------------------------------ |
+| **stdin**      | JSON payload                   | not connected          | not connected                                     | JSON payload                   |
+| **stdout**     | JSON response (`{}` or block)  | captured as tool result| per-line notifications to LLM (unless rewritten)  | rendered in status bar         |
+| **stderr**     | ignored (debug logging)        | captured with stdout   | merged via `2>&1` or captured separately          | ignored                        |
+| **Exit code**  | non-zero = hook failure        | returned to LLM        | reported to LLM on process exit                   | ignored (must not stall)       |
 
 ---
 
-## 5. Known Gaps (as of v0.8.3) {#known-gaps}
+## 6. Known Gaps (as of v0.13.3) {#known-gaps}
 
 1. **`CLAUDE_PROJECT_DIR` is not set in Bash tool env** — Official docs confirm it is set for hooks, but runtime inspection shows it is **not set** in the Bash tool environment. Commands like `steop state set <session> <json>` called from the Bash tool build composite IDs with an empty project_dir segment, producing IDs like `hostname::session-uuid` instead of `hostname:/path/to/project:session-uuid`. The LLM caller has no fallback.
 
 2. **statusLine ignores `session_id` and `workspace.project_dir` from stdin** — The `Session` struct in `cmd_statusline_line1.go` does not extract `session_id`. With `--line2-only`, stdin is skipped entirely. The statusline falls back to `SessionList("","","",1)` which returns the globally most-recent session — wrong when multiple projects are active.
 
 3. **Sentinel file is global** — `set-phase` and `clear-phase` use a single file `~/.config/stele/steop-current-session`. Concurrent Claude Code sessions race on this file. Planned for deprecation in [prd-003](prd/prd-003-identity-injection.md) via PreToolUse `--x-session-id` injection.
+
+4. **PreToolUse `updatedInput` silently breaks Monitor notifications** — Any hook that returns `hookSpecificOutput.updatedInput` on a `Monitor` tool call suppresses the per-line stdout notification channel even though the Monitor view itself continues to display lines. See [§3 Monitor Tool](#monitor-hook-rewrite) for the empirical evidence and mitigation. Worked around in steop by narrowing the PreToolUse matcher to `Bash` only ([prd-016](prd/prd-016-hook-scope-public-flags.md)).

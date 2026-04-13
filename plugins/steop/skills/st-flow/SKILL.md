@@ -32,6 +32,10 @@ Run the full pipeline end-to-end. Do NOT pause between phases unless a stop cond
 
 At the start of each phase, run `steop state set-phase <phase> --mode flow` so the Claude Code statusline reflects live progress. This is best-effort and non-blocking: if the server is unavailable or no session is active yet, the command silently exits 0 and the pipeline proceeds normally. After the Finalize step, run `steop state clear-phase` to reset the statusline to idle.
 
+### Identity in nested subprocesses
+
+The PreToolUse hook injects `--x-session-id` / `--x-project-dir` into `steop` invocations launched from `Bash`. Subprocesses launched outside Bash — Monitor, or any tool that forks `steop` without going through a Bash command — receive no injection. Pass `--session-id=<id>` and `--project-dir=<absolute path>` explicitly when calling `steop` in those contexts. Use `steop identity` to read back the resolved values and confirm what the hook provided.
+
 ## Agents
 
 | Phase    | Agent               | Model   | Tools                  | Color   |

@@ -176,8 +176,7 @@ func runMailboxWatch(args []string) {
 			if err != nil {
 				continue
 			}
-			os.Stdout.Write(b)
-			os.Stdout.Write([]byte("\n"))
+			os.Stdout.Write(append(b, '\n'))
 			if m.MessageType == "TASK:REQUEST" {
 				throttleActive = true
 				throttleMsgID = m.MessageID
@@ -190,16 +189,30 @@ func runMailboxWatch(args []string) {
 	// have received the effective poll interval. Must be the first line
 	// on stdout, before the initial poll() so any matching NEW messages
 	// appear after READY.
+	readyProjectDir := c.ProjectDir()
+	readySessionID := globalSessionID
+	if readySessionID == "" {
+		for _, pid := range pollIDs {
+			parts := strings.SplitN(pid, ":", 3)
+			if len(parts) == 3 && parts[2] != "USER" {
+				readySessionID = parts[2]
+				break
+			}
+		}
+	}
 	readyLine, err := json.Marshal(struct {
 		MessageType string `json:"message_type"`
 		Interval    int    `json:"interval"`
+		SessionID   string `json:"session_id,omitempty"`
+		ProjectDir  string `json:"project_dir,omitempty"`
 	}{
 		MessageType: "WATCHER:READY",
 		Interval:    interval,
+		SessionID:   readySessionID,
+		ProjectDir:  readyProjectDir,
 	})
 	if err == nil {
-		os.Stdout.Write(readyLine)
-		os.Stdout.Write([]byte("\n"))
+		os.Stdout.Write(append(readyLine, '\n'))
 	}
 
 	// Immediate first poll.

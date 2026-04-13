@@ -155,9 +155,19 @@ func TestPreToolUseNoInjectionNonSteop(t *testing.T) {
 }
 
 func TestPreToolUseRespectsExistingFlags(t *testing.T) {
-	out := HandlePreToolUse(makeBashInput("steop state get abc --x-session-id=existing"), "new-sess", "/tmp/proj")
-	if isUpdatedInput(out) {
-		t.Errorf("expected plain allow when --x-session-id already present, got updatedInput: %s", out)
+	cases := []string{
+		"steop state get abc --x-session-id=existing",
+		"steop state get abc --x-project-dir=/foo",
+		"steop state get abc --session-id=existing",
+		"steop state get abc --project-dir=/foo",
+	}
+	for _, cmd := range cases {
+		t.Run(cmd, func(t *testing.T) {
+			out := HandlePreToolUse(makeBashInput(cmd), "new-sess", "/tmp/proj")
+			if isUpdatedInput(out) {
+				t.Errorf("expected plain allow when flag already present, got updatedInput: %s", out)
+			}
+		})
 	}
 }
 
@@ -225,9 +235,9 @@ func TestPreToolUseProjectDirWithSpaces(t *testing.T) {
 	}
 }
 
-func TestPreToolUseFlagsBeforeRedirection(t *testing.T) {
+func TestPreToolUseBashFlagsBeforeRedirection(t *testing.T) {
 	in := &HookInput{
-		ToolName:  "Monitor",
+		ToolName:  "Bash",
 		ToolInput: json.RawMessage(`{"command":"steop mailbox watch > /tmp/out.log 2>&1"}`),
 	}
 	out := HandlePreToolUse(in, "sess-x", "/proj")
@@ -243,6 +253,35 @@ func TestPreToolUseFlagsBeforeRedirection(t *testing.T) {
 		t.Errorf("missing identity flags in: %s", got)
 	}
 }
+
+func TestPreToolUseMonitorNotRewritten(t *testing.T) {
+	// Case 1: Monitor with a steop command, session+project supplied — no injection.
+	in1 := &HookInput{
+		ToolName:  "Monitor",
+		ToolInput: json.RawMessage(`{"command":"steop mailbox watch --type=task_request 2>&1"}`),
+	}
+	out1 := HandlePreToolUse(in1, "sess-x", "/proj")
+	if isUpdatedInput(out1) {
+		t.Errorf("case 1: Monitor must not be rewritten, got updatedInput: %s", out1)
+	}
+	if isDeny(out1) {
+		t.Errorf("case 1: Monitor must produce Allow, got deny: %s", out1)
+	}
+
+	// Case 2: Monitor with pre-existing --x-session-id — still no rewrite (Monitor is unconditionally skipped).
+	in2 := &HookInput{
+		ToolName:  "Monitor",
+		ToolInput: json.RawMessage(`{"command":"steop mailbox watch --x-session-id=existing 2>&1"}`),
+	}
+	out2 := HandlePreToolUse(in2, "sess-x", "/proj")
+	if isUpdatedInput(out2) {
+		t.Errorf("case 2: Monitor must not be rewritten, got updatedInput: %s", out2)
+	}
+	if isDeny(out2) {
+		t.Errorf("case 2: Monitor must produce Allow, got deny: %s", out2)
+	}
+}
+
 
 func TestPreToolUseFlagsAfterEnvVarPrefix(t *testing.T) {
 	in := &HookInput{
