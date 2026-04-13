@@ -91,8 +91,21 @@ func injectIdentity(cmd, sessionID, projectDir string) string {
 	var result strings.Builder
 	for i, part := range parts {
 		if isSteopSegment(part) {
-			part = strings.TrimRight(part, " \t") + suffix
-			injected = true
+			// Preserve leading whitespace; match steopLeadRe against the left-trimmed view.
+			lead := len(part) - len(strings.TrimLeft(part, " \t"))
+			trimmed := part[lead:]
+			if loc := steopLeadRe.FindStringIndex(trimmed); loc != nil {
+				insertAt := lead + loc[1]
+				// Regex match may end on the trailing \s; step back so flags land
+				// immediately after "steop" and before that whitespace (or rest of args).
+				if insertAt > lead+loc[0] {
+					if c := part[insertAt-1]; c == ' ' || c == '\t' {
+						insertAt--
+					}
+				}
+				part = part[:insertAt] + suffix + part[insertAt:]
+				injected = true
+			}
 		}
 		result.WriteString(part)
 		if i < len(delims) {

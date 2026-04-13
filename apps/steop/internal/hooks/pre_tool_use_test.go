@@ -116,6 +116,10 @@ func TestPreToolUseInjectsIdentity(t *testing.T) {
 	if !strings.Contains(cmd, "--x-project-dir='/tmp/proj'") {
 		t.Errorf("missing --x-project-dir in %q", cmd)
 	}
+	trimmed := strings.TrimLeft(cmd, " \t")
+	if !strings.HasPrefix(trimmed, "steop --x-session-id=") {
+		t.Errorf("expected flags immediately after steop token, got: %s", cmd)
+	}
 }
 
 func TestPreToolUseInjectsSessionIDOnly(t *testing.T) {
@@ -129,6 +133,10 @@ func TestPreToolUseInjectsSessionIDOnly(t *testing.T) {
 	}
 	if bytes.Contains([]byte(cmd), []byte("--x-project-dir")) {
 		t.Errorf("unexpected --x-project-dir in %q", cmd)
+	}
+	trimmed := strings.TrimLeft(cmd, " \t")
+	if !strings.HasPrefix(trimmed, "steop --x-session-id=") {
+		t.Errorf("expected flags immediately after steop token, got: %s", cmd)
 	}
 }
 
@@ -168,6 +176,10 @@ func TestPreToolUseChainedCommands(t *testing.T) {
 		if !bytes.Contains(part, []byte("--x-session-id=sess-1")) {
 			t.Errorf("segment %d missing --x-session-id: %q", i, string(part))
 		}
+		trimmedSegment := strings.TrimLeft(string(part), " \t")
+		if !strings.HasPrefix(trimmedSegment, "steop --x-session-id=") {
+			t.Errorf("segment %d: expected flags immediately after steop token, got: %s", i, string(part))
+		}
 	}
 }
 
@@ -204,5 +216,43 @@ func TestPreToolUseProjectDirWithSpaces(t *testing.T) {
 	// Project dir should be single-quoted for shell safety
 	if !strings.Contains(cmd, "--x-project-dir='/Users/my user/project'") {
 		t.Errorf("project dir not properly quoted in %q", cmd)
+	}
+	// Verify --x-project-dir appears before "state get" subcommand
+	projectDirIdx := strings.Index(cmd, "--x-project-dir=")
+	stateGetIdx := strings.Index(cmd, "state get")
+	if projectDirIdx < 0 || stateGetIdx < 0 || projectDirIdx > stateGetIdx {
+		t.Errorf("--x-project-dir must appear before state get subcommand; got: %s", cmd)
+	}
+}
+
+func TestPreToolUseFlagsBeforeRedirection(t *testing.T) {
+	in := &HookInput{
+		ToolName:  "Monitor",
+		ToolInput: json.RawMessage(`{"command":"steop mailbox watch > /tmp/out.log 2>&1"}`),
+	}
+	out := HandlePreToolUse(in, "sess-x", "/proj")
+	got := extractCommand(out)
+	// Flags must appear before any redirection.
+	flagsAt := strings.Index(got, "--x-session-id=")
+	redirAt := strings.Index(got, ">")
+	if flagsAt < 0 || redirAt < 0 || flagsAt > redirAt {
+		t.Errorf("flags must appear before redirection; got: %s", got)
+	}
+	if !strings.Contains(got, "--x-session-id=sess-x") ||
+		!strings.Contains(got, "--x-project-dir='/proj'") {
+		t.Errorf("missing identity flags in: %s", got)
+	}
+}
+
+func TestPreToolUseFlagsAfterEnvVarPrefix(t *testing.T) {
+	in := &HookInput{
+		ToolName:  "Bash",
+		ToolInput: json.RawMessage(`{"command":"FOO=1 BAR=baz steop run"}`),
+	}
+	out := HandlePreToolUse(in, "s", "/p")
+	got := extractCommand(out)
+	want := "FOO=1 BAR=baz steop --x-session-id=s --x-project-dir='/p' run"
+	if got != want {
+		t.Errorf("env-var prefix placement wrong.\n  want: %s\n  got:  %s", want, got)
 	}
 }
