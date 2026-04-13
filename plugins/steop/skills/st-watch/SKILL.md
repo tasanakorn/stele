@@ -15,8 +15,13 @@ Issue a single **Monitor** tool call (with `persistent: true`):
 - `description`: `Incoming TASK:REQUEST messages`
 - `persistent`: `true`
 
-The first line will be `{"type":"ready",...}` confirming the watcher initialized.
-Subsequent lines are NDJSON task messages — proceed to Step 2 for each.
+The watcher emits NDJSON lines. The **first line** is always a ready signal:
+
+```json
+{"message_type":"WATCHER:READY","interval":<n>}
+```
+
+**Filter rule:** Process a line only if `message_type == "TASK:REQUEST"`. Ignore `WATCHER:READY` and every other `WATCHER:*` line — these are lifecycle signals, not tasks. For each `TASK:REQUEST` line, proceed to Step 2.
 
 Do NOT also spawn the command via Bash — that would start a duplicate watcher.
 

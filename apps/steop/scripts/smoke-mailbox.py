@@ -4,7 +4,7 @@
 Not run in CI. Requires a live stele-server configured via the default profile.
 """
 
-import json, os, socket, subprocess, uuid
+import json, os, socket, subprocess, time, uuid
 
 HOST = socket.gethostname().split(".")[0]
 PROJECT = "/tmp/steop-smoke"
@@ -23,13 +23,34 @@ stdout = watcher.stdout
 assert stdout is not None
 msg_id = None
 try:
-    ready = json.loads(stdout.readline())
-    assert ready.get("type") == "ready", f"expected ready, got {ready}"
+    # Give the watcher a moment to initialize before sending.
+    time.sleep(1)
 
     subprocess.run(["steop", "send", TO, SUBJECT], env=env, check=True,
                    capture_output=True)
 
-    event = json.loads(stdout.readline())
+    watcher.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+    deadline = time.monotonic() + 10
+    event = None
+    while time.monotonic() < deadline:
+        import select
+        ready_fds, _, _ = select.select([stdout], [], [], deadline - time.monotonic())
+        if not ready_fds:
+            break
+        line = stdout.readline()
+        if not line:
+            break
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        # Skip lifecycle lines (e.g. WATCHER:READY) — we only want the task.
+        if parsed.get("message_type") != "TASK:REQUEST":
+            continue
+        event = parsed
+        break
+
+    assert event is not None, "timed out waiting for watcher event"
     assert event["subject"] == SUBJECT, f"subject mismatch: {event}"
     assert event["message_type"] == "TASK:REQUEST", f"type mismatch: {event}"
     msg_id = event["message_id"]

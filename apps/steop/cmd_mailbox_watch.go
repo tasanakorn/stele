@@ -65,12 +65,6 @@ func runMailboxWatch(args []string) {
 	go fc.StoragePut(id, "watcher:state", watchState)
 	go fc.StoragePut(id, "watcher:heartbeat", now)
 
-	// Emit ready line (PRD-010: immediate feedback for Monitor).
-	// PRD-011: no persistent cursor — field is null.
-	readyJSON := fmt.Sprintf(`{"type":"ready","last_message_id":null,"interval":%d}`, interval)
-	os.Stdout.Write([]byte(readyJSON))
-	os.Stdout.Write([]byte("\n"))
-
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -107,6 +101,22 @@ func runMailboxWatch(args []string) {
 				os.Stdout.Write([]byte("\n"))
 			}
 		}
+	}
+
+	// Emit a ready handshake so consumers know the watcher is alive and
+	// have received the effective poll interval. Must be the first line
+	// on stdout, before the initial poll() so any matching NEW messages
+	// appear after READY.
+	readyLine, err := json.Marshal(struct {
+		MessageType string `json:"message_type"`
+		Interval    int    `json:"interval"`
+	}{
+		MessageType: "WATCHER:READY",
+		Interval:    interval,
+	})
+	if err == nil {
+		os.Stdout.Write(readyLine)
+		os.Stdout.Write([]byte("\n"))
 	}
 
 	// Immediate first poll.

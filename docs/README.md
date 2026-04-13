@@ -34,6 +34,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-010-st-watch-fast-startup](prd/prd-010-st-watch-fast-startup.md)           | Implemented v0.12.1 | Fast startup: ready line, parallel RPCs, SKILL.md trimming for <1 min monitoring                  |
 | [prd-011-watcher-claim-based-cursor](prd/prd-011-watcher-claim-based-cursor.md) | Implemented v0.12.3 | Drop persistent `watcher:last_message_id` cursor; rely on server-side status=NEW + in-memory seen |
 | [prd-012-watcher-dual-mailbox](prd/prd-012-watcher-dual-mailbox.md)             | Implemented v0.12.4 | Watcher polls both 2-segment project and 3-segment session mailboxes; per-tick seen dedup         |
+| [prd-013-watcher-meta-event-format](prd/prd-013-watcher-meta-event-format.md)   | Proposed            | Make st-watch work end-to-end: explicit per-message_type conditions, restore WATCHER:READY line    |
 
 ## Stele server (`stele/`)
 
