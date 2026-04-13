@@ -2060,6 +2060,39 @@ pub fn steop_mailbox_read(
     Ok(MailboxTransition::Ok)
 }
 
+pub fn steop_mailbox_update_meta(
+    conn: &mut Connection,
+    message_id: i64,
+    meta_patch: serde_json::Value,
+) -> rusqlite::Result<Option<SteopMailboxRow>> {
+    use rusqlite::OptionalExtension;
+    let tx = conn.transaction()?;
+    let current_meta: Option<String> = OptionalExtension::optional(tx.query_row(
+        "SELECT meta FROM steop_mailbox WHERE message_id = ?1",
+        rusqlite::params![message_id],
+        |r| r.get(0),
+    ))?;
+    let current_meta_s = match current_meta {
+        None => return Ok(None),
+        Some(s) => s,
+    };
+    let mut merged = steop_parse_json(&current_meta_s);
+    steop_json_merge(&mut merged, meta_patch);
+    let merged_s = merged.to_string();
+    tx.execute(
+        "UPDATE steop_mailbox SET meta = ?1 WHERE message_id = ?2",
+        rusqlite::params![merged_s, message_id],
+    )?;
+    let row = tx.query_row(
+        "SELECT message_id, from_id, to_id, subject, message_type, meta, payload, created_at, status
+         FROM steop_mailbox WHERE message_id = ?1",
+        rusqlite::params![message_id],
+        steop_row_to_mailbox,
+    )?;
+    tx.commit()?;
+    Ok(Some(row))
+}
+
 pub fn steop_mailbox_archive(
     conn: &Connection,
     message_id: i64,

@@ -1,6 +1,6 @@
 # PRD-014: mailbox watch parsing + emission throttle
 
-- **Status:** Proposed
+- **Status:** Implemented (v0.13.0)
 - **Version target:** v0.13.0
 - **Author:** Tasanakorn (design) + Claude Code (PRD authoring)
 - **Scope:** `apps/steop/cmd_mailbox_watch.go`, `plugins/steop/skills/st-watch/SKILL.md`, `apps/stele/crates/stele-server/src/steop_api.rs`, `apps/stele/crates/stele-server/src/db.rs`, `apps/steop/internal/client/mailbox.go`, `apps/steop/cmd_mailbox.go`

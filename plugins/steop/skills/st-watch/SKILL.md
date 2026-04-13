@@ -57,7 +57,7 @@ Determine execution mode from `meta.mode` (default `"normal"`):
 
 ### 2e. Report result + cleanup
 
-Send result back to `<from>`, archive the request, and clear active tasks:
+Send result back to `<from>`, ack the watcher, archive the request, and clear active tasks:
 
 ```bash
 # On success:
@@ -67,9 +67,12 @@ steop mailbox send --to=<from> --type=TASK:DONE --subject="Completed: <desc>" \
 steop mailbox send --to=<from> --type=TASK:FAILED --subject="Failed: <desc>" \
   --meta='{"task_id":"<task_id>","request_message_id":<message_id>,"error":"<err>"}' --payload='<error_json>'
 
+steop mailbox update-meta <message_id> '{"task_status":"DONE"}'
 steop mailbox archive <message_id>
 steop storage put watcher:active_tasks '[]'
 ```
+
+The `update-meta` call lifts the watcher's in-process emission throttle so the next `TASK:REQUEST` can surface on stdout. After emitting a task line, the watcher suppresses further stdout until it observes `meta.task_status == "DONE"` on the held row (or the row disappears, or a 5-minute deadline elapses). Archive remains the end-of-life signal for the mailbox lifecycle — both calls happen, in that order, so the watcher sees the DONE ack before the row drops out of the `NEW` status set.
 
 ## Step 3 — Continue Monitoring
 

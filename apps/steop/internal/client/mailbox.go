@@ -114,6 +114,24 @@ func (c *Client) MailboxRead(id string, messageID int64) error {
 	return c.rpc("steop.mailbox.read", body, &resp)
 }
 
+// MailboxUpdateMeta shallow-merges metaPatch into the target row's meta JSON
+// column and returns the updated row. Does not touch the lifecycle status
+// column. Returns an error on 404 (unknown message_id) or transport failure.
+func (c *Client) MailboxUpdateMeta(id string, messageID int64, metaPatch interface{}) (*MailboxMessage, error) {
+	body := map[string]interface{}{
+		"id":         id,
+		"message_id": messageID,
+	}
+	if metaPatch != nil {
+		body["meta_patch"] = metaPatch
+	}
+	var resp MailboxMessage
+	if err := c.rpc("steop.mailbox.update_meta", body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // MailboxArchive archives a message. Legal from NEW or READ. Returns an error
 // if the message is already ARCHIVE (server returns 409).
 func (c *Client) MailboxArchive(id string, messageID int64) error {

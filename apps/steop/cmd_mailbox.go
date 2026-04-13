@@ -12,7 +12,7 @@ import (
 
 func runMailbox(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: steop mailbox <list|get|send|read|archive|watch> ...")
+		fmt.Fprintln(os.Stderr, "usage: steop mailbox <list|get|send|read|archive|update-meta|watch> ...")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -26,6 +26,8 @@ func runMailbox(args []string) {
 		runMailboxRead(args[1:])
 	case "archive":
 		runMailboxArchive(args[1:])
+	case "update-meta":
+		runMailboxUpdateMeta(args[1:])
 	case "watch":
 		runMailboxWatch(args[1:])
 	default:
@@ -230,6 +232,31 @@ func runMailboxRead(args []string) {
 		os.Exit(1)
 	}
 	writeJSON(map[string]interface{}{"message_id": messageID, "status": "READ"})
+}
+
+func runMailboxUpdateMeta(args []string) {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: steop mailbox update-meta <message_id> <meta-json>")
+		os.Exit(2)
+	}
+	messageID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mailbox update-meta: invalid message_id: %q\n", args[0])
+		os.Exit(2)
+	}
+	var metaPatch interface{}
+	if err := json.Unmarshal([]byte(args[1]), &metaPatch); err != nil {
+		fmt.Fprintf(os.Stderr, "mailbox update-meta: invalid meta JSON: %v\n", err)
+		os.Exit(2)
+	}
+
+	c, id := mailboxClientAndID()
+	msg, err := c.MailboxUpdateMeta(id, messageID, metaPatch)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mailbox update-meta: %v\n", err)
+		os.Exit(1)
+	}
+	writeJSON(msg)
 }
 
 func runMailboxArchive(args []string) {

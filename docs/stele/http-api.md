@@ -420,15 +420,16 @@ Ordered `created_at` DESC. All filter fields are optional and combine additively
 
 #### Mailbox
 
-| Method                  | Body                                                      | Response                   |
-| ----------------------- | --------------------------------------------------------- | -------------------------- |
-| `steop.mailbox.send`    | `{id, to, from?, subject?, message_type?, meta?, payload?}` | `MailboxRow`             |
-| `steop.mailbox.list`    | `{id, to?, status?=["NEW"], message_type?, limit?=200}`   | `{messages: MailboxRow[]}` |
-| `steop.mailbox.get`     | `{id, message_id}`                                        | `MailboxRow`               |
-| `steop.mailbox.read`    | `{id, message_id}`                                        | `{message_id, status:"READ"}`     |
-| `steop.mailbox.archive` | `{id, message_id}`                                        | `{message_id, status:"ARCHIVE"}`  |
+| Method                      | Body                                                      | Response                   |
+| --------------------------- | --------------------------------------------------------- | -------------------------- |
+| `steop.mailbox.send`        | `{id, to, from?, subject?, message_type?, meta?, payload?}` | `MailboxRow`             |
+| `steop.mailbox.list`        | `{id, to?, status?=["NEW"], message_type?, limit?=200}`   | `{messages: MailboxRow[]}` |
+| `steop.mailbox.get`         | `{id, message_id}`                                        | `MailboxRow`               |
+| `steop.mailbox.read`        | `{id, message_id}`                                        | `{message_id, status:"READ"}`     |
+| `steop.mailbox.archive`     | `{id, message_id}`                                        | `{message_id, status:"ARCHIVE"}`  |
+| `steop.mailbox.update_meta` | `{id, message_id, meta_patch}`                            | `MailboxRow`               |
 
-Sender may be any principal (project, session, or user). Recipient may be any principal. The server derives `from` from the caller's `id` when `from` is omitted — explicit `from` overrides. Ordered `created_at` ASC (FIFO). Status lifecycle is `NEW -> READ -> ARCHIVE`: `mailbox.read` transitions `NEW -> READ`, `mailbox.archive` transitions `NEW -> ARCHIVE` or `READ -> ARCHIVE`. Illegal transitions return 409. `mailbox.get` is side-effect-free. Default `list` filter is `status:["NEW"]`; pass an explicit array to widen. See `docs/prd/prd-001-mailbox-v2.md` for the normative spec.
+Sender may be any principal (project, session, or user). Recipient may be any principal. The server derives `from` from the caller's `id` when `from` is omitted — explicit `from` overrides. Ordered `created_at` ASC (FIFO). Status lifecycle is `NEW -> READ -> ARCHIVE`: `mailbox.read` transitions `NEW -> READ`, `mailbox.archive` transitions `NEW -> ARCHIVE` or `READ -> ARCHIVE`. Illegal transitions return 409. `mailbox.get` is side-effect-free. Default `list` filter is `status:["NEW"]`; pass an explicit array to widen. `mailbox.update_meta` shallow-merges the supplied `meta_patch` object into the target row's `meta` column (keys in the patch overwrite top-level keys in the existing meta, others preserved, nested objects replaced wholesale) and returns the updated row; does not touch `status`, so legal on any row regardless of lifecycle state. Returns 404 on unknown `message_id`. See `docs/prd/prd-001-mailbox-v2.md` for the normative spec and `docs/prd/prd-014-mailbox-watch-flag-parsing.md` for the `update_meta` design.
 
 #### Notifications
 

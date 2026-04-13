@@ -39,6 +39,7 @@ pub fn router(db: DbPool) -> Router {
         .route("/steop.mailbox.get", post(mailbox_get))
         .route("/steop.mailbox.read", post(mailbox_read))
         .route("/steop.mailbox.archive", post(mailbox_archive))
+        .route("/steop.mailbox.update_meta", post(mailbox_update_meta))
         .route("/steop.notify", post(notify_handler))
         .with_state(db)
         .layer(CorsLayer::permissive())
@@ -267,6 +268,14 @@ struct MailboxRowReq {
     #[allow(dead_code)]
     id: String,
     message_id: i64,
+}
+
+#[derive(Deserialize)]
+struct MailboxUpdateMetaReq {
+    id: String,
+    message_id: i64,
+    #[serde(default)]
+    meta_patch: Value,
 }
 
 #[derive(Deserialize)]
@@ -690,6 +699,21 @@ async fn mailbox_read(State(db): State<DbPool>, Json(req): Json<MailboxRowReq>) 
             "invalid mailbox status transition: {} -> READ",
             current
         )),
+        Err(e) => err500(e),
+    }
+}
+
+async fn mailbox_update_meta(
+    State(db): State<DbPool>,
+    Json(req): Json<MailboxUpdateMetaReq>,
+) -> Response {
+    if let Err(e) = parse_id(&req.id) {
+        return err400(format!("id: {}", e));
+    }
+    let mut conn = db.lock().await;
+    match db::steop_mailbox_update_meta(&mut conn, req.message_id, req.meta_patch) {
+        Ok(Some(row)) => Json(row).into_response(),
+        Ok(None) => not_found(),
         Err(e) => err500(e),
     }
 }

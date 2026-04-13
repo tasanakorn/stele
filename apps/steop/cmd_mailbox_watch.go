@@ -13,6 +13,20 @@ import (
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
 )
 
+const throttleTimeout = 5 * time.Minute
+
+// metaTaskStatus reads the reserved meta.task_status string key from a
+// MailboxMessage. Returns "" for any shape that is not a JSON object with a
+// string task_status field. Used by the watcher's throttle gate.
+func metaTaskStatus(m client.MailboxMessage) string {
+	obj, ok := m.Meta.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	s, _ := obj["task_status"].(string)
+	return s
+}
+
 func runMailboxWatch(args []string) {
 	msgType := ""
 	interval := 10
@@ -90,10 +104,23 @@ func runMailboxWatch(args []string) {
 	// duplicates when the same message appears in multiple mailboxes.
 	seen := make(map[int64]bool)
 
+	// Throttle state: after emitting one TASK:REQUEST line, suppress further
+	// stdout emissions until the held row is acked via meta.task_status=DONE,
+	// disappears from the poll batch (naked archive), or the 5-minute deadline
+	// elapses. Polling continues during suspend; only stdout is gated.
+	var throttleActive bool
+	var throttleMsgID int64
+	var throttleDeadline time.Time
+
 	poll := func() {
 		for k := range seen {
 			delete(seen, k)
 		}
+		// Collect the merged batch across pollIDs first so the throttle gate
+		// can inspect the full set (needed to detect the held row's meta
+		// transition or disappearance even when pollIDs return it in different
+		// orders).
+		var batch []client.MailboxMessage
 		for _, pid := range pollIDs {
 			msgs, err := c.MailboxList(pid, client.MailboxListOptions{
 				Status:      []string{"NEW"},
@@ -103,20 +130,58 @@ func runMailboxWatch(args []string) {
 			if err != nil {
 				continue
 			}
-			// At-least-once delivery: re-emit every NEW message on every poll
-			// until the consumer claims it (status=NEW → CLAIMED via mailbox read).
-			// Dedup at the consumer is via HTTP 409 on duplicate claim (PRD-009).
 			for _, m := range msgs {
 				if seen[m.MessageID] {
 					continue
 				}
 				seen[m.MessageID] = true
-				b, err := json.Marshal(m)
-				if err != nil {
-					continue
+				batch = append(batch, m)
+			}
+		}
+
+		// Throttle resume checks: observe the held row in the batch.
+		if throttleActive {
+			if time.Now().After(throttleDeadline) {
+				fmt.Fprintf(os.Stderr, "watcher: throttle timeout for message_id=%d, resuming\n", throttleMsgID)
+				throttleActive = false
+			} else {
+				var held *client.MailboxMessage
+				for i := range batch {
+					if batch[i].MessageID == throttleMsgID {
+						held = &batch[i]
+						break
+					}
 				}
-				os.Stdout.Write(b)
-				os.Stdout.Write([]byte("\n"))
+				if held == nil {
+					// Row disappeared from NEW — naked archive, treat as
+					// implicit completion and resume.
+					fmt.Fprintf(os.Stderr, "watcher: held message_id=%d no longer in batch, resuming\n", throttleMsgID)
+					throttleActive = false
+				} else if metaTaskStatus(*held) == "DONE" {
+					fmt.Fprintf(os.Stderr, "watcher: DONE ack received for message_id=%d, resuming\n", throttleMsgID)
+					throttleActive = false
+				}
+			}
+		}
+
+		// At-least-once delivery: re-emit every NEW message on every poll
+		// until the consumer claims it (status=NEW → CLAIMED via mailbox read).
+		// Dedup at the consumer is via HTTP 409 on duplicate claim (PRD-009).
+		for _, m := range batch {
+			// Gate only TASK:REQUEST stdout emissions behind the throttle.
+			if m.MessageType == "TASK:REQUEST" && throttleActive {
+				continue
+			}
+			b, err := json.Marshal(m)
+			if err != nil {
+				continue
+			}
+			os.Stdout.Write(b)
+			os.Stdout.Write([]byte("\n"))
+			if m.MessageType == "TASK:REQUEST" {
+				throttleActive = true
+				throttleMsgID = m.MessageID
+				throttleDeadline = time.Now().Add(throttleTimeout)
 			}
 		}
 	}
