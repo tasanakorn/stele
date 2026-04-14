@@ -80,6 +80,9 @@ COMPONENTS: dict[str, list[dict]] = {
             "path": REPO_ROOT / "apps" / "steop" / "version.go",
         },
     ],
+    "stylos": [
+        {"kind": "cargo", "path": REPO_ROOT / "apps" / "stylos" / "Cargo.toml"},
+    ],
     "stelite": [
         {
             "kind": "json",

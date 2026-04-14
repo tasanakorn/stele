@@ -40,6 +40,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-016-hook-scope-public-flags](prd/prd-016-hook-scope-public-flags.md)       | Implemented v0.13.1 | Restrict PreToolUse hook to Bash; add public --session-id / --project-dir flags + steop identity command.                 |
 | [prd-017-st-watch-monitor-identity-wiring](prd/prd-017-st-watch-monitor-identity-wiring.md) | Implemented v0.13.3 | Wire /steop:st-watch to resolve identity via `steop identity` and embed public flags in Monitor command (PRD-016 consumer). |
 | [prd-018-st-xp-skill](prd/prd-018-st-xp-skill.md)                               | Proposed            | XP-style fast-feedback workflow skill (Clarify/Execute/Validate, parallel executors, cap 3)       |
+| [prd-019-stylos-foundation](prd/prd-019-stylos-foundation.md)                   | Proposed            | zenoh-based interconnect foundation — apps/stylos/ skeleton, ports 31746/31747, Rust+Go POC       |
 
 ## Stele server (`stele/`)
 
@@ -67,3 +68,16 @@ Agentic workflow pipeline plugin plus its `steop` companion binary.
 | [hook-gap.md](steop/hook-gap.md)                                | Deep dive on hook-event coverage (companion to gap doc)    |
 | [idle-detection.md](steop/idle-detection.md)                    | Detecting true Claude Code idle (signals + composite recipe) |
 | [cerbrix-gap-analysis.md](steop/cerbrix-gap-analysis.md)        | cerbrix feature catalog + planning ledger                  |
+
+## Stylos foundation (`stylos/`)
+
+zenoh-based interconnect foundation. Spec and docs are still forthcoming; see [PRD-019](prd/prd-019-stylos-foundation.md) for the design intent and scope.
+
+| Doc                                         | Description                                                |
+| ------------------------------------------- | ---------------------------------------------------------- |
+| [README.md](stylos/README.md)               | Entry point and orientation for the Stylos subtree         |
+| [architecture.md](stylos/architecture.md)   | Peer topology, QUIC+TCP transport, crate/module layout     |
+| [addressing.md](stylos/addressing.md)       | `stylos/<realm>/<role>/<instance>` key-expr grammar        |
+| [discovery.md](stylos/discovery.md)         | Multicast scouting, gossip, non-multicast network caveats  |
+| [poc.md](stylos/poc.md)                     | Rust ↔ Go pub/sub/get/queryable POC spec and acceptance    |
+| [cross-lang.md](stylos/cross-lang.md)       | Rust/Go/TS/Python binding status and caveats               |

@@ -1,0 +1,36 @@
+{
+  stylos: {
+    realm:    "dev",
+    role:     "watcher",
+    instance: "host-a-42",
+  },
+  zenoh: {
+    mode: "peer",
+    connect: {
+      endpoints: [],
+    },
+    listen: {
+      // Leave empty to let stylos pick a free port in [31747, 31755).
+      // Or pin: ["quic/0.0.0.0:31747", "tcp/0.0.0.0:31747"]
+      endpoints: [],
+    },
+    scouting: {
+      multicast: {
+        enabled:   true,
+        address:   "224.0.0.224:31746",
+        interface: "auto",
+        autoconnect: { peer: "peer", router: "peer" },
+      },
+      gossip: { enabled: true },
+    },
+    transport: {
+      link: {
+        tls: {
+          listen_private_key:  "./certs/stylos-dev.key",
+          listen_certificate:  "./certs/stylos-dev.crt",
+          root_ca_certificate: "./certs/stylos-dev-ca.crt",
+        },
+      },
+    },
+  },
+}

@@ -1,0 +1,10 @@
+# Dev-only self-signed certificates. Never commit real keys.
+/certs/*.key
+/certs/*.crt
+/certs/*.pem
+
+# Go build output
+/go/target/
+
+# Local zenoh-c clone + install prefix (for zenoh-go CGO)
+/third_party/
