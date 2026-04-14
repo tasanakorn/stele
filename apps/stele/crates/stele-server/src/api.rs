@@ -12,8 +12,16 @@ use crate::db::{self, DbPool};
 use stele_common::models::{Memory, MemoryType};
 use stele_common::query::SearchParams;
 
-pub fn router(db: DbPool) -> Router {
+#[derive(Clone)]
+pub struct ApiState {
+    pub db: DbPool,
+    #[cfg(feature = "stylos")]
+    pub stylos: Option<std::sync::Arc<crate::stylos_module::StylosStatusSource>>,
+}
+
+pub fn router(state: ApiState) -> Router {
     Router::new()
+        .route("/v1/health", get(get_health))
         .route("/v1/memories", get(list_memories).post(create_memory))
         .route(
             "/v1/memories/{id}",
@@ -42,7 +50,7 @@ pub fn router(db: DbPool) -> Router {
         )
         .route("/v1/graph/open", get(graph_open_nodes))
         .layer(CorsLayer::permissive())
-        .with_state(db)
+        .with_state(state)
 }
 
 // --- Request / Response types ---
@@ -114,12 +122,45 @@ struct RecentMemory {
     updated_at: String,
 }
 
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    version: &'static str,
+    db_ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stylos: Option<serde_json::Value>,
+}
+
 // --- Handlers ---
 
+async fn get_health(State(state): State<ApiState>) -> impl IntoResponse {
+    let db_ok = {
+        let conn = state.db.lock().await;
+        conn.execute_batch("SELECT 1").is_ok()
+    };
+    #[cfg(feature = "stylos")]
+    let stylos = match &state.stylos {
+        Some(s) => Some(serde_json::to_value(s.to_health().await).unwrap()),
+        None => Some(serde_json::json!({ "enabled": false })),
+    };
+    #[cfg(not(feature = "stylos"))]
+    let stylos: Option<serde_json::Value> = None;
+    Json(
+        serde_json::to_value(HealthResponse {
+            status: "ok",
+            version: env!("CARGO_PKG_VERSION"),
+            db_ok,
+            stylos,
+        })
+        .unwrap(),
+    )
+}
+
 async fn create_memory(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Json(req): Json<CreateMemoryRequest>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let now = chrono::Utc::now().to_rfc3339();
     let id = ulid::Ulid::new().to_string();
 
@@ -147,9 +188,10 @@ async fn create_memory(
 }
 
 async fn list_memories(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Query(q): Query<MemoriesQuery>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let tags = q.tags.map(|t| {
         t.split(',')
             .map(|s| s.trim().to_string())
@@ -178,7 +220,8 @@ async fn list_memories(
     }
 }
 
-async fn get_memory(State(db): State<DbPool>, Path(id): Path<String>) -> impl IntoResponse {
+async fn get_memory(State(state): State<ApiState>, Path(id): Path<String>) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     match db::get_memory(&conn, &id) {
         Ok(Some(m)) => Json(serde_json::to_value(&m).unwrap()).into_response(),
@@ -188,10 +231,11 @@ async fn get_memory(State(db): State<DbPool>, Path(id): Path<String>) -> impl In
 }
 
 async fn update_memory(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Path(id): Path<String>,
     Json(req): Json<UpdateMemoryRequest>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     match db::update_memory(
         &conn,
@@ -212,7 +256,8 @@ async fn update_memory(
     }
 }
 
-async fn delete_memory(State(db): State<DbPool>, Path(id): Path<String>) -> impl IntoResponse {
+async fn delete_memory(State(state): State<ApiState>, Path(id): Path<String>) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     match db::delete_memory(&conn, &id) {
         Ok(true) => Json(serde_json::to_value(&DeleteResponse { deleted: true, id }).unwrap())
@@ -222,7 +267,11 @@ async fn delete_memory(State(db): State<DbPool>, Path(id): Path<String>) -> impl
     }
 }
 
-async fn list_scopes(State(db): State<DbPool>, Query(q): Query<ScopesQuery>) -> impl IntoResponse {
+async fn list_scopes(
+    State(state): State<ApiState>,
+    Query(q): Query<ScopesQuery>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     match db::list_scopes(&conn, q.prefix.as_deref()) {
         Ok(scopes) => Json(serde_json::to_value(&scopes).unwrap()).into_response(),
@@ -230,7 +279,8 @@ async fn list_scopes(State(db): State<DbPool>, Query(q): Query<ScopesQuery>) -> 
     }
 }
 
-async fn list_tags(State(db): State<DbPool>, Query(q): Query<TagsQuery>) -> impl IntoResponse {
+async fn list_tags(State(state): State<ApiState>, Query(q): Query<TagsQuery>) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let scopes: Option<Vec<String>> = q.scope.map(|s| {
         s.split(',')
@@ -244,7 +294,8 @@ async fn list_tags(State(db): State<DbPool>, Query(q): Query<TagsQuery>) -> impl
     }
 }
 
-async fn get_stats(State(db): State<DbPool>) -> impl IntoResponse {
+async fn get_stats(State(state): State<ApiState>) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     match db::get_stats(&conn) {
         Ok(stats) => {
@@ -353,9 +404,10 @@ struct OpenNodesQuery {
 // ── Knowledge Graph handlers ──
 
 async fn graph_create_entities(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Json(req): Json<CreateEntitiesRequest>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let mut results = Vec::new();
 
@@ -384,9 +436,10 @@ async fn graph_create_entities(
 }
 
 async fn graph_search_entities(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Query(q): Query<EntityQuery>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let limit = q.limit.unwrap_or(20).min(100);
 
@@ -413,10 +466,11 @@ async fn graph_search_entities(
 }
 
 async fn graph_get_entity(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Path(name): Path<String>,
     Query(q): Query<EntityScopeQuery>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let scope = q.scope.as_deref().unwrap_or("");
     match db::get_entity_by_name(&conn, &name, scope) {
@@ -427,10 +481,11 @@ async fn graph_get_entity(
 }
 
 async fn graph_delete_entity(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Path(name): Path<String>,
     Query(q): Query<EntityScopeQuery>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let scope = q.scope.as_deref().unwrap_or("");
     match db::delete_entity(&conn, &name, scope) {
@@ -448,11 +503,12 @@ async fn graph_delete_entity(
 }
 
 async fn graph_add_observations(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Path(name): Path<String>,
     Query(q): Query<EntityScopeQuery>,
     Json(req): Json<ObservationsRequest>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let scope = q.scope.as_deref().unwrap_or("");
     match db::insert_observations(&conn, &name, scope, &req.observations) {
@@ -463,11 +519,12 @@ async fn graph_add_observations(
 }
 
 async fn graph_delete_observations(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Path(name): Path<String>,
     Query(q): Query<EntityScopeQuery>,
     Json(req): Json<ObservationsRequest>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let scope = q.scope.as_deref().unwrap_or("");
     match db::delete_observations(&conn, &name, scope, &req.observations) {
@@ -478,9 +535,10 @@ async fn graph_delete_observations(
 }
 
 async fn graph_create_relations(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Json(req): Json<CreateRelationsRequest>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let mut results = Vec::new();
 
@@ -520,9 +578,10 @@ async fn graph_create_relations(
 }
 
 async fn graph_delete_relations(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Json(req): Json<DeleteRelationsRequest>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let mut deleted = Vec::new();
     let mut not_found = Vec::new();
@@ -557,7 +616,8 @@ async fn graph_delete_relations(
     .into_response()
 }
 
-async fn graph_read(State(db): State<DbPool>, Query(q): Query<GraphQuery>) -> impl IntoResponse {
+async fn graph_read(State(state): State<ApiState>, Query(q): Query<GraphQuery>) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let scopes: Vec<String> = q
         .scope
@@ -575,9 +635,10 @@ async fn graph_read(State(db): State<DbPool>, Query(q): Query<GraphQuery>) -> im
 }
 
 async fn graph_open_nodes(
-    State(db): State<DbPool>,
+    State(state): State<ApiState>,
     Query(q): Query<OpenNodesQuery>,
 ) -> impl IntoResponse {
+    let db = state.db.clone();
     let conn = db.lock().await;
     let scopes: Vec<String> = q
         .scope

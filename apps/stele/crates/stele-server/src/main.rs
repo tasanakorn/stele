@@ -8,6 +8,8 @@ mod server;
 #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
 mod settings;
 mod steop_api;
+#[cfg(feature = "stylos")]
+mod stylos_module;
 #[cfg(feature = "desktop")]
 mod tray;
 
@@ -21,6 +23,13 @@ use rmcp::transport::streamable_http_server::{
 use server::SteleServer;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
+
+#[cfg(feature = "stylos")]
+use std::sync::RwLock;
+
+#[cfg(feature = "stylos")]
+pub type StylosStatusShared =
+    Arc<RwLock<Option<Arc<stylos_module::StylosStatusSource>>>>;
 
 /// Shared state for live rebinding the server to a new address.
 pub struct BindState {
@@ -37,17 +46,46 @@ fn resolve_auth_key(config: &Config, db_path: &str) -> Option<String> {
 }
 
 /// Start the axum + MCP server. Loops to support live rebinding.
+#[allow(clippy::too_many_arguments)]
 async fn run_server(
     config: Config,
     pool: DbPool,
     ct: CancellationToken,
     bind_state: Arc<BindState>,
     auth_state: Arc<AuthState>,
+    #[cfg(feature = "stylos")] stylos_settings: settings::StyloSettings,
+    #[cfg(feature = "stylos")] stylos_status_shared: Option<StylosStatusShared>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Pin the notification bundle identifier so mac-notification-sys skips
     // its default LaunchServices lookup (which pops a "Choose Application"
     // dialog on macOS 13+ when resolving its "use_default" sentinel).
     notify::init();
+
+    // Open the stylos/zenoh session once, above the rebind loop, so it
+    // survives STELE_BIND rebinds.
+    #[cfg(feature = "stylos")]
+    let stylos_handle = if stylos_settings.enabled {
+        match stylos_module::start(&stylos_settings, ct.clone()).await {
+            Ok(h) => {
+                if let Some(shared) = &stylos_status_shared {
+                    if let Ok(mut guard) = shared.write() {
+                        *guard = Some(h.status.clone());
+                    }
+                }
+                Some(h)
+            }
+            Err(e) => {
+                tracing::error!("stylos session failed to start: {e}");
+                None
+            }
+        }
+    } else {
+        tracing::info!("stylos session disabled by config");
+        None
+    };
+
+    #[cfg(feature = "stylos")]
+    let stylos_status_for_api = stylos_handle.as_ref().map(|h| h.status.clone());
 
     loop {
         let bind_addr = bind_state.bind_addr.read().unwrap().clone();
@@ -78,9 +116,15 @@ async fn run_server(
             ))
             .service(service);
 
+        let api_state = api::ApiState {
+            db: pool.clone(),
+            #[cfg(feature = "stylos")]
+            stylos: stylos_status_for_api.clone(),
+        };
+
         let app = axum::Router::new()
             .nest_service(&mcp_path, mcp_with_auth)
-            .nest("/api", api::router(pool.clone()))
+            .nest("/api", api::router(api_state))
             .nest("/api/v1/steop", steop_api::router(pool.clone()))
             .layer(axum::middleware::from_fn_with_state(
                 auth_state.clone(),
@@ -137,6 +181,11 @@ async fn run_server(
         }
     }
 
+    #[cfg(feature = "stylos")]
+    if let Some(h) = stylos_handle {
+        h.shutdown().await;
+    }
+
     Ok(())
 }
 
@@ -175,9 +224,11 @@ fn main() {
     let ct = CancellationToken::new();
 
     // Load persisted bind IP from config.toml (only if user didn't override via CLI/env)
-    let bind_addr = {
+    let loaded_settings = {
         let config_path = settings::settings_path(&config.db);
-        let saved = settings::load_settings(&config_path);
+        settings::load_settings(&config_path)
+    };
+    let bind_addr = {
         if config.bind == "127.0.0.1:3100" {
             // User didn't override — apply saved IP with existing port
             let port = config
@@ -185,7 +236,7 @@ fn main() {
                 .rsplit_once(':')
                 .map(|(_, p)| p)
                 .unwrap_or("3100");
-            format!("{}:{}", saved.server.bind_ip, port)
+            format!("{}:{}", loaded_settings.server.bind_ip, port)
         } else {
             config.bind.clone()
         }
@@ -199,12 +250,21 @@ fn main() {
     let initial_key = resolve_auth_key(&config, &config.db);
     let auth_state = AuthState::new(initial_key);
 
+    #[cfg(feature = "stylos")]
+    let stylos_settings = config.merge_stylos(loaded_settings.stylos);
+    #[cfg(feature = "stylos")]
+    let stylos_status_shared: StylosStatusShared = Arc::new(RwLock::new(None));
+
     // Spawn the server on a background thread with its own tokio runtime
     let server_config = config.clone();
     let server_pool = pool.clone();
     let server_ct = ct.clone();
     let server_bind_state = bind_state.clone();
     let server_auth_state = auth_state.clone();
+    #[cfg(feature = "stylos")]
+    let server_stylos_settings = stylos_settings.clone();
+    #[cfg(feature = "stylos")]
+    let server_stylos_status = stylos_status_shared.clone();
     let server_handle = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
         if let Err(e) = rt.block_on(run_server(
@@ -213,13 +273,25 @@ fn main() {
             server_ct,
             server_bind_state,
             server_auth_state,
+            #[cfg(feature = "stylos")]
+            server_stylos_settings,
+            #[cfg(feature = "stylos")]
+            Some(server_stylos_status),
         )) {
             tracing::error!("Server error: {e}");
         }
     });
 
     // Run tray event loop on main thread (required by macOS and Windows)
-    if let Err(e) = tray::run(ct.clone(), &bind_addr, bind_state, &config.db, auth_state) {
+    if let Err(e) = tray::run(
+        ct.clone(),
+        &bind_addr,
+        bind_state,
+        &config.db,
+        auth_state,
+        #[cfg(feature = "stylos")]
+        stylos_status_shared,
+    ) {
         tracing::error!("Tray app error: {e}");
         // Fall back to waiting for Ctrl+C
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -259,6 +331,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let initial_key = resolve_auth_key(&config, &config.db);
     let auth_state = AuthState::new(initial_key);
 
+    #[cfg(feature = "stylos")]
+    let stylos_settings = {
+        let path = settings::settings_path(&config.db);
+        let loaded = settings::load_settings(&path);
+        config.merge_stylos(loaded.stylos)
+    };
+
     let shutdown_ct = ct.clone();
     tokio::spawn(async move {
         tokio::signal::ctrl_c()
@@ -268,7 +347,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         shutdown_ct.cancel();
     });
 
-    run_server(config, pool, ct, bind_state, auth_state).await?;
+    run_server(
+        config,
+        pool,
+        ct,
+        bind_state,
+        auth_state,
+        #[cfg(feature = "stylos")]
+        stylos_settings,
+        #[cfg(feature = "stylos")]
+        None,
+    )
+    .await?;
 
     Ok(())
 }

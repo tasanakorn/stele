@@ -77,16 +77,29 @@ STELE_AUTH_KEY=<your-key>
 
 ## Docker
 
+**Build context changed in v0.17.0** — the Dockerfile now copies `apps/stylos/` alongside `apps/stele/` (see [PRD-022](../prd/prd-022-stylos-in-stele-server.md)), so the build must run from the repo root:
+
 ```bash
-docker build -t stele apps/stele/
-docker run -v stele-data:/data -p 3100:3100 stele
+# From repo root:
+docker build -f apps/stele/Dockerfile -t stele .
+docker run -v stele-data:/data -p 3100:3100 -p 31747:31747 -p 31747:31747/udp stele
 ```
 
 - Multi-stage build: `rust:slim` builder, `debian:bookworm-slim` runtime
-- Builds the headless server only
+- Builds the headless server only (with the `stylos` feature enabled)
 - Volume `/data` for persistent SQLite DB
 - Default environment: `STELE_BIND=0.0.0.0:3100`, `STELE_DB=/data/stele.db`; set `STELE_AUTH_KEY` to enable authentication
-- Exposes port 3100
+- Exposes port 3100 (HTTP) and 31747 tcp+udp (zenoh data port; UDP is for multicast scouting)
+
+### Opting out of stylos
+
+Build without the zenoh peer:
+
+```bash
+cargo build -p stele-server --no-default-features --features headless-minimal
+```
+
+`headless-minimal` is the `headless` feature with the `stylos` dep stripped — no zenoh, no heartbeat, no info queryable. `/api/v1/health.stylos` is omitted from the response.
 
 ## CLI Installation
 
@@ -114,6 +127,12 @@ This creates `~/.config/stele/config.toml` with a `local` profile pointing to `h
 | `STELE_URL`       | CLI     | (from config)        | Server URL override       |
 | `STELE_AUTH_KEY`  | CLI     | (from config)        | Auth key override         |
 | `STELE_PROFILE`   | CLI     | (from config)        | Profile name override     |
+| `STELE_STYLOS_ENABLED`  | Server | `true` (when `stylos` feature is on) | Enable/disable stylos zenoh peer        |
+| `STELE_STYLOS_MODE`     | Server | `router`             | Zenoh mode: `peer` / `router` / `client` |
+| `STELE_STYLOS_REALM`    | Server | `dev`                | Stylos realm segment                     |
+| `STELE_STYLOS_INSTANCE` | Server | derived from hostname | Explicit instance segment               |
+| `STELE_STYLOS_CONNECT`  | Server | (empty)              | Comma-separated connect endpoints (e.g. `tcp/10.0.0.5:31747`) |
+| `STELE_STYLOS_NO_QUIC`  | Server | `false`              | Force TCP-only even when TLS certs are configured |
 | `STEOP_DB`        | steop   | `~/.local/share/steop/steop.db` | Override location of the local steop SQLite DB (session state, storage, phase, session lifecycle, event log). See [../steop/local-storage.md](../steop/local-storage.md). |
 
 ## Claude Code Integration

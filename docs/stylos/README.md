@@ -16,3 +16,7 @@ Zenoh-based interconnect foundation for the workspace. See the workspace-level
 
 Binaries, crate sources, example config, and dev-cert script live under
 [`apps/stylos/`](../../apps/stylos/README.md).
+
+## Consumers
+
+- **stele-server (v0.17.0+)** embeds a stylos peer via [PRD-022](../prd/prd-022-stylos-in-stele-server.md). It defaults to `mode = "router"` so the always-on stele process provides a stable discovery hub for short-lived peers.

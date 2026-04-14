@@ -32,6 +32,12 @@ struct TrayHandler {
     auth_set_id: muda::MenuId,
     auth_copy_id: muda::MenuId,
     auth_clear_id: muda::MenuId,
+    #[cfg(feature = "stylos")]
+    stylos_item: MenuItem,
+    #[cfg(feature = "stylos")]
+    stylos_status: crate::StylosStatusShared,
+    #[cfg(feature = "stylos")]
+    stylos_seen: bool,
 }
 
 impl ApplicationHandler for TrayHandler {
@@ -68,6 +74,10 @@ impl ApplicationHandler for TrayHandler {
             }
         }
 
+        // Poll stylos status once per tick
+        #[cfg(feature = "stylos")]
+        self.refresh_stylos_status();
+
         // Poll config.toml while settings subprocess is alive
         if self.settings_child.is_some() {
             self.poll_settings();
@@ -75,6 +85,21 @@ impl ApplicationHandler for TrayHandler {
                 Instant::now() + Duration::from_millis(500),
             ));
         } else {
+            #[cfg(feature = "stylos")]
+            {
+                // When a stylos session exists, keep polling the status every 2s
+                // so peer/router counts stay fresh in the menu bar.
+                if self.stylos_seen {
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(
+                        Instant::now() + Duration::from_millis(2000),
+                    ));
+                } else {
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(
+                        Instant::now() + Duration::from_millis(500),
+                    ));
+                }
+            }
+            #[cfg(not(feature = "stylos"))]
             event_loop.set_control_flow(ControlFlow::Wait);
         }
     }
@@ -223,6 +248,22 @@ impl TrayHandler {
         self.auth_copy_item.set_enabled(has_key);
         self.auth_clear_item.set_enabled(has_key);
     }
+
+    #[cfg(feature = "stylos")]
+    fn refresh_stylos_status(&mut self) {
+        let snapshot = match self.stylos_status.read() {
+            Ok(guard) => guard.clone(),
+            Err(_) => return,
+        };
+        if let Some(status) = snapshot {
+            self.stylos_seen = true;
+            let label = format!(
+                "Stylos: {} \u{00B7} {} \u{00B7} {}",
+                status.mode, status.instance, status.zid_short
+            );
+            self.stylos_item.set_text(label);
+        }
+    }
 }
 
 pub fn run(
@@ -231,6 +272,7 @@ pub fn run(
     bind_state: Arc<BindState>,
     db_path: &str,
     auth_state: Arc<AuthState>,
+    #[cfg(feature = "stylos")] stylos_status: crate::StylosStatusShared,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let dashboard_url = crate::dashboard_url(bind_addr);
 
@@ -276,8 +318,13 @@ pub fn run(
     let dashboard = MenuItem::new("Open Dashboard", true, None);
     let quit = MenuItem::new("Quit Stele", true, None);
 
+    #[cfg(feature = "stylos")]
+    let stylos_item = MenuItem::new("Stylos: starting\u{2026}", false, None);
+
     menu.append(&status)?;
     menu.append(&version_item)?;
+    #[cfg(feature = "stylos")]
+    menu.append(&stylos_item)?;
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&auth_submenu)?;
     menu.append(&PredefinedMenuItem::separator())?;
@@ -327,6 +374,12 @@ pub fn run(
         auth_set_id,
         auth_copy_id,
         auth_clear_id,
+        #[cfg(feature = "stylos")]
+        stylos_item,
+        #[cfg(feature = "stylos")]
+        stylos_status,
+        #[cfg(feature = "stylos")]
+        stylos_seen: false,
     };
 
     let event_loop = EventLoop::new()?;

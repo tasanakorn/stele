@@ -43,6 +43,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-019-stylos-foundation](prd/prd-019-stylos-foundation.md)                   | Proposed            | zenoh-based interconnect foundation — apps/stylos/ skeleton, ports 31746/31747, Rust+Go POC       |
 | [prd-020-steop-local-backend](prd/prd-020-steop-local-backend.md)               | Implemented v0.16.0 | Move steop session/project/phase/storage/logs to local SQLite; keep mailbox+notify on stele       |
 | [prd-021-trim-hook-mailbox-posts](prd/prd-021-trim-hook-mailbox-posts.md)       | Implemented v0.16.1 | Stop HandleStop/HandleSessionEnd from posting HOOK:* mailbox rows; confine writes to task pipeline |
+| [prd-022-stylos-in-stele-server](prd/prd-022-stylos-in-stele-server.md)         | Implemented v0.17.0 | Embed stylos zenoh router inside stele-server with default-on feature, health endpoint, heartbeat  |
 
 ## Stele server (`stele/`)
 

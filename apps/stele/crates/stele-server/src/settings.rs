@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 pub struct Settings {
     #[serde(default)]
     pub server: ServerSettings,
+    #[serde(default)]
+    pub stylos: StyloSettings,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -28,6 +30,47 @@ fn default_bind_ip() -> String {
     "127.0.0.1".to_string()
 }
 
+// ── Stylos settings ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StyloSettings {
+    #[serde(default = "default_stylos_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_stylos_mode")]
+    pub mode: String,
+    #[serde(default = "default_stylos_realm")]
+    pub realm: String,
+    #[serde(default)]
+    pub instance: Option<String>,
+    #[serde(default)]
+    pub connect: Vec<String>,
+    #[serde(default)]
+    pub no_quic: bool,
+}
+
+impl Default for StyloSettings {
+    fn default() -> Self {
+        Self {
+            enabled: default_stylos_enabled(),
+            mode: default_stylos_mode(),
+            realm: default_stylos_realm(),
+            instance: None,
+            connect: Vec::new(),
+            no_quic: false,
+        }
+    }
+}
+
+fn default_stylos_enabled() -> bool {
+    true
+}
+fn default_stylos_mode() -> String {
+    "router".to_string()
+}
+fn default_stylos_realm() -> String {
+    "dev".to_string()
+}
+
 pub fn settings_path(db_path: &str) -> PathBuf {
     Path::new(db_path)
         .parent()
@@ -42,14 +85,18 @@ pub fn load_settings(path: &Path) -> Settings {
     // Parse as a generic table so unknown top-level keys (e.g. stele-cli's
     // `default_profile` / `[profiles.*]`) coexist without being lost.
     let table: toml::Table = toml::from_str(&content).unwrap_or_default();
-    match table.get("server") {
-        Some(v) => v
-            .clone()
-            .try_into::<ServerSettings>()
-            .map(|server| Settings { server })
-            .unwrap_or_default(),
-        None => Settings::default(),
-    }
+
+    let server = table
+        .get("server")
+        .and_then(|v| v.clone().try_into::<ServerSettings>().ok())
+        .unwrap_or_default();
+
+    let stylos = table
+        .get("stylos")
+        .and_then(|v| v.clone().try_into::<StyloSettings>().ok())
+        .unwrap_or_default();
+
+    Settings { server, stylos }
 }
 
 pub fn save_settings(path: &Path, settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
@@ -65,6 +112,9 @@ pub fn save_settings(path: &Path, settings: &Settings) -> Result<(), Box<dyn std
 
     let server_value = toml::Value::try_from(&settings.server)?;
     merged.insert("server".to_string(), server_value);
+
+    let stylos_value = toml::Value::try_from(&settings.stylos)?;
+    merged.insert("stylos".to_string(), stylos_value);
 
     let content = toml::to_string_pretty(&merged)?;
     if let Some(parent) = path.parent() {
@@ -201,6 +251,7 @@ impl SettingsApp {
                 bind_ip: ip,
                 auth_key: existing.server.auth_key,
             },
+            stylos: existing.stylos,
         };
 
         match save_settings(&self.config_path, &settings) {

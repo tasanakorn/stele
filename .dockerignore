@@ -1,0 +1,13 @@
+.git
+.github
+**/target/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/.DS_Store
+docs/
+plugins/
+*.md
+apps/steop/
+apps/stele/macos/
+apps/stele/scripts/

@@ -28,6 +28,59 @@ The stele CLI sends `X-Stele-Key` automatically when a key is configured in its 
 
 ---
 
+## Health
+
+### GET /api/v1/health
+
+Liveness probe. Reports overall server status, version, DB connectivity, and (optionally) the stylos/zenoh session summary. Unauthenticated — same posture as `/api/v1/stats`.
+
+**Response (stylos feature on, session active):**
+
+```json
+{
+  "status": "ok",
+  "version": "0.17.0",
+  "db_ok": true,
+  "stylos": {
+    "enabled": true,
+    "mode": "router",
+    "zid": "e0a1c9...",
+    "realm": "dev",
+    "instance": "dev-mbp",
+    "listen_endpoints": [],
+    "peers": 2,
+    "routers": 0
+  }
+}
+```
+
+`listen_endpoints` is currently always `[]` — zenoh 1.9 exposes no stable public listener enumeration API (see [PRD-022](../prd/prd-022-stylos-in-stele-server.md) known limitations).
+
+**Response (stylos feature on, `[stylos].enabled = false`):**
+
+```json
+{
+  "status": "ok",
+  "version": "0.17.0",
+  "db_ok": true,
+  "stylos": { "enabled": false }
+}
+```
+
+**Response (stylos feature off, e.g. `headless-minimal` build):**
+
+```json
+{
+  "status": "ok",
+  "version": "0.17.0",
+  "db_ok": true
+}
+```
+
+The `stylos` key is omitted (not `null`) when the cargo feature is off so the JSON shape matches the binary's actual capability.
+
+---
+
 ## Memory Endpoints
 
 ### POST /api/v1/memories

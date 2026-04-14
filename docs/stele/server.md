@@ -71,6 +71,22 @@ Implemented in `tray.rs` (desktop feature only):
 - Polls `config.toml` every 500 ms while the settings subprocess is alive. Updates the tray status label when the address changes and signals the server rebind notifier.
 - Quit menu item cancels the parent `CancellationToken`, which propagates shutdown to the background server thread.
 
+## Stylos Session Lifecycle
+
+Since v0.17.0 stele-server can embed a zenoh peer via the `stylos` crates (see [PRD-022](../prd/prd-022-stylos-in-stele-server.md)).
+
+- **Feature gating.** Both `desktop` and `headless` include the `stylos` cargo feature by default. An opt-out build is `cargo build -p stele-server --no-default-features --features headless-minimal`.
+- **Module.** `src/stylos_module.rs` owns the `Arc<zenoh::Session>`, the heartbeat task, the info queryable task, and the shutdown routine.
+- **Instance derivation.** Explicit override (config / `STELE_STYLOS_INSTANCE`) > normalized hostname (lowercased, non-`[a-z0-9-]` mapped to `-`, trimmed, 32-char cap) > `stele-<first-8-of-zid>` fallback.
+- **Heartbeat.** Every 5 s `put(b"alive")` on `stylos/<realm>/stele/<instance>/heartbeat` with `Encoding::APPLICATION_OCTET_STREAM`, `CongestionControl::Drop`.
+- **Info queryable.** Replies on `stylos/<realm>/stele/<instance>/info` with a JSON blob (`Encoding::APPLICATION_JSON`) containing zid, mode, realm, instance, version, stylos_version, listen_endpoints (currently empty — see limitation below), started_at.
+- **Session lives above the rebind loop.** `STELE_BIND` rebinds restart only the axum listener; the zenoh session (and its ZID) survive untouched.
+- **Shutdown order.** Rebind loop exits → heartbeat and queryable tasks are aborted and awaited → `session.close().await`. Tied to the same `CancellationToken` as the axum listener.
+- **Known limitations.**
+  - `listen_endpoints` is always reported as `[]` in both `/api/v1/health.stylos` and the info-queryable payload; zenoh 1.9 exposes no stable public listener enumeration API.
+  - TLS / QUIC cert hardening beyond stylos 0.1.0's built-in "no cert → TCP only" fallback is deferred to a follow-up PRD.
+  - When the cargo `stylos` feature is on but `[stylos].enabled = false`, the session is skipped entirely and `/api/v1/health.stylos` reports `{ "enabled": false }`.
+
 ## Graceful Shutdown
 
 Shutdown is coordinated via `CancellationToken` from the `tokio-util` crate:
