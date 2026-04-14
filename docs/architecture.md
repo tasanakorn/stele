@@ -12,7 +12,7 @@ worth explaining. For deeper internals, follow the per-component links.
 | **stele server**      | `apps/stele/crates/stele-server/` | Rust     | MCP + REST + tray. The shared-memory hub. Owns the SQLite DB.         |
 | **stele CLI / proxy** | `apps/stele/crates/stele-cli/`    | Rust     | REST client and MCP stdio↔HTTP proxy. Multi-profile config.           |
 | **stele common**      | `apps/stele/crates/stele-common/` | Rust     | Shared types library used by both server and CLI.                     |
-| **steop binary**      | `apps/steop/`                     | Go       | Companion CLI invoked by Claude Code hooks; talks to stele over REST. |
+| **steop binary**      | `apps/steop/`                     | Go       | Companion CLI invoked by Claude Code hooks; owns a local SQLite DB (`~/.local/share/steop/steop.db`) for session/state/storage/logs and talks to stele over REST for mailbox + notify. |
 | **stele plugin**      | `plugins/stele/`                  | —        | Claude Code plugin that wires `stele mcp` and ships skills.           |
 | **steop plugin**      | `plugins/steop/`                  | —        | Claude Code plugin that ships the agentic workflow chain + hooks.     |
 | **stelite plugin**    | `plugins/stelite/`                | —        | Companion plugin (own cadence; not always co-bumped).                 |
@@ -35,7 +35,8 @@ graph LR
     Proxy2 -- "Streamable HTTP" --> Server
     CLI["stele CLI"] -- "REST" --> Server
     Hook["Claude Code hook"] -- "exec" --> Steop["steop binary"]
-    Steop -- "/api/v1/steop/*" --> Server
+    Steop -- "local SQLite" --> SteopDB[("~/.local/share/steop/steop.db")]
+    Steop -- "mailbox + notify" --> Server
     Browser -- "REST" --> Server
     Server[("stele-server\n(axum + rmcp)")] --> SQLite[("SQLite WAL")]
 ```
@@ -87,7 +88,17 @@ fleet, where reconfiguration friction is the bottleneck.
 ## Steop Companion
 
 The `steop` Go binary is the second client of the server. It is invoked by
-Claude Code hooks (PreToolUse, PostToolUse, SessionStart, etc.) and persists
-per-session workflow state to stele via the dedicated
-`/api/v1/steop/*` REST surface. See [`steop/DESIGN.md`](steop/DESIGN.md) for
-the pipeline, hook taxonomy, and state model.
+Claude Code hooks (PreToolUse, PostToolUse, SessionStart, etc.) and uses a
+**split persistence model** as of v0.16.0:
+
+- **Host-local state** — session lifecycle, phase state, key-value storage,
+  and event logs live in a local SQLite database at
+  `~/.local/share/steop/steop.db` (override via `STEOP_DB`). Hooks read and
+  write this directly; no HTTP involved.
+- **Cross-agent surface** — only `steop.mailbox.*` (inter-session messaging)
+  and `steop.notify` (desktop notifications) still hit `stele-server` over
+  the `/api/v1/steop/*` REST surface. `steop_mailbox` is the sole remaining
+  `steop_*` table on the server.
+
+See [`steop/DESIGN.md`](steop/DESIGN.md) for the pipeline, hook taxonomy,
+and full state model.

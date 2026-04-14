@@ -26,6 +26,12 @@ stele/
 │   ├── scripts/
 │   ├── systemd/
 │   └── Dockerfile
+├── apps/steop/                    # Go companion binary (agentic workflow runtime)
+│   ├── main.go, cmd_*.go          # CLI entry points (hooks, send, watch, state, storage, ...)
+│   ├── internal/store/            # Local SQLite layer (~/.local/share/steop/steop.db, override via STEOP_DB)
+│   ├── internal/client/           # Thin HTTP client for stele-server mailbox + notify
+│   └── internal/hooks/            # Claude Code hook handlers
+│                                  # See docs/steop/DESIGN.md and docs/steop/local-storage.md
 ├── plugins/
 │   ├── stele/                     # Claude Code plugin (shared memory)
 │   └── steop/                     # Claude Code plugin (agentic workflow)
@@ -125,15 +131,17 @@ JSON API mounted at `/api/v1` alongside the MCP endpoint. CORS enabled. Covers f
 
 ### Steop RPC identity (load-bearing constraint)
 
-Steop methods live at `POST /api/v1/steop/<method>` with body-only input — no path params, no query params, no header identity. Every call carries a **composite SSH/SCP-style `id` string** that must be one of three forms:
+Since **v0.16.0 (PRD-020)** the server-side steop surface is narrowed to mailbox + notify only: `POST /api/v1/steop/mailbox.*` and `POST /api/v1/steop/notify`. Session KV, project KV, phase state, storage, event log, and session lifecycle moved to a **local SQLite DB** at `~/.local/share/steop/steop.db` (override via `STEOP_DB`), managed by `apps/steop/internal/store`. `steop_mailbox` is the only surviving `steop_*` table on stele-server.
+
+The composite SSH/SCP-style `id` string remains the shared identity convention used by both stele-server (mailbox addressing) and the local SQLite layer:
 
 - `host:project_dir` — 2-segment, project-level
 - `host:project_dir:UUID` — 3-segment, session-level (canonical 8-4-4-4-12)
 - `host:project_dir:USER` — 3-segment, user-level (literal `USER`, case-sensitive)
 
-The 3rd segment is a **closed set** (v0.8+): UUID or literal `USER`. Anything else returns 400. `session.get`, `state.get`, and `status.get` require the 3-segment form. Storage dispatches on arity: 2-seg → project KV, 3-seg → session KV. The server only validates segment grammar; clients must compose ids correctly.
+The 3rd segment is a **closed set** (v0.8+): UUID or literal `USER`. Anything else is rejected. Clients compose ids correctly; the server only validates segment grammar for the mailbox RPCs it still owns.
 
-Full method list, request bodies, table schemas, and rationale: [docs/steop/DESIGN.md](docs/steop/DESIGN.md). Curl smoke tests: [docs/steop/smoke-tests.md](docs/steop/smoke-tests.md).
+Full method list, request bodies, table schemas, and rationale: [docs/steop/DESIGN.md](docs/steop/DESIGN.md). Local storage schema and layout: [docs/steop/local-storage.md](docs/steop/local-storage.md). Curl smoke tests: [docs/steop/smoke-tests.md](docs/steop/smoke-tests.md).
 
 ## Stele Shared Memory Protocol
 

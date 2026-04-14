@@ -30,7 +30,7 @@ Run the full pipeline end-to-end. Do NOT pause between phases unless a stop cond
 
 ## Statusline State Updates
 
-At the start of each phase, run `steop state set-phase <phase> --mode flow` so the Claude Code statusline reflects live progress. This is best-effort and non-blocking: if the server is unavailable or no session is active yet, the command silently exits 0 and the pipeline proceeds normally. After the Finalize step, run `steop state clear-phase` to reset the statusline to idle.
+At the start of each phase, run `steop state set-phase <phase> --mode flow` so the Claude Code statusline reflects live progress. This is best-effort and non-blocking: if the local steop DB is unreachable or no session identity has been resolved yet, the command silently exits 0 and the pipeline proceeds normally. After the Finalize step, run `steop state clear-phase` to reset the statusline to idle.
 
 ### Identity in nested subprocesses
 

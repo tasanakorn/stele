@@ -1,5 +1,7 @@
 # Gap Analysis: steop vs cerbrix vs omc
 
+> **Update (2026-04, v0.16.0): session KV / state / storage / status / event log / session lifecycle moved to local SQLite (`~/.local/share/steop/steop.db`) per PRD-020. References to `/api/v1/steop/state`, `/api/v1/steop/storage`, `/api/v1/steop/session`, `/api/v1/steop/status`, `/api/v1/steop/log` and matching server tables below are historical. Only `steop.mailbox.*` and `steop.notify` remain on stele-server HTTP.**
+
 This document compares three Claude Code plugin ecosystems as of **2026-04-11**: **steop** (this repo, `plugins/steop/` + `apps/steop/`), **cerbrix** (`../cerbrix/`, a project-local agentic workflow system), and **oh-my-claudecode** / **omc** (`../oh-my-claudecode/`, published as `oh-my-claude-sisyphus` v4.11.2). The analysis covers ten axes: agents, skills, hooks, pipeline, runtime, safety, observability, state, notifications, and install. Source fact-gathering was performed by three parallel research agents; raw counts are treated as authoritative. External projects will drift; this is a snapshot.
 
 ## TL;DR
@@ -45,7 +47,7 @@ This document compares three Claude Code plugin ecosystems as of **2026-04-11**:
 - steop 2-line statusline rendered in-proc + `steop monitor`/`inspect`, no HUD; cerbrix statusline shells to `cerbrix hud render`; omc HUD 3 presets + `trace_timeline`/`trace_summary` MCP tools + SWE-bench Docker harness. steop's statusline is fastest; omc's depth is widest.
 
 ## Axis 8: State & Memory
-- steop per-session state via stele `PUT /api/v1/steop/state/{id}` merge mode, cross-machine memory via stele MCP; cerbrix `.cerbrix/` flat JSON, project-local only; omc `.omc/state/` + SQLite + `project-memory.json` + wiki sync + `<remember>` tags. steop is the only project with cross-machine shared memory.
+- steop per-session state via local SQLite at `~/.local/share/steop/steop.db` (post-v0.16.0; previously stele `PUT /api/v1/steop/state/{id}` merge mode), cross-machine memory via stele MCP; cerbrix `.cerbrix/` flat JSON, project-local only; omc `.omc/state/` + SQLite + `project-memory.json` + wiki sync + `<remember>` tags. steop is the only project with cross-machine shared memory.
 
 ## Axis 9: Notifications
 - steop desktop-only via `notify-rust` (Stop hook); cerbrix none (tmux only); omc Telegram + Discord + Slack (session end, need-input, bg done). Desktop covers primary case; multi-channel is nice-to-have.

@@ -2,7 +2,7 @@
 
 Companion to [`gap-analysis.md`](gap-analysis.md) — a deep dive on Axis 3 (hooks). Snapshot date: **2026-04-11** (initial) / **2026-04-11** (v0.5.0 closure).
 
-**Update (v0.5.0):** steop now intercepts **all 11** Claude Code hook events, matching omc's surface. Most new events are log-only via the stele-server log facility (`/api/v1/steop/log`); Stop and SessionEnd additionally persist session summaries to the inbox (`/api/v1/steop/inbox`). The matrix below reflects the new state.
+**Update (v0.5.0):** steop now intercepts **all 11** Claude Code hook events, matching omc's surface. As of v0.16.0, most events are log-only and persist to the local SQLite DB at `~/.local/share/steop/steop.db` (see [local-storage.md](local-storage.md)); Stop and SessionEnd additionally post session summaries to the stele mailbox via `steop.mailbox.send`. The matrix below reflects the new state.
 
 ## Matrix
 
@@ -20,7 +20,7 @@ Companion to [`gap-analysis.md`](gap-analysis.md) — a deep dive on Axis 3 (hoo
 | `Stop`               | desktop notify + inbox summary + state clear  | save to inbox                | context-guard + persistent-mode           |
 | `SessionEnd`         | log + inbox summary                           | archive session              | teardown + wiki sync                      |
 
-See `plugins/steop/hooks/hooks.json` for steop's current wiring. Log events are queryable via `GET /api/v1/steop/log?session_id=<id>`; inbox envelopes via `GET /api/v1/steop/inbox?session_id=<id>`. Every record carries `host` + `project_dir` for cross-machine identity.
+See `plugins/steop/hooks/hooks.json` for steop's current wiring. Log events are queryable locally against the `steop.db` SQLite file (see [local-storage.md](local-storage.md) for schema and CLI access); mailbox envelopes via `POST /api/v1/steop/steop.mailbox.list`. Every record carries `host` + `project_dir` for cross-machine identity.
 
 ## Events steop is missing — fire conditions and use cases
 

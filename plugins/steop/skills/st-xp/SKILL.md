@@ -26,7 +26,7 @@ Use `st-xp` for: prototypes, spikes, mechanical refactors, quick experiments. Us
 
 ## Statusline State Updates
 
-At the start of each phase, run `steop state set-phase <phase> --mode xp` so the Claude Code statusline reflects live progress as `[xp] <phase>: <detail>`. This is best-effort and non-blocking: if the server is unavailable or no session is active yet, the command silently exits 0 and the pipeline proceeds normally. After Finalize, run `steop state clear-phase` to reset the statusline to idle.
+At the start of each phase, run `steop state set-phase <phase> --mode xp` so the Claude Code statusline reflects live progress as `[xp] <phase>: <detail>`. This is best-effort and non-blocking: if the local steop DB is unreachable or no session identity has been resolved yet, the command silently exits 0 and the pipeline proceeds normally. After Finalize, run `steop state clear-phase` to reset the statusline to idle.
 
 ### Identity in nested subprocesses
 

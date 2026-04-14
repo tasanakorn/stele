@@ -7,6 +7,8 @@
 - **Single file** — path is configurable via `--db` CLI flag or `STELE_DB` environment variable.
 - **Desktop default** — `~/Library/Application Support/Stele/stele.db`.
 
+> **Note (post-v0.16.0 / PRD-020):** `steop_mailbox` is the only `steop_*`-prefixed table on stele-server. Session KV, state, storage, and event log moved to a local steop SQLite DB at `~/.local/share/steop/steop.db` — see [../steop/local-storage.md](../steop/local-storage.md).
+
 ## Schema Diagram
 
 ```mermaid

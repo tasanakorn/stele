@@ -22,6 +22,10 @@ The steop plugin ships Claude Code hooks that invoke a `steop` companion binary 
 
 This runs `go install github.com/tasanakorn/stele/apps/steop@main` under the hood, dropping the binary into `~/.local/bin/steop`. Requires Go 1.22+ (Git is **not** required — the source is fetched via the Go module proxy). Make sure `~/.local/bin` is on your `PATH`. The human-facing version reported by `steop version` comes from `apps/steop/version.go`; Go's build metadata records the pseudo-version derived from the `main` commit.
 
+### Local storage
+
+Since v0.16.0 (PRD-020) session state, storage, phase, session lifecycle, and the event log live in a local SQLite DB at `~/.local/share/steop/steop.db` (override with `STEOP_DB`). The `/steop:install` post-install step runs `steop db init` to create the DB; `steop db path` prints the resolved path. Only the cross-host mailbox + notify surfaces still go over HTTP to `stele-server`. See [docs/steop/local-storage.md](../../docs/steop/local-storage.md) for the schema and recovery guidance.
+
 ## Skills
 
 | Skill              | Command                      | Description                                                                 |

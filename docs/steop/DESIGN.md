@@ -1,4 +1,4 @@
-# Steop Design (v2, 0.7.0)
+# Steop Design (v3, 0.16.0)
 
 ## 1. Purpose
 
@@ -88,7 +88,7 @@ This lets `project_dir` safely contain `:` characters (e.g. Windows-style) as lo
 
 ### Arity dispatch
 
-Storage methods (`storage.put`/`get`/`delete`/`list`) accept either arity of id. A 2-segment id routes to `steop_storage_project`; a 3-segment id routes to `steop_storage_session`. Every other id-bearing method requires the full 3-segment form; the server returns `HTTP 400 {"error":"id must be 3-segment (host:project_dir:session_uuid)"}` on an incomplete id.
+Storage methods (`storage.put`/`get`/`delete`/`list`) accept either arity of id. As of v0.16.0 this dispatch happens **inside the `steop` binary** (`apps/steop/internal/store`) against the local SQLite DB — `stele-server` no longer has the `steop_storage_*` tables. A 2-segment id routes to the project KV table; a 3-segment id routes to the session KV table. See [local-storage.md](local-storage.md) for schema. Every other id-bearing method requires the full 3-segment form; an incomplete id returns `HTTP 400 {"error":"id must be 3-segment (host:project_dir:session_uuid)"}` (for the remaining server-side methods) or the equivalent local error.
 
 ### No server-side validation beyond parsing
 
@@ -284,5 +284,4 @@ See [smoke-tests.md](smoke-tests.md) for curl sequences that exercise the stele-
 - The `steop` binary must be rebuilt after every Go source change. No auto-rebuild on install.
 - Local DB logs and stele mailbox are append-only with no TTL. Mailbox rows stay in the table after archive (for audit); rows accumulate until manually pruned.
 - The server only validates that the composite `id` parses into the expected number of segments. It does not validate that `host` looks like a hostname or that `project_dir` is absolute. Clients must take care.
-- `PermissionRequest` handler is observe-only.
 - `PermissionRequest` handler is observe-only.

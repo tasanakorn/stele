@@ -51,6 +51,8 @@ steop turns a task description into a structured pipeline with specialized agent
 
 Simple tasks skip Research and go straight from Clarify to Plan. Use `/steop:st-flow` to run the full pipeline automatically, or invoke individual phases when you need fine-grained control.
 
+steop keeps session state, storage, phase, session lifecycle, and the event log in a local SQLite DB at `~/.local/share/steop/steop.db` (override via `STEOP_DB`). See [docs/steop/local-storage.md](docs/steop/local-storage.md) for the schema and recovery guidance.
+
 See the [steop README](plugins/steop/README.md) for agent details and configuration.
 
 ---

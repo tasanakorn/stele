@@ -5,10 +5,17 @@ dispatches all 11 Claude Code hooks (PreToolUse safety regexes, PostToolUse
 counter + state, UserPromptSubmit keyword injection, SubagentStart/Stop
 lifecycle, SessionStart/End, PreCompact, Stop/Mailbox, PermissionRequest observe)
 and provides CLI helpers for session state, generic KV storage, logs, and
-the cross-host mailbox. It talks HTTP to `stele-server`'s `/api/v1/steop/*`
-endpoints using RPC-style `POST <method>` calls with JSON bodies carrying a
+the cross-host mailbox.
+
+Since v0.16.0 (PRD-020) state, storage, phase, session lifecycle, and the
+event log live in a **local SQLite DB** at `~/.local/share/steop/steop.db`
+(override via `STEOP_DB`). Only the cross-host mailbox + notify surfaces
+(`steop.mailbox.*`, `steop.notify`) still go over HTTP to `stele-server`.
+Those HTTP calls use RPC-style `POST <method>` with JSON bodies carrying a
 single colon-separated composite id (`host:project_dir` for project-level
-calls, `host:project_dir:uuid` for session-level calls).
+calls, `host:project_dir:uuid` for session-level calls). See
+[docs/steop/local-storage.md](../../docs/steop/local-storage.md) for the
+local DB schema and recovery guidance.
 
 ## Build
 
@@ -38,9 +45,9 @@ go vet ./...
   - `PreToolUse` — Bash deny regex (force-push, `rm -rf /`, etc.)
   - `PostToolUse` — increments `tool_calls` counter, merges `last_tool` state, fires log event
   - `Stop` — desktop notify + posts session summary to mailbox + clears phase/mode
-  - `SessionStart` — calls `steop.session.start` + structured log event
-  - `SessionEnd` — structured log + mailbox summary + calls `steop.session.stop`
-  - `SubagentStart`, `SubagentStop`, `PreCompact`, `PostToolUseFailure`, `PermissionRequest` — structured logging via `steop.log.append`
+  - `SessionStart` — records session start in the local `internal/store` session table + appends a structured event to the local event log
+  - `SessionEnd` — appends a structured event to the local event log + posts mailbox summary + marks the session stopped in the local `internal/store` session table
+  - `SubagentStart`, `SubagentStop`, `PreCompact`, `PostToolUseFailure`, `PermissionRequest` — structured logging via the local `internal/store` event log
 - `steop state get|set|incr|reset|delete <session> ...` — session state + counters.
 - `steop storage put|get|delete|list [--session=<id>] [key] [content]` — KV blobs. Omit `--session` for project-level scope.
 - `steop statusline [--session=<id>] [--json] [--no-color] [--line2-only]` — two-line renderer for the Claude Code status bar. Reads Claude Code's session JSON from stdin and prints:

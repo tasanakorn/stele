@@ -114,6 +114,7 @@ This creates `~/.config/stele/config.toml` with a `local` profile pointing to `h
 | `STELE_URL`       | CLI     | (from config)        | Server URL override       |
 | `STELE_AUTH_KEY`  | CLI     | (from config)        | Auth key override         |
 | `STELE_PROFILE`   | CLI     | (from config)        | Profile name override     |
+| `STEOP_DB`        | steop   | `~/.local/share/steop/steop.db` | Override location of the local steop SQLite DB (session state, storage, phase, session lifecycle, event log). See [../steop/local-storage.md](../steop/local-storage.md). |
 
 ## Claude Code Integration
 
