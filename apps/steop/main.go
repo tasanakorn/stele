@@ -25,7 +25,7 @@ func main() {
 	parseGlobalFlags()
 
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: steop <hook|state|storage|statusline|monitor|inspect|mailbox|send|identity|version> ...")
+		fmt.Fprintln(os.Stderr, "usage: steop <hook|state|storage|session|status|statusline|monitor|inspect|mailbox|send|identity|db|version> ...")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -35,6 +35,10 @@ func main() {
 		runState(os.Args[2:])
 	case "storage":
 		runStorage(os.Args[2:])
+	case "session":
+		runSession(os.Args[2:])
+	case "status":
+		runStatus(os.Args[2:])
 	case "statusline":
 		runStatusline(os.Args[2:])
 	case "monitor", "inspect":
@@ -45,6 +49,11 @@ func main() {
 		runSend(os.Args[2:])
 	case "identity":
 		runIdentity(os.Args[2:])
+	case "db":
+		if err := RunDB(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "db: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		runVersion()
 	default:

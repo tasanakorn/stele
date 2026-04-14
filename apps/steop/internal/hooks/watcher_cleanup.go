@@ -1,10 +1,12 @@
 package hooks
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
 	"github.com/tasanakorn/stele/apps/steop/internal/logging"
+	"github.com/tasanakorn/stele/apps/steop/internal/store"
 )
 
 type activeTask struct {
@@ -14,14 +16,20 @@ type activeTask struct {
 }
 
 // cleanupWatcherTasks sends TASK:FAILED for any tasks the watcher had claimed
-// but not completed. Best-effort: errors are logged but never propagated.
-func cleanupWatcherTasks(c *client.Client, sid string) {
-	blob, err := c.StorageGet(sid, "watcher:active_tasks")
+// but not completed. Reads watcher:active_tasks from the local store, sends
+// mailbox notifications via the HTTP client, and deletes the local blob.
+// Best-effort: errors are logged but never propagated.
+func cleanupWatcherTasks(db *store.DB, c *client.Client, id store.Identity, sid string) {
+	if db == nil || c == nil {
+		return
+	}
+	ctx := context.Background()
+	blob, err := db.StorageGet(ctx, id, "watcher:active_tasks")
 	if err != nil {
 		logging.Debugf("watcher cleanup: storage get: %v", err)
 		return
 	}
-	if blob.Content == "" {
+	if blob == nil || blob.Content == "" {
 		return
 	}
 
@@ -48,7 +56,7 @@ func cleanupWatcherTasks(c *client.Client, sid string) {
 		}
 	}
 
-	if _, err := c.StorageDelete(sid, "watcher:active_tasks"); err != nil {
+	if _, err := db.StorageDelete(ctx, id, "watcher:active_tasks"); err != nil {
 		logging.Debugf("watcher cleanup: storage delete: %v", err)
 	}
 }

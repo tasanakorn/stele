@@ -1,6 +1,8 @@
 # Steop RPC smoke tests
 
-Copy-paste curl sequence that exercises every `POST /api/v1/steop/*` method end-to-end. Use this to verify a running `stele-server` after a schema or RPC change.
+Copy-paste curl sequences for the stele-server-backed surface (`mailbox.*`, `notify`). Use this to verify a running `stele-server` after a schema or RPC change.
+
+> For the local SQLite surfaces (session/state/storage/logs), use the `steop` CLI subcommands (`steop state get`, `steop storage list`, etc.) — see [local-storage.md](local-storage.md).
 
 For the contract itself (method signatures, identity model, schema), see [DESIGN.md](DESIGN.md).
 
@@ -17,75 +19,6 @@ CT="Content-Type: application/json"
 UUID=a1b2c3d4-5678-4abc-9def-0123456789ab
 ID="laptop:/tmp/demo:$UUID"
 PID="laptop:/tmp/demo"
-```
-
-## Session lifecycle
-
-```bash
-curl -sS -X POST "$URL/steop.session.start" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\",\"data\":{\"phase\":\"plan\"}}"
-
-curl -sS -X POST "$URL/steop.session.touch" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\"}"
-
-curl -sS -X POST "$URL/steop.session.get" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\"}"
-
-curl -sS -X POST "$URL/steop.session.list" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","state":"active"}'
-
-curl -sS -X POST "$URL/steop.project.list" -H "$H" -H "$CT" \
-  -d '{"host":"laptop"}'
-```
-
-## State + counters
-
-```bash
-curl -sS -X POST "$URL/steop.state.put" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\",\"data\":{\"phase\":\"execute\"},\"merge\":true}"
-
-curl -sS -X POST "$URL/steop.state.incr" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\",\"counter\":\"tool_calls\",\"delta\":1}"
-
-curl -sS -X POST "$URL/steop.state.reset" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\",\"counter\":\"tool_calls\",\"value\":0}"
-```
-
-## Status
-
-```bash
-curl -sS -X POST "$URL/steop.status.get" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\"}"
-```
-
-## Storage (session-level, 3-segment id)
-
-```bash
-curl -sS -X POST "$URL/steop.storage.put" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\",\"key\":\"plan\",\"content\":\"{\\\"steps\\\":[1,2,3]}\"}"
-
-curl -sS -X POST "$URL/steop.storage.get" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\",\"key\":\"plan\"}"
-
-curl -sS -X POST "$URL/steop.storage.list" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\"}"
-```
-
-## Storage (project-level, 2-segment id)
-
-```bash
-curl -sS -X POST "$URL/steop.storage.put" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$PID\",\"key\":\"brief\",\"content\":\"shared\"}"
-```
-
-## Log
-
-```bash
-curl -sS -X POST "$URL/steop.log.append" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\",\"event\":\"post_tool_use\",\"data\":{\"tool_name\":\"Bash\"}}"
-
-curl -sS -X POST "$URL/steop.log.query" -H "$H" -H "$CT" \
-  -d '{"host":"laptop","project_dir":"/tmp/demo","limit":20}'
 ```
 
 ## Mailbox
@@ -150,9 +83,3 @@ curl -sS -X POST "$URL/steop.mailbox.send" -H "$H" -H "$CT" \
 # Expect: HTTP 400 {"error":"id 3rd segment must be a session UUID or the literal 'USER'"}
 ```
 
-## Session stop
-
-```bash
-curl -sS -X POST "$URL/steop.session.stop" -H "$H" -H "$CT" \
-  -d "{\"id\":\"$ID\"}"
-```

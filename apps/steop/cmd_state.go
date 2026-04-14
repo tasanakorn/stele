@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
+	"github.com/tasanakorn/stele/apps/steop/internal/datadir"
+	"github.com/tasanakorn/stele/apps/steop/internal/store"
 )
 
 func runState(args []string) {
@@ -22,6 +25,13 @@ func runState(args []string) {
 	if globalProjectDir != "" {
 		c = c.WithRequestContext("", globalProjectDir)
 	}
+	db, err := openStoreDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "state: open db: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+	ctx := context.Background()
 
 	switch args[0] {
 	case "get":
@@ -29,15 +39,25 @@ func runState(args []string) {
 			fmt.Fprintln(os.Stderr, "usage: steop state get <session>")
 			os.Exit(2)
 		}
-		s, err := c.StateGet(c.SessionCompositeID(args[1]))
+		id, err := identFor(c, args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "state get: %v\n", err)
+			os.Exit(2)
+		}
+		s, err := db.StateGet(ctx, id)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "state get: %v\n", err)
 			os.Exit(1)
 		}
-		writeJSON(s)
+		writeJSON(sessionAsJSON(c, s))
 	case "set":
 		if len(args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: steop state set <session> <json>")
+			os.Exit(2)
+		}
+		id, err := identFor(c, args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "state set: %v\n", err)
 			os.Exit(2)
 		}
 		var data map[string]interface{}
@@ -45,12 +65,13 @@ func runState(args []string) {
 			fmt.Fprintf(os.Stderr, "state set: parse json: %v\n", err)
 			os.Exit(2)
 		}
-		s, err := c.StatePut(c.SessionCompositeID(args[1]), data, true)
+		raw, _ := json.Marshal(data)
+		s, err := db.StatePut(ctx, id, raw, true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "state set: %v\n", err)
 			os.Exit(1)
 		}
-		writeJSON(s)
+		writeJSON(sessionAsJSON(c, s))
 	case "incr":
 		if len(args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: steop state incr <session> <counter> [delta]")
@@ -65,7 +86,12 @@ func runState(args []string) {
 			}
 			delta = d
 		}
-		v, err := c.CounterIncr(c.SessionCompositeID(args[1]), args[2], delta)
+		id, err := identFor(c, args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "state incr: %v\n", err)
+			os.Exit(2)
+		}
+		v, err := db.StateIncr(ctx, id, args[2], delta)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "state incr: %v\n", err)
 			os.Exit(1)
@@ -85,7 +111,12 @@ func runState(args []string) {
 			}
 			value = v
 		}
-		v, err := c.CounterReset(c.SessionCompositeID(args[1]), args[2], value)
+		id, err := identFor(c, args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "state reset: %v\n", err)
+			os.Exit(2)
+		}
+		v, err := db.StateReset(ctx, id, args[2], value)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "state reset: %v\n", err)
 			os.Exit(1)
@@ -96,7 +127,12 @@ func runState(args []string) {
 			fmt.Fprintln(os.Stderr, "usage: steop state delete <session>")
 			os.Exit(2)
 		}
-		deleted, err := c.StateDelete(c.SessionCompositeID(args[1]))
+		id, err := identFor(c, args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "state delete: %v\n", err)
+			os.Exit(2)
+		}
+		deleted, err := db.StateDelete(ctx, id)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "state delete: %v\n", err)
 			os.Exit(1)
@@ -120,11 +156,16 @@ func runState(args []string) {
 		if sid == "" {
 			return
 		}
+		id, err := identFor(c, sid)
+		if err != nil {
+			return
+		}
 		data := map[string]interface{}{"phase": phase}
 		if mode != "" {
 			data["mode"] = mode
 		}
-		if _, err := c.StatePut(c.SessionCompositeID(sid), data, true); err != nil {
+		raw, _ := json.Marshal(data)
+		if _, err := db.StatePut(ctx, id, raw, true); err != nil {
 			fmt.Fprintf(os.Stderr, "state set-phase: %v\n", err)
 			return
 		}
@@ -134,8 +175,12 @@ func runState(args []string) {
 		if sid == "" {
 			return
 		}
-		data := map[string]interface{}{"phase": "", "mode": ""}
-		if _, err := c.StatePut(c.SessionCompositeID(sid), data, true); err != nil {
+		id, err := identFor(c, sid)
+		if err != nil {
+			return
+		}
+		raw, _ := json.Marshal(map[string]interface{}{"phase": "", "mode": ""})
+		if _, err := db.StatePut(ctx, id, raw, true); err != nil {
 			fmt.Fprintf(os.Stderr, "state clear-phase: %v\n", err)
 			return
 		}
@@ -154,4 +199,62 @@ func writeJSON(v interface{}) {
 	}
 	os.Stdout.Write(b)
 	os.Stdout.Write([]byte("\n"))
+}
+
+// openStoreDB opens the steop SQLite DB at the resolved path, creating and
+// migrating it as needed. Callers must Close() it.
+func openStoreDB() (*store.DB, error) {
+	path, err := datadir.DBPath()
+	if err != nil {
+		return nil, err
+	}
+	return store.Open(path)
+}
+
+// identFor builds a 3-segment store.Identity using the client's host /
+// project_dir and the given session id. Returns an error if the client hasn't
+// resolved its own identity.
+func identFor(c *client.Client, sessionID string) (store.Identity, error) {
+	if c.Host() == "" {
+		return store.Identity{}, fmt.Errorf("host is unknown")
+	}
+	if c.ProjectDir() == "" {
+		return store.Identity{}, fmt.Errorf("project_dir is unknown (set CLAUDE_PROJECT_DIR)")
+	}
+	return store.Identity{
+		Host:       c.Host(),
+		ProjectDir: c.ProjectDir(),
+		SessionID:  sessionID,
+	}, nil
+}
+
+// sessionAsJSON marshals a store.Session into the shape the CLI and watcher
+// have historically consumed (with composite `id`, decoded `data`, decoded
+// `counters`). Returns nil when sess is nil.
+func sessionAsJSON(c *client.Client, sess *store.Session) interface{} {
+	if sess == nil {
+		return nil
+	}
+	var data map[string]interface{}
+	if len(sess.Data) > 0 {
+		_ = json.Unmarshal(sess.Data, &data)
+	}
+	var counters map[string]int64
+	if len(sess.Counters) > 0 {
+		_ = json.Unmarshal(sess.Counters, &counters)
+	}
+	out := map[string]interface{}{
+		"id":             client.ComposeSessionID(sess.Host, sess.ProjectDir, sess.SessionID),
+		"state":          sess.State,
+		"started_at":     sess.StartedAt,
+		"last_active_at": sess.LastActiveAt,
+		"data":           data,
+		"counters":       counters,
+	}
+	if sess.StoppedAt != nil {
+		out["stopped_at"] = *sess.StoppedAt
+	} else {
+		out["stopped_at"] = nil
+	}
+	return out
 }

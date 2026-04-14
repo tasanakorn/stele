@@ -41,6 +41,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-017-st-watch-monitor-identity-wiring](prd/prd-017-st-watch-monitor-identity-wiring.md) | Implemented v0.13.3 | Wire /steop:st-watch to resolve identity via `steop identity` and embed public flags in Monitor command (PRD-016 consumer). |
 | [prd-018-st-xp-skill](prd/prd-018-st-xp-skill.md)                               | Proposed            | XP-style fast-feedback workflow skill (Clarify/Execute/Validate, parallel executors, cap 3)       |
 | [prd-019-stylos-foundation](prd/prd-019-stylos-foundation.md)                   | Proposed            | zenoh-based interconnect foundation — apps/stylos/ skeleton, ports 31746/31747, Rust+Go POC       |
+| [prd-020-steop-local-backend](prd/prd-020-steop-local-backend.md)               | Implemented v0.16.0 | Move steop session/project/phase/storage/logs to local SQLite; keep mailbox+notify on stele       |
 
 ## Stele server (`stele/`)
 
@@ -62,12 +63,13 @@ Agentic workflow pipeline plugin plus its `steop` companion binary.
 
 | Doc                                                             | Description                                                |
 | --------------------------------------------------------------- | ---------------------------------------------------------- |
-| [DESIGN.md](steop/DESIGN.md)                                    | Current design blueprint (v2, 0.7.0+)                      |
-| [smoke-tests.md](steop/smoke-tests.md)                          | Copy-paste curl sequence exercising every `steop.*` RPC    |
+| [DESIGN.md](steop/DESIGN.md)                                    | Current design blueprint (v2, 0.16.0+)                     |
+| [smoke-tests.md](steop/smoke-tests.md)                          | Curl sequences for stele-backed surface (mailbox, notify)  |
 | [gap-analysis.md](steop/gap-analysis.md)                        | steop vs cerbrix vs omc — feature comparison snapshot      |
 | [hook-gap.md](steop/hook-gap.md)                                | Deep dive on hook-event coverage (companion to gap doc)    |
 | [idle-detection.md](steop/idle-detection.md)                    | Detecting true Claude Code idle (signals + composite recipe) |
 | [cerbrix-gap-analysis.md](steop/cerbrix-gap-analysis.md)        | cerbrix feature catalog + planning ledger                  |
+| [local-storage.md](steop/local-storage.md)                      | Local SQLite backend for session/project/phase/storage/logs |
 
 ## Stylos foundation (`stylos/`)
 

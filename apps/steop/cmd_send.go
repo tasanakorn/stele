@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
+	"github.com/tasanakorn/stele/apps/steop/internal/store"
 )
 
 func runSend(args []string) {
@@ -76,8 +78,15 @@ func runSend(args []string) {
 		c = c.WithRequestContext("", globalProjectDir)
 	}
 
+	db, err := openStoreDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "send: open db: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
 	// Resolve target.
-	to, err := client.ResolveTarget(c, target)
+	to, err := resolveSendTarget(db, c, target)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "send: %v\n", err)
 		os.Exit(1)
@@ -103,4 +112,80 @@ func runSend(args []string) {
 	}
 
 	fmt.Printf("sent task to %s (message_id: %d, mode: %s)\n", to, msg.MessageID, mode)
+}
+
+// resolveSendTarget resolves a short project name to a full composite ID.
+// If target already contains ":", it is returned as-is (full ID passthrough).
+// Otherwise, active sessions on the local host are searched by project_dir
+// suffix in the local store.
+func resolveSendTarget(db *store.DB, c *client.Client, target string) (string, error) {
+	if strings.Contains(target, ":") {
+		return target, nil
+	}
+
+	sessions, err := db.SessionList(context.Background(), c.Host(), "", "active", 0)
+	if err != nil {
+		return "", fmt.Errorf("failed to list sessions: %w", err)
+	}
+
+	type match struct {
+		id           string
+		projectDir   string
+		lastActiveAt int64
+	}
+	var matches []match
+	seen := make(map[string]bool)
+
+	for _, s := range sessions {
+		projectDir := s.ProjectDir
+		if projectDir != target && !strings.HasSuffix(projectDir, "/"+target) {
+			continue
+		}
+		seen[projectDir] = true
+		// Only consider sessions with a real UUID 3rd segment.
+		if s.SessionID == "" || s.SessionID == "USER" {
+			continue
+		}
+		matches = append(matches, match{
+			id:           client.ComposeSessionID(s.Host, s.ProjectDir, s.SessionID),
+			projectDir:   projectDir,
+			lastActiveAt: s.LastActiveAt,
+		})
+	}
+
+	if len(matches) == 0 && len(seen) == 0 {
+		return "", fmt.Errorf("no active sessions found matching %q", target)
+	}
+
+	// No UUID sessions but projectDir was seen — fall back to 2-segment ID.
+	if len(matches) == 0 {
+		if len(seen) > 1 {
+			var dirs []string
+			for d := range seen {
+				dirs = append(dirs, "  "+d)
+			}
+			return "", fmt.Errorf("ambiguous target %q matches multiple projects:\n%s\nUse a more specific name or pass a full composite ID.", target, strings.Join(dirs, "\n"))
+		}
+		for d := range seen {
+			return client.ComposeProjectID(c.Host(), d), nil
+		}
+	}
+
+	if len(seen) > 1 {
+		var dirs []string
+		for d := range seen {
+			dirs = append(dirs, "  "+d)
+		}
+		return "", fmt.Errorf("ambiguous target %q matches multiple projects:\n%s\nUse a more specific name or pass a full composite ID.", target, strings.Join(dirs, "\n"))
+	}
+
+	// Single project_dir — pick the session with the latest last_active_at.
+	best := matches[0]
+	for _, m := range matches[1:] {
+		if m.lastActiveAt > best.lastActiveAt {
+			best = m
+		}
+	}
+
+	return best.id, nil
 }

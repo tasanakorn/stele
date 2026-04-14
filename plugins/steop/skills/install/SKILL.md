@@ -65,7 +65,17 @@ To see which commit a currently-installed binary was built from:
 go version -m "$(which steop)" | grep vcs
 ```
 
-### Step 5: Verify Installation
+### Step 5: Initialize the Local Store
+
+`steop` now keeps session state, storage blobs, and hook logs in a local SQLite DB at `$XDG_DATA_HOME/steop/steop.db` (defaults to `~/.local/share/steop/steop.db`). Pre-create it so the first hook fires without paying the schema-init cost:
+
+```bash
+steop db init
+```
+
+This prints the resolved DB path and exits 0. Re-running is a no-op — the schema is versioned and migrations are idempotent.
+
+### Step 6: Verify Installation
 
 Check that `steop` is reachable on `PATH`:
 
@@ -81,7 +91,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Then re-open their shell and retry `steop version`. If it still fails, stop and ask the user to troubleshoot their `PATH`.
 
-### Step 6: Next Steps
+### Step 7: Next Steps
 
 Tell the user:
 

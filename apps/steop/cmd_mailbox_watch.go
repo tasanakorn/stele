@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
+	"github.com/tasanakorn/stele/apps/steop/internal/logging"
+	"github.com/tasanakorn/stele/apps/steop/internal/store"
 )
 
 const throttleTimeout = 5 * time.Minute
@@ -72,6 +75,21 @@ func runMailboxWatch(args []string) {
 
 	c, id := mailboxClientAndID()
 
+	db, err := openStoreDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mailbox watch: open db: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+	ctx := context.Background()
+
+	// Build watcher's own store identity for local KV writes (watcher:state /
+	// watcher:heartbeat). Mirrors the mailbox id's arity.
+	watcherStoreID := store.Identity{Host: c.Host(), ProjectDir: c.ProjectDir()}
+	if globalSessionID != "" {
+		watcherStoreID.SessionID = globalSessionID
+	}
+
 	// Build the set of mailbox IDs to poll. The watcher must cover both the
 	// project-level (2-segment) and session-level (3-segment) mailboxes so that
 	// senders can address either form and the message still arrives.
@@ -85,17 +103,19 @@ func runMailboxWatch(args []string) {
 		pollIDs = append(pollIDs, c.ProjectID())
 	} else {
 		// id is project-level — also poll the most recently active session
-		if sid := latestSessionID(c); sid != "" {
+		if sid := latestSessionID(ctx, db, c); sid != "" {
 			pollIDs = append(pollIDs, sid)
 		}
 	}
 
-	// Fire-and-forget lifecycle writes via FastClone() (500ms timeout).
 	now := time.Now().UTC().Format(time.RFC3339)
 	watchState := fmt.Sprintf(`{"status":"watching","task":null,"updated_at":%q}`, now)
-	fc := c.FastClone()
-	go fc.StoragePut(id, "watcher:state", watchState)
-	go fc.StoragePut(id, "watcher:heartbeat", now)
+	if _, err := db.StoragePut(ctx, watcherStoreID, "watcher:state", watchState); err != nil {
+		logging.Debugf("watcher: storage put watcher:state: %v", err)
+	}
+	if _, err := db.StoragePut(ctx, watcherStoreID, "watcher:heartbeat", now); err != nil {
+		logging.Debugf("watcher: storage put watcher:heartbeat: %v", err)
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -226,11 +246,11 @@ func runMailboxWatch(args []string) {
 		case <-ticker.C:
 			poll()
 			now := time.Now().UTC().Format(time.RFC3339)
-			c.StoragePut(id, "watcher:state", fmt.Sprintf(`{"status":"watching","task":null,"updated_at":%q}`, now))
-			c.StoragePut(id, "watcher:heartbeat", now)
+			db.StoragePut(ctx, watcherStoreID, "watcher:state", fmt.Sprintf(`{"status":"watching","task":null,"updated_at":%q}`, now))
+			db.StoragePut(ctx, watcherStoreID, "watcher:heartbeat", now)
 		case <-sigCh:
-			c.StorageDelete(id, "watcher:state")
-			c.StorageDelete(id, "watcher:heartbeat")
+			db.StorageDelete(ctx, watcherStoreID, "watcher:state")
+			db.StorageDelete(ctx, watcherStoreID, "watcher:heartbeat")
 			return
 		}
 	}
@@ -240,31 +260,28 @@ func runMailboxWatch(args []string) {
 // UUID session for this client's project, or "" if none can be found. Used by
 // the watcher to also poll the session-level mailbox when started without an
 // explicit --x-session-id.
-func latestSessionID(c *client.Client) string {
-	// Guard: without a project_dir filter the server returns sessions for all
-	// projects on the host, which would pick up an unrelated session.
+func latestSessionID(ctx context.Context, db *store.DB, c *client.Client) string {
+	// Guard: without a project_dir filter we'd pick up an unrelated session.
 	if c.ProjectDir() == "" {
 		return ""
 	}
-	sessions, err := c.SessionList(c.Host(), c.ProjectDir(), "active", 0)
+	sessions, err := db.SessionList(ctx, c.Host(), c.ProjectDir(), "active", 0)
 	if err != nil {
 		return ""
 	}
-	var best *client.Session
-	var bestTime time.Time
+	var best *store.Session
+	var bestTime int64
 	for i, s := range sessions {
-		parts := strings.SplitN(s.ID, ":", 3)
-		if len(parts) != 3 || parts[2] == "USER" {
+		if s.SessionID == "" || s.SessionID == "USER" {
 			continue
 		}
-		t, _ := time.Parse(time.RFC3339Nano, s.LastActiveAt)
-		if best == nil || t.After(bestTime) {
+		if best == nil || s.LastActiveAt > bestTime {
 			best = &sessions[i]
-			bestTime = t
+			bestTime = s.LastActiveAt
 		}
 	}
 	if best == nil {
 		return ""
 	}
-	return best.ID
+	return client.ComposeSessionID(best.Host, best.ProjectDir, best.SessionID)
 }

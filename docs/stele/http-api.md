@@ -336,7 +336,9 @@ Open specific entities by name with their direct neighbor relations.
 
 ## Steop Extensions
 
-The stele server hosts the RPC surface used by the **steop** workflow pipeline at `/api/v1/steop/*`. These endpoints live in the same process but are served by a separate router (`apps/stele/crates/stele-server/src/steop_api.rs`) and back onto the `steop_sessions`, `steop_storage_session`, `steop_storage_project`, `steop_mailbox`, and `steop_logs` tables. Design rationale and schema details are in [`../steop/DESIGN.md`](../steop/DESIGN.md).
+The stele server hosts the cross-agent RPC surface used by the **steop** workflow pipeline at `/api/v1/steop/*`. These endpoints live in the same process but are served by a separate router (`apps/stele/crates/stele-server/src/steop_api.rs`) and back onto the `steop_mailbox` table. Design rationale and schema details are in [`../steop/DESIGN.md`](../steop/DESIGN.md).
+
+> The session, state, storage, and log surfaces moved to a steop-local SQLite at v0.16.0 per [PRD-020](../prd/prd-020-steop-local-backend.md). Only `mailbox` and `notify` remain on stele-server as the cross-agent surface.
 
 ### Transport shape
 
@@ -350,73 +352,19 @@ X-Stele-Key: <auth key>
 { ...body... }
 ```
 
-There are no path parameters, no query parameters, and no header-based identity. The method name is dot-separated (`steop.session.start`, `steop.storage.put`, ...). Responses are JSON objects; errors use `{ "error": "message" }` with an appropriate HTTP status code.
+There are no path parameters, no query parameters, and no header-based identity. The method name is dot-separated (`steop.mailbox.send`, `steop.notify`, ...). Responses are JSON objects; errors use `{ "error": "message" }` with an appropriate HTTP status code.
 
 ### Composite identity
 
 Steop uses SSH/SCP-style composite identifiers in the request body:
 
-- Project: `host` + `project_dir` (e.g. `vm-02` + `/home/tas/stele`)
-- Session: `host` + `project_dir` + `session_id`
+- Project: `host:project_dir` — 2-segment
+- Session: `host:project_dir:UUID` — 3-segment (canonical 8-4-4-4-12 UUID)
+- User: `host:project_dir:USER` — 3-segment (literal `USER`)
 
-`session_id` is a globally unique Claude Code UUID. Read methods (`session.get`, `state.get`, `status.get`) accept a bare `{session_id}` as a short form; write methods require the full triple. The server performs no validation — clients are responsible for identifier completeness.
-
-The v0.5 `X-Steop-Host` / `X-Steop-Project-Dir` headers are **ignored** by v2.
+The server validates segment grammar but not semantic correctness (hostname format, absolute path, etc.). Clients are responsible for identifier completeness.
 
 ### Method catalogue
-
-#### Session lifecycle
-
-| Method                | Body                                                           | Response                              |
-| --------------------- | -------------------------------------------------------------- | ------------------------------------- |
-| `steop.session.start` | `{host, project_dir, session_id, data?}`                       | `Session`                             |
-| `steop.session.stop`  | `{host, project_dir, session_id}`                              | `Session`                             |
-| `steop.session.touch` | `{host, project_dir, session_id}`                              | `Session`                             |
-| `steop.session.get`   | `{session_id}` or `{host, project_dir, session_id}`            | `Session` or 404                      |
-| `steop.session.list`  | `{host?, project_dir?, state?, limit?}`                        | `{sessions: Session[]}`               |
-| `steop.project.list`  | `{host?}`                                                      | `{projects: [{host, project_dir}]}`   |
-
-`start` is idempotent: an existing row is reactivated (`state='active'`, `stopped_at=null`, `data` merged). `list` is ordered by `last_active_at` DESC, default `limit=100`. `state` filter accepts `"active"` or `"stopped"`.
-
-#### State and counters
-
-| Method               | Body                                                         | Response                  |
-| -------------------- | ------------------------------------------------------------ | ------------------------- |
-| `steop.state.get`    | `{session_id}` or full triple                                | `Session` or 404          |
-| `steop.state.put`    | `{host, project_dir, session_id, data, merge?=true}`         | `Session`                 |
-| `steop.state.incr`   | `{host, project_dir, session_id, counter, delta?=1}`         | `{counter, value}`        |
-| `steop.state.reset`  | `{host, project_dir, session_id, counter, value?=0}`         | `{counter, value}`        |
-| `steop.state.delete` | `{host, project_dir, session_id}`                            | `{deleted: true\|false}`  |
-
-`state.put` performs a shallow merge of top-level keys unless `merge:false` replaces `data` entirely. `incr`/`reset` operate on the `counters` JSON column. All writes refresh `last_active_at` and create the session row if absent.
-
-#### Statusline
-
-| Method             | Body                          | Response                         |
-| ------------------ | ----------------------------- | -------------------------------- |
-| `steop.status.get` | `{session_id}` or full triple | `StatusProjection` (always 200)  |
-
-Projects `{session_id, mode, phase, step, tool_calls, loop_count, step_retry, last_active_at}`. Unknown sessions return defaulted values.
-
-#### Storage
-
-| Method                 | Body                                             | Response                              |
-| ---------------------- | ------------------------------------------------ | ------------------------------------- |
-| `steop.storage.put`    | `{host, project_dir, key, content, session_id?}` | `{key, updated_at}`                   |
-| `steop.storage.get`    | `{host, project_dir, key, session_id?}`          | `StorageBlob` or 404                  |
-| `steop.storage.delete` | `{host, project_dir, key, session_id?}`          | `{deleted: true\|false}`              |
-| `steop.storage.list`   | `{host, project_dir, session_id?}`               | `{items: [{key, updated_at, size}]}`  |
-
-Presence of `session_id` selects `steop_storage_session`; absence selects `steop_storage_project`.
-
-#### Log
-
-| Method             | Body                                            | Response            |
-| ------------------ | ----------------------------------------------- | ------------------- |
-| `steop.log.append` | `{host, project_dir, session_id, event, data?}` | `{id}`              |
-| `steop.log.query`  | `{host?, project_dir?, session_id?, limit?=200}`| `{logs: LogRow[]}`  |
-
-Ordered `created_at` DESC. All filter fields are optional and combine additively.
 
 #### Mailbox
 
@@ -442,53 +390,6 @@ Fire-and-forget local OS notification. Desktop builds render via system notifica
 ### Steop response types
 
 ```json
-// Session
-{
-  "host":           "string",
-  "project_dir":    "string",
-  "session_id":     "string",
-  "state":          "active | stopped",
-  "started_at":     "string (RFC3339)",
-  "last_active_at": "string (RFC3339)",
-  "stopped_at":     "string (RFC3339) | null",
-  "data":           {},
-  "counters":       { "tool_calls": 12 }
-}
-
-// StatusProjection
-{
-  "session_id":     "string",
-  "mode":           "string",
-  "phase":          "string",
-  "step":           "string",
-  "tool_calls":     0,
-  "loop_count":     0,
-  "step_retry":     0,
-  "last_active_at": "string (RFC3339)"
-}
-
-// StorageBlob
-{
-  "host":        "string",
-  "project_dir": "string",
-  "session_id":  "string | null",
-  "key":         "string",
-  "content":     "string",
-  "created_at":  "string (RFC3339)",
-  "updated_at":  "string (RFC3339)"
-}
-
-// LogRow
-{
-  "id":          1234,
-  "host":        "string",
-  "project_dir": "string",
-  "session_id":  "string",
-  "event":       "string",
-  "data":        {},
-  "created_at":  "string (RFC3339)"
-}
-
 // MailboxRow
 {
   "message_id":   1234,
@@ -502,33 +403,6 @@ Fire-and-forget local OS notification. Desktop builds render via system notifica
   "status":       "NEW | READ | ARCHIVE"
 }
 ```
-
-### Migrated from v0.5
-
-Every REST route that previously used path or query parameters has been removed. Clients on v0.5 must migrate to the RPC methods above — there is no deprecation window (stele is pre-1.0). A rough mapping:
-
-| v0.5 route                                | v0.6 method            |
-| ----------------------------------------- | ---------------------- |
-| `PUT /steop/storage?scope=&key=`          | `steop.storage.put`    |
-| `GET /steop/storage?scope=&key=`          | `steop.storage.get`    |
-| `DELETE /steop/storage?scope=&key=`       | `steop.storage.delete` |
-| `GET /steop/storage/list?scope=`          | `steop.storage.list`   |
-| `GET /steop/storage/scopes`               | `steop.project.list`   |
-| `GET /steop/state/:id`                    | `steop.state.get`      |
-| `PUT /steop/state/:id`                    | `steop.state.put`      |
-| `DELETE /steop/state/:id`                 | `steop.state.delete`   |
-| `POST /steop/state/:id/incr`              | `steop.state.incr`     |
-| `POST /steop/state/:id/reset`             | `steop.state.reset`    |
-| `GET /steop/status/:id`                   | `steop.status.get`     |
-| `GET /steop/sessions`                     | `steop.session.list`   |
-| `GET /steop/sessions/:id`                 | `steop.session.get`    |
-| `POST /steop/notify`                      | `steop.notify`         |
-| `POST /steop/log`                         | `steop.log.append`     |
-| `GET /steop/log`                          | `steop.log.query`      |
-| `POST /steop/inbox`                       | `steop.mailbox.send`   |
-| `GET /steop/inbox`                        | `steop.mailbox.list`   |
-
-The `X-Steop-Host` / `X-Steop-Project-Dir` headers are no longer read.
 
 ---
 

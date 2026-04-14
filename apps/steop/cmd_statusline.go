@@ -1,13 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
+	"github.com/tasanakorn/stele/apps/steop/internal/datadir"
+	"github.com/tasanakorn/stele/apps/steop/internal/store"
 )
 
 // ANSI escape sequences used by the statusline renderer. One-shot print only —
@@ -53,8 +55,7 @@ type statuslineOpts struct {
 // When stdin contains Claude Code's session JSON (and neither --json nor
 // --line2-only is set), line 1 is printed first: model | project | git branch
 // | context bar | cost or rate limits. Line 2 is always printed: the steop
-// pipeline state fetched from the stele-server, or "idle"/"offline" on
-// fallback.
+// pipeline state read from the local store, or "idle"/"offline" on fallback.
 //
 // Always exits 0 — a broken statusline must not stall a Claude Code session.
 func runStatusline(args []string) {
@@ -90,31 +91,20 @@ func runStatusline(args []string) {
 	}
 
 	var (
-		status    *client.Status
+		status    *store.Status
 		statusMsg string
 	)
+
 	c, err := client.NewFromConfig()
 	if err != nil {
 		statusMsg = "offline"
-	} else if sid, err := resolveStatuslineSession(c, opts.session, sess); err != nil {
-		if strings.Contains(err.Error(), "no sessions") {
-			statusMsg = "idle"
-		} else {
-			statusMsg = "offline"
-		}
-	} else if s, err := c.StatusGet(sid); err != nil {
-		if errors.Is(err, client.ErrNotFound) {
-			statusMsg = "idle"
-		} else {
-			statusMsg = "offline"
-		}
 	} else {
-		status = s
+		status, statusMsg = loadStatuslineStatus(c, opts.session, sess)
 	}
 
 	if opts.jsonOut {
 		if status != nil {
-			b, _ := json.Marshal(status)
+			b, _ := json.Marshal(statusAsJSON(c, status))
 			fmt.Println(string(b))
 			return
 		}
@@ -131,34 +121,70 @@ func runStatusline(args []string) {
 	fmt.Println(line2)
 }
 
-func resolveStatuslineSession(c *client.Client, wanted string, sess *Session) (string, error) {
+// loadStatuslineStatus opens the DB lazily via OpenIfExists (§4.9): if the DB
+// file is absent, returns ("", "idle") immediately — no cold-create cost. When
+// resolution or lookup fails, returns a fallback message.
+func loadStatuslineStatus(c *client.Client, wanted string, sess *Session) (*store.Status, string) {
+	path, err := datadir.DBPath()
+	if err != nil {
+		return nil, "offline"
+	}
+	db, err := store.OpenIfExists(path)
+	if err != nil {
+		return nil, "offline"
+	}
+	if db == nil {
+		return nil, "idle"
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	id, err := resolveStatuslineSession(ctx, db, c, wanted, sess)
+	if err != nil {
+		if strings.Contains(err.Error(), "no sessions") {
+			return nil, "idle"
+		}
+		return nil, "offline"
+	}
+	s, err := db.StatusGet(ctx, id)
+	if err != nil {
+		return nil, "offline"
+	}
+	if s == nil {
+		return nil, "idle"
+	}
+	return s, ""
+}
+
+func resolveStatuslineSession(ctx context.Context, db *store.DB, c *client.Client, wanted string, sess *Session) (store.Identity, error) {
 	// Priority 1: explicit --session= flag
 	if wanted != "" {
-		return c.SessionCompositeID(wanted), nil
+		return store.Identity{Host: c.Host(), ProjectDir: c.ProjectDir(), SessionID: wanted}, nil
 	}
 	// Priority 2: session_id from stdin JSON (exact own-session lookup)
 	if sess != nil && sess.SessionID != "" {
-		cc := c
+		projectDir := c.ProjectDir()
 		if sess.Workspace != nil && sess.Workspace.ProjectDir != "" {
-			cc = c.WithRequestContext("", sess.Workspace.ProjectDir)
+			projectDir = sess.Workspace.ProjectDir
 		}
-		return cc.SessionCompositeID(sess.SessionID), nil
+		return store.Identity{Host: c.Host(), ProjectDir: projectDir, SessionID: sess.SessionID}, nil
 	}
 	// Priority 3: global most-recent (fallback for manual invocation)
-	sessions, err := c.SessionList("", "", "", 1)
+	sessions, err := db.SessionList(ctx, "", "", "", 1)
 	if err != nil {
-		return "", err
+		return store.Identity{}, err
 	}
 	if len(sessions) == 0 {
-		return "", errors.New("no sessions")
+		return store.Identity{}, fmt.Errorf("no sessions")
 	}
-	return sessions[0].ID, nil
+	s := sessions[0]
+	return store.Identity{Host: s.Host, ProjectDir: s.ProjectDir, SessionID: s.SessionID}, nil
 }
 
 // formatStatuslineLine renders the single steop line.
 // Shape:  steop: [<mode>] <phase> <step>  loop=N tools=N retries=N
 // On fallback:  steop: <msg>  (msg ∈ {"idle", "offline", "error"})
-func formatStatuslineLine(s *client.Status, fallback string, noColor bool) string {
+func formatStatuslineLine(s *store.Status, fallback string, noColor bool) string {
 	prefix := colorize("steop:", statuslineBrightWhite+statuslineBold, noColor)
 
 	if s == nil {
@@ -199,6 +225,20 @@ func formatStatuslineLine(s *client.Status, fallback string, noColor bool) strin
 
 	return fmt.Sprintf("%s %s %s %s  %s",
 		prefix, modeTok, phaseTok, stepTok, counterTok)
+}
+
+// statusAsJSON shapes a store.Status for CLI --json output.
+func statusAsJSON(c *client.Client, s *store.Status) interface{} {
+	return map[string]interface{}{
+		"id":             client.ComposeSessionID(s.Host, s.ProjectDir, s.SessionID),
+		"mode":           s.Mode,
+		"phase":          s.Phase,
+		"step":           s.Step,
+		"tool_calls":     s.ToolCalls,
+		"loop_count":     s.LoopCount,
+		"step_retry":     s.StepRetry,
+		"last_active_at": s.LastActiveAt,
+	}
 }
 
 func colorize(text, color string, noColor bool) string {

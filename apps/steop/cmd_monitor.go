@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
+	"github.com/tasanakorn/stele/apps/steop/internal/store"
 )
 
 func runMonitor(args []string) {
@@ -40,33 +41,51 @@ func runMonitor(args []string) {
 		fmt.Fprintf(os.Stderr, "monitor: client init: %v\n", err)
 		os.Exit(1)
 	}
+	if globalProjectDir != "" {
+		c = c.WithRequestContext("", globalProjectDir)
+	}
+	db, err := openStoreDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "monitor: open db: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+	ctx := context.Background()
 
 	if len(positional) == 0 {
-		sessions, err := c.SessionList("", "", "", limit)
+		sessions, err := db.SessionList(ctx, "", "", "", limit)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "monitor: list: %v\n", err)
 			os.Exit(1)
 		}
 		if jsonOut {
-			writeJSON(sessions)
+			out := make([]interface{}, 0, len(sessions))
+			for i := range sessions {
+				out = append(out, sessionAsJSON(c, &sessions[i]))
+			}
+			writeJSON(out)
 			return
 		}
 		printSessionsTable(sessions)
 		return
 	}
 
-	id := c.SessionCompositeID(positional[0])
-	state, err := c.SessionGet(id)
+	id, err := identFor(c, positional[0])
 	if err != nil {
-		if errors.Is(err, client.ErrNotFound) {
-			fmt.Fprintf(os.Stderr, "monitor: session not found: %s\n", id)
-			os.Exit(1)
-		}
+		fmt.Fprintf(os.Stderr, "monitor: %v\n", err)
+		os.Exit(1)
+	}
+	state, err := db.SessionGet(ctx, id)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "monitor: inspect: %v\n", err)
 		os.Exit(1)
 	}
+	if state == nil {
+		fmt.Fprintf(os.Stderr, "monitor: session not found: %s\n", client.ComposeSessionID(id.Host, id.ProjectDir, id.SessionID))
+		os.Exit(1)
+	}
 	if jsonOut {
-		writeJSON(state)
+		writeJSON(sessionAsJSON(c, state))
 		return
 	}
 	printSessionInspect(state)
@@ -77,7 +96,7 @@ func printMonitorUsage() {
 	fmt.Fprintln(os.Stderr, "alias: steop inspect ...")
 }
 
-func printSessionsTable(sessions []client.Session) {
+func printSessionsTable(sessions []store.Session) {
 	if len(sessions) == 0 {
 		fmt.Println("(no sessions)")
 		return
@@ -88,27 +107,33 @@ func printSessionsTable(sessions []client.Session) {
 		if state == "" {
 			state = "-"
 		}
-		fmt.Printf("%-60s  %-8s  %s\n", s.ID, state, s.LastActiveAt)
+		id := client.ComposeSessionID(s.Host, s.ProjectDir, s.SessionID)
+		fmt.Printf("%-60s  %-8s  %d\n", id, state, s.LastActiveAt)
 	}
 }
 
-func printSessionInspect(s *client.State) {
-	fmt.Printf("id            : %s\n", s.ID)
+func printSessionInspect(s *store.Session) {
+	id := client.ComposeSessionID(s.Host, s.ProjectDir, s.SessionID)
+	fmt.Printf("id            : %s\n", id)
 	fmt.Printf("state         : %s\n", s.State)
-	fmt.Printf("started_at    : %s\n", s.StartedAt)
-	fmt.Printf("last_active_at: %s\n", s.LastActiveAt)
+	fmt.Printf("started_at    : %d\n", s.StartedAt)
+	fmt.Printf("last_active_at: %d\n", s.LastActiveAt)
 
+	var data map[string]interface{}
+	if len(s.Data) > 0 {
+		_ = json.Unmarshal(s.Data, &data)
+	}
 	fmt.Println("data:")
-	if len(s.Data) == 0 {
+	if len(data) == 0 {
 		fmt.Println("  (empty)")
 	} else {
-		keys := make([]string, 0, len(s.Data))
-		for k := range s.Data {
+		keys := make([]string, 0, len(data))
+		for k := range data {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			v := s.Data[k]
+			v := data[k]
 			switch vv := v.(type) {
 			case string:
 				fmt.Printf("  %s = %s\n", k, vv)
@@ -121,17 +146,21 @@ func printSessionInspect(s *client.State) {
 		}
 	}
 
+	var counters map[string]int64
+	if len(s.Counters) > 0 {
+		_ = json.Unmarshal(s.Counters, &counters)
+	}
 	fmt.Println("counters:")
-	if len(s.Counters) == 0 {
+	if len(counters) == 0 {
 		fmt.Println("  (none)")
 	} else {
-		keys := make([]string, 0, len(s.Counters))
-		for k := range s.Counters {
+		keys := make([]string, 0, len(counters))
+		for k := range counters {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			fmt.Printf("  %s = %d\n", k, s.Counters[k])
+			fmt.Printf("  %s = %d\n", k, counters[k])
 		}
 	}
 }

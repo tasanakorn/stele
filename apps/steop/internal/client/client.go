@@ -126,33 +126,20 @@ func (c *Client) SessionCompositeID(sessionID string) string {
 	return ComposeSessionID(c.host, c.projectDir, sessionID)
 }
 
-// ResolveProjectDir looks up the project_dir from the server using session.list
-// when CLAUDE_PROJECT_DIR was not available. Called once; subsequent calls are
-// no-ops. Returns true if project_dir is now populated.
-func (c *Client) ResolveProjectDir(sessionID string) bool {
-	if c.projectDir != "" {
-		return true
+// SetResolvedProjectDir records a project_dir that was resolved lazily by the
+// caller (typically via the local store's SessionList). Subsequent
+// ProjectDirResolved() calls report true. No-op when projectDir is already
+// populated.
+func (c *Client) SetResolvedProjectDir(projectDir string) {
+	if c == nil || c.projectDir != "" || projectDir == "" {
+		return
 	}
-	sessions, err := c.SessionList(c.host, "", "", 0)
-	if err != nil {
-		return false
-	}
-	for _, s := range sessions {
-		// Match by session_id suffix in the composite id
-		if strings.HasSuffix(s.ID, ":"+sessionID) {
-			parts := strings.SplitN(s.ID, ":", 3)
-			if len(parts) == 3 {
-				c.projectDir = parts[1]
-				c.projectDirResolved = true
-				return true
-			}
-		}
-	}
-	return false
+	c.projectDir = sanitizeHeader(projectDir)
+	c.projectDirResolved = true
 }
 
 // ProjectDirResolved returns true if the project_dir was looked up from the
-// server rather than taken from CLAUDE_PROJECT_DIR.
+// local store rather than taken from CLAUDE_PROJECT_DIR.
 func (c *Client) ProjectDirResolved() bool {
 	return c.projectDirResolved
 }

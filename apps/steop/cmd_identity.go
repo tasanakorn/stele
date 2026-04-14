@@ -20,7 +20,12 @@ func runIdentity(args []string) {
 		c = c.WithRequestContext("", globalProjectDir)
 	}
 	if globalSessionID != "" && c.ProjectDir() == "" {
-		c.ResolveProjectDir(globalSessionID)
+		// Best-effort project_dir resolution from local store. Failure is
+		// non-fatal: downstream ProjectDir() simply stays empty.
+		if db, err := openStoreDB(); err == nil {
+			resolveProjectDir(db, c, globalSessionID)
+			db.Close()
+		}
 	}
 	out := struct {
 		SessionID          string `json:"session_id"`
