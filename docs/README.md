@@ -42,6 +42,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-018-st-xp-skill](prd/prd-018-st-xp-skill.md)                               | Proposed            | XP-style fast-feedback workflow skill (Clarify/Execute/Validate, parallel executors, cap 3)       |
 | [prd-019-stylos-foundation](prd/prd-019-stylos-foundation.md)                   | Proposed            | zenoh-based interconnect foundation — apps/stylos/ skeleton, ports 31746/31747, Rust+Go POC       |
 | [prd-020-steop-local-backend](prd/prd-020-steop-local-backend.md)               | Implemented v0.16.0 | Move steop session/project/phase/storage/logs to local SQLite; keep mailbox+notify on stele       |
+| [prd-021-trim-hook-mailbox-posts](prd/prd-021-trim-hook-mailbox-posts.md)       | Implemented v0.16.1 | Stop HandleStop/HandleSessionEnd from posting HOOK:* mailbox rows; confine writes to task pipeline |
 
 ## Stele server (`stele/`)
 

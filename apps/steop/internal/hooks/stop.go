@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/tasanakorn/stele/apps/steop/internal/client"
 	"github.com/tasanakorn/stele/apps/steop/internal/logging"
@@ -37,39 +36,6 @@ func HandleStop(in *HookInput, db *store.DB, c *client.Client) []byte {
 	}
 	sid := c.SessionCompositeID(in.SessionID)
 	ctx := context.Background()
-
-	state, stateErr := db.StateGet(ctx, id)
-	if stateErr != nil {
-		logging.Debugf("stop state get failed: %v", stateErr)
-	}
-
-	if state != nil {
-		var data map[string]interface{}
-		var counters map[string]int64
-		if len(state.Data) > 0 {
-			_ = json.Unmarshal(state.Data, &data)
-		}
-		if len(state.Counters) > 0 {
-			_ = json.Unmarshal(state.Counters, &counters)
-		}
-		payload := map[string]interface{}{
-			"cwd":      in.Cwd,
-			"data":     data,
-			"counters": counters,
-			"ended_at": time.Now().UTC().Format(time.RFC3339),
-		}
-		subject := buildBody(in.LastAssistantMessage)
-		if _, err := c.MailboxSend(sid, c.ProjectID(), client.MailboxSendOptions{
-			MessageType: "HOOK:Stop",
-			Subject:     subject,
-			Payload:     payload,
-		}); err != nil {
-			logging.Debugf("stop mailbox send failed: %v", err)
-		}
-		if pm, ok := data["persistent_mode"].(bool); ok && pm {
-			logging.Debugf("persistent_mode set but not honored in v1")
-		}
-	}
 
 	cleanupWatcherTasks(db, c, id, sid)
 

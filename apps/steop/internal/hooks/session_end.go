@@ -31,41 +31,6 @@ func HandleSessionEnd(in *HookInput, db *store.DB, c *client.Client) []byte {
 		logging.Debugf("session_end log failed: %v", err)
 	}
 
-	state, stateErr := db.StateGet(ctx, id)
-	if stateErr != nil {
-		logging.Debugf("session_end state get failed: %v", stateErr)
-	}
-
-	payload := map[string]interface{}{
-		"cwd":             in.Cwd,
-		"reason":          in.Reason,
-		"transcript_path": in.TranscriptPath,
-	}
-	if c.ProjectDirResolved() {
-		payload["resolved_project_dir"] = true
-	}
-	if state != nil {
-		var data, counters any
-		if len(state.Data) > 0 {
-			_ = json.Unmarshal(state.Data, &data)
-		}
-		if len(state.Counters) > 0 {
-			_ = json.Unmarshal(state.Counters, &counters)
-		}
-		payload["data"] = data
-		payload["counters"] = counters
-	}
-	subject := in.Reason
-	if subject == "" {
-		subject = "session ended"
-	}
-	if _, err := c.MailboxSend(sid, c.ProjectID(), client.MailboxSendOptions{
-		MessageType: "HOOK:SessionEnd",
-		Subject:     subject,
-		Payload:     payload,
-	}); err != nil {
-		logging.Debugf("session_end mailbox send failed: %v", err)
-	}
 	cleanupWatcherTasks(db, c, id, sid)
 	if _, err := db.SessionStop(ctx, id); err != nil {
 		logging.Debugf("session_end session stop failed: %v", err)

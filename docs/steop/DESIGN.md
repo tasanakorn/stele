@@ -1,4 +1,4 @@
-# Steop Design (v3, 0.16.0)
+# Steop Design (v3, 0.16.1)
 
 ## 1. Purpose
 
@@ -162,7 +162,7 @@ Legal transitions: `NEW → READ`, `NEW → ARCHIVE`, `READ → ARCHIVE`. Illega
 
 Unchanged from v0.7 `kind` (renamed for clarity). Reserved namespaces:
 
-- `HOOK:*` — hook-originated messages (`HOOK:Stop`, `HOOK:SessionEnd`, `HOOK:PreCompact`, …)
+- `HOOK:*` — reserved but unused as of v0.16.1 (no hook emits it — `HandleStop` notifies only, `HandleSessionEnd` logs locally only, `HandlePreCompact` logs locally only)
 - `TASK:*` — skill or agent task messages (`TASK:Result`, `TASK:Progress`)
 - `NOTE:*` — human or skill notes (`NOTE:INFO`, `NOTE:WARN`)
 - `CHAT:MESSAGE` — direct session-to-session chat
@@ -244,14 +244,14 @@ Clients that were relying on `X-Steop-Host` / `X-Steop-Project-Dir` headers were
 
 "Local" operations use `*store.DB` (local SQLite). "Stele" operations use `*client.Client` (HTTP to stele-server).
 
-| Event               | Handler                    | Backends          | Behavior (v0.16.0+)                                                                                                                    |
+| Event               | Handler                    | Backends          | Behavior (v0.16.1+)                                                                                                                    |
 | ------------------- | -------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `UserPromptSubmit`  | `HandleUserPromptSubmit`   | —                 | Writes session ID to sentinel file. Injects SKILL.md body if prompt matches skill trigger regex.                                       |
 | `PreToolUse`        | `HandlePreToolUse`         | —                 | Regex-matches Bash commands for dangerous patterns; returns `DenyPreToolUse` or `Allow`.                                               |
 | `PostToolUse`       | `HandlePostToolUse`        | Local             | One `BEGIN IMMEDIATE` transaction: increment `tool_calls` counter, update `data.{last_tool, last_tool_at}`, append log row.            |
-| `Stop`              | `HandleStop`               | Local + Stele     | Local: read state, clear phase/mode, append stop log. Stele: `steop.notify` + `steop.mailbox.send` (project-level summary).           |
+| `Stop`              | `HandleStop`               | Local + Stele (notify only) | Local: clear phase/mode, cleanup watcher tasks, cleanup watcher state/heartbeat storage. Stele: `steop.notify` desktop notification only. |
 | `SessionStart`      | `HandleSessionStart`       | Local             | `store.Sessions.Start {cwd, permission_mode}` + `store.Logs.Append {event:"session_start"}`.                                          |
-| `SessionEnd`        | `HandleSessionEnd`         | Local + Stele     | Local: append `session_end` log, mark session stopped. Stele: `steop.mailbox.send` (project-level summary).                           |
+| `SessionEnd`        | `HandleSessionEnd`         | Local             | Local: append `session_end` log, cleanup watcher tasks, mark session stopped.                                                           |
 | `PermissionRequest` | `HandlePermissionRequest`  | —                 | Returns `Allow()` unconditionally (observe-only, v1).                                                                                  |
 | `PostToolUseFailure`| `HandlePostToolUseFailure` | Local             | `store.Logs.Append {event:"post_tool_use_failure", data:{tool_name, error, is_interrupt}}`.                                            |
 | `SubagentStart`     | `HandleSubagentStart`      | Local             | `store.Logs.Append {event:"subagent_start", data:{agent_id, agent_type, model, prompt (truncated)}}`.                                 |
