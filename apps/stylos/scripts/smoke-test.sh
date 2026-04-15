@@ -7,8 +7,7 @@
 #   3. publisher → stylos/dev/poc/rust
 #   4. get stylos/dev/poc/echo
 #
-# Uses --no-quic (no dev certs assumed) and explicit tcp/127.0.0.1 connects
-# to sidestep macOS multicast loopback flakiness.
+# Uses explicit tcp/127.0.0.1 connects to sidestep macOS multicast loopback flakiness.
 
 set -uo pipefail
 
@@ -74,7 +73,7 @@ log "checking binary: $BIN"
 CFG_Q="$TMP/queryable.json5"; write_cfg "$CFG_Q" "queryable-01" "$QUERYABLE_PORT"
 Q_OUT="$TMP/queryable.log"
 log "starting queryable on $KEY_ECHO, listening tcp/0.0.0.0:${QUERYABLE_PORT}"
-"$BIN" queryable "$KEY_ECHO" --payload "$PAYLOAD_ECHO" --no-quic --config "$CFG_Q" > "$Q_OUT" 2>&1 &
+"$BIN" queryable "$KEY_ECHO" --payload "$PAYLOAD_ECHO" --config "$CFG_Q" > "$Q_OUT" 2>&1 &
 Q_PID=$!; BG_PIDS+=("$Q_PID")
 sleep 1
 kill -0 "$Q_PID" 2>/dev/null && ok "queryable pid=$Q_PID" || { bad "queryable exited early"; cat "$Q_OUT"; exit 1; }
@@ -83,7 +82,7 @@ kill -0 "$Q_PID" 2>/dev/null && ok "queryable pid=$Q_PID" || { bad "queryable ex
 CFG_S="$TMP/sub.json5"; write_cfg "$CFG_S" "sub-01" "$SUB_PORT"
 S_OUT="$TMP/sub.log"
 log "starting subscriber on $KEY_PUB, connecting to $CONNECT"
-"$BIN" sub "$KEY_PUB" --no-quic --config "$CFG_S" --connect "$CONNECT" > "$S_OUT" 2>&1 &
+"$BIN" sub "$KEY_PUB" --config "$CFG_S" --connect "$CONNECT" > "$S_OUT" 2>&1 &
 S_PID=$!; BG_PIDS+=("$S_PID")
 sleep 2
 kill -0 "$S_PID" 2>/dev/null && ok "subscriber pid=$S_PID" || { bad "subscriber exited early"; cat "$S_OUT"; exit 1; }
@@ -91,7 +90,7 @@ kill -0 "$S_PID" 2>/dev/null && ok "subscriber pid=$S_PID" || { bad "subscriber 
 # ---- 3. Publish ----
 CFG_P="$TMP/pub.json5"; write_cfg "$CFG_P" "pub-01" "$PUB_PORT"
 log "publishing $PAYLOAD_PUB -> $KEY_PUB"
-if "$BIN" pub "$KEY_PUB" "$PAYLOAD_PUB" --no-quic --config "$CFG_P" --connect "$CONNECT" > "$TMP/pub.log" 2>&1; then
+if "$BIN" pub "$KEY_PUB" "$PAYLOAD_PUB" --config "$CFG_P" --connect "$CONNECT" > "$TMP/pub.log" 2>&1; then
   ok "pub returned 0"
 else
   bad "pub non-zero exit"; cat "$TMP/pub.log"
@@ -115,7 +114,7 @@ fi
 CFG_G="$TMP/get.json5"; write_cfg "$CFG_G" "get-01" "$GET_PORT"
 log "querying $KEY_ECHO"
 G_OUT="$TMP/get.log"
-if "$BIN" get "$KEY_ECHO" --timeout-ms 3000 --no-quic --config "$CFG_G" --connect "$CONNECT" > "$G_OUT" 2>&1; then
+if "$BIN" get "$KEY_ECHO" --timeout-ms 3000 --config "$CFG_G" --connect "$CONNECT" > "$G_OUT" 2>&1; then
   if grep -q "$PAYLOAD_ECHO" "$G_OUT"; then
     ok "get received '$PAYLOAD_ECHO'"
   else

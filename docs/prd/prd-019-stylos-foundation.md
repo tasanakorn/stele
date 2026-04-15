@@ -83,6 +83,8 @@ Stylos is infrastructure, not a feature of stele-server or steop. Putting it und
 
 ### 4.2 Ports & Transport
 
+> **Superseded by [PRD-023](prd-023-stylos-default-udp.md) (v0.18.0).** Stylos now defaults to UDP + TCP on port 31747; the QUIC listener, TLS cert story, and `no_quic` override are removed.
+
 | Concern           | Choice                                      | Rationale                                                                   |
 | ----------------- | ------------------------------------------- | --------------------------------------------------------------------------- |
 | Discovery port    | `31746/udp` (multicast)                     | Override zenoh default to keep us off the same port as stock deployments    |
@@ -343,6 +345,8 @@ No automated test harness exists yet in the workspace; stylos follows the same m
 6. **Version bump dry-run:** `python scripts/bump-version.py 0.15.0 --dry-run` lists workspace + stele + steop moving to 0.15.0 and stylos unchanged; `... 0.1.1 stylos --dry-run` lists only stylos moving.
 
 ## 9. Open Questions
+
+> **Superseded by [PRD-023](prd-023-stylos-default-udp.md) (v0.18.0).** Stylos now defaults to UDP + TCP on port 31747; the QUIC listener, TLS cert story, and `no_quic` override are removed.
 
 1. **Zenoh-go peer mode status.** Does `eclipse-zenoh/zenoh-go` support full peer mode in its current release, or is it still client-only? This decides whether the Go POC joins the mesh directly or attaches to a Rust router. **Verify via upstream docs / GitHub README before implementation.**
 2. **Zenoh-ts transport story.** Is `zenoh-ts` still WebSocket-via-router-plugin only, or has it gained native QUIC/TCP? This gates whether TS is a realistic "native" addition or must route through a Rust bridge. **Verify before committing to TS scope.**

@@ -84,7 +84,6 @@ Since v0.17.0 stele-server can embed a zenoh peer via the `stylos` crates (see [
 - **Shutdown order.** Rebind loop exits → heartbeat and queryable tasks are aborted and awaited → `session.close().await`. Tied to the same `CancellationToken` as the axum listener.
 - **Known limitations.**
   - `listen_endpoints` is always reported as `[]` in both `/api/v1/health.stylos` and the info-queryable payload; zenoh 1.9 exposes no stable public listener enumeration API.
-  - TLS / QUIC cert hardening beyond stylos 0.1.0's built-in "no cert → TCP only" fallback is deferred to a follow-up PRD.
   - When the cargo `stylos` feature is on but `[stylos].enabled = false`, the session is skipped entirely and `/api/v1/health.stylos` reports `{ "enabled": false }`.
 
 ## Graceful Shutdown

@@ -44,8 +44,6 @@ pub struct StyloSettings {
     pub instance: Option<String>,
     #[serde(default)]
     pub connect: Vec<String>,
-    #[serde(default)]
-    pub no_quic: bool,
 }
 
 impl Default for StyloSettings {
@@ -56,7 +54,6 @@ impl Default for StyloSettings {
             realm: default_stylos_realm(),
             instance: None,
             connect: Vec::new(),
-            no_quic: false,
         }
     }
 }

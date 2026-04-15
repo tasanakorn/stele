@@ -1,6 +1,6 @@
 {
   "name": "steop",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Agentic workflow pipeline for Claude Code with safety hooks and stele-backed state",
   "author": {
     "name": "tasanakorn"

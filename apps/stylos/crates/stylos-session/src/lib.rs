@@ -2,13 +2,12 @@
 
 use stylos_common::{Result, StylosError, STYLOS_DEFAULT_DATA_PORT, STYLOS_PORT_WALK_CAP};
 use stylos_config::StylosConfig;
-use stylos_transport::{listen_endpoints, walk_available_port, TlsPaths};
+use stylos_transport::{listen_endpoints, walk_available_port};
 use zenoh::Config;
 
 #[derive(Debug, Clone, Default)]
 pub struct SessionOverrides {
     pub connect: Option<Vec<String>>,
-    pub no_quic: bool,
 }
 
 /// JSON5-quote a string.
@@ -23,7 +22,7 @@ fn jq_arr(items: &[String]) -> String {
 }
 
 /// Apply an optional JSON5 config mutation; log a warning on failure so
-/// silently-broken scouting or TLS is visible.
+/// silently-broken scouting is visible.
 fn soft_set(config: &mut Config, path: &str, value: &str) {
     if let Err(e) = config.insert_json5(path, value) {
         eprintln!("[stylos] warn: insert_json5({path}, {value}) failed: {e:?}");
@@ -39,22 +38,10 @@ pub async fn open_session(cfg: &StylosConfig, overrides: &SessionOverrides) -> R
     config.insert_json5("mode", &jq(&cfg.zenoh.mode))
         .map_err(|e| StylosError::Config(format!("set mode: {e:?}")))?;
 
-    // QUIC requires TLS; drop QUIC automatically when no TLS certs are configured.
-    // Matches PRD-019 §6: "QUIC TLS cert missing or expired → continue with TCP only".
-    let tls_configured = TlsPaths::from_config(&cfg.zenoh).is_some();
-    let quic_allowed = !overrides.no_quic && tls_configured;
-    if !overrides.no_quic && !tls_configured {
-        eprintln!("[stylos] warn: no TLS certs in config; advertising TCP listener only");
-    }
-
     // Listen endpoints.
     let listen = if cfg.zenoh.listen.endpoints.is_empty() {
         let port = walk_available_port(STYLOS_DEFAULT_DATA_PORT, STYLOS_PORT_WALK_CAP)?;
-        listen_endpoints(port, quic_allowed)
-    } else if !quic_allowed {
-        cfg.zenoh.listen.endpoints.iter()
-            .filter(|e| !e.starts_with("quic/"))
-            .cloned().collect()
+        listen_endpoints(port)
     } else {
         cfg.zenoh.listen.endpoints.clone()
     };
@@ -88,22 +75,6 @@ pub async fn open_session(cfg: &StylosConfig, overrides: &SessionOverrides) -> R
         soft_set(&mut config, "scouting/multicast/address",
                  &jq(stylos_common::STYLOS_MULTICAST_ADDR));
         soft_set(&mut config, "scouting/gossip/enabled", "true");
-    }
-
-    // TLS.
-    if let Some(tls) = TlsPaths::from_config(&cfg.zenoh) {
-        if let Some(p) = &tls.root_ca {
-            soft_set(&mut config, "transport/link/tls/root_ca_certificate",
-                     &jq(&p.display().to_string()));
-        }
-        if let Some(p) = &tls.cert {
-            soft_set(&mut config, "transport/link/tls/listen_certificate",
-                     &jq(&p.display().to_string()));
-        }
-        if let Some(p) = &tls.key {
-            soft_set(&mut config, "transport/link/tls/listen_private_key",
-                     &jq(&p.display().to_string()));
-        }
     }
 
     let session = zenoh::open(config).await

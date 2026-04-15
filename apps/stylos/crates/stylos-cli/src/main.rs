@@ -20,8 +20,6 @@ struct CommonArgs {
     config: Option<PathBuf>,
     #[arg(long, global = true, num_args = 0..)]
     connect: Vec<String>,
-    #[arg(long, global = true)]
-    no_quic: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -74,7 +72,6 @@ fn load_config(common: &CommonArgs) -> anyhow::Result<StylosConfig> {
 fn overrides_from(common: &CommonArgs) -> SessionOverrides {
     SessionOverrides {
         connect: if common.connect.is_empty() { None } else { Some(common.connect.clone()) },
-        no_quic: common.no_quic,
     }
 }
 

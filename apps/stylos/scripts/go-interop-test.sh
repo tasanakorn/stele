@@ -76,7 +76,7 @@ EOF
 # ---- Start Rust queryable ----
 Q_OUT="$TMP/queryable.log"
 log "starting Rust queryable on $KEY_ECHO, port $QUERYABLE_PORT"
-"$RUST_BIN" queryable "$KEY_ECHO" --payload "$PAYLOAD_ECHO" --no-quic --config "$CFG_Q" > "$Q_OUT" 2>&1 &
+"$RUST_BIN" queryable "$KEY_ECHO" --payload "$PAYLOAD_ECHO" --config "$CFG_Q" > "$Q_OUT" 2>&1 &
 Q_PID=$!
 BG_PIDS+=("$Q_PID")
 sleep 1

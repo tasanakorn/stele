@@ -132,7 +132,6 @@ This creates `~/.config/stele/config.toml` with a `local` profile pointing to `h
 | `STELE_STYLOS_REALM`    | Server | `dev`                | Stylos realm segment                     |
 | `STELE_STYLOS_INSTANCE` | Server | derived from hostname | Explicit instance segment               |
 | `STELE_STYLOS_CONNECT`  | Server | (empty)              | Comma-separated connect endpoints (e.g. `tcp/10.0.0.5:31747`) |
-| `STELE_STYLOS_NO_QUIC`  | Server | `false`              | Force TCP-only even when TLS certs are configured |
 | `STEOP_DB`        | steop   | `~/.local/share/steop/steop.db` | Override location of the local steop SQLite DB (session state, storage, phase, session lifecycle, event log). See [../steop/local-storage.md](../steop/local-storage.md). |
 
 ## Claude Code Integration

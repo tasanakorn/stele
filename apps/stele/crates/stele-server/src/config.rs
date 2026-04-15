@@ -55,10 +55,6 @@ pub struct Config {
         value_delimiter = ','
     )]
     pub stylos_connect: Vec<String>,
-
-    /// Disable QUIC even if TLS certs are configured.
-    #[arg(long = "stylos-no-quic", env = "STELE_STYLOS_NO_QUIC")]
-    pub stylos_no_quic: bool,
 }
 
 #[cfg(feature = "desktop")]
@@ -99,9 +95,6 @@ impl Config {
         }
         if !self.stylos_connect.is_empty() {
             base.connect = self.stylos_connect.clone();
-        }
-        if self.stylos_no_quic {
-            base.no_quic = true;
         }
         base
     }

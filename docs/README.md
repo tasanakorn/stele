@@ -44,6 +44,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-020-steop-local-backend](prd/prd-020-steop-local-backend.md)               | Implemented v0.16.0 | Move steop session/project/phase/storage/logs to local SQLite; keep mailbox+notify on stele       |
 | [prd-021-trim-hook-mailbox-posts](prd/prd-021-trim-hook-mailbox-posts.md)       | Implemented v0.16.1 | Stop HandleStop/HandleSessionEnd from posting HOOK:* mailbox rows; confine writes to task pipeline |
 | [prd-022-stylos-in-stele-server](prd/prd-022-stylos-in-stele-server.md)         | Implemented v0.17.0 | Embed stylos zenoh router inside stele-server with default-on feature, health endpoint, heartbeat  |
+| [prd-023-stylos-default-udp](prd/prd-023-stylos-default-udp.md)                  | Implemented v0.18.0 | Drop QUIC from stylos; default data plane to UDP+TCP on 31747; remove no-quic flag + TLS config     |
 
 ## Stele server (`stele/`)
 
@@ -80,7 +81,7 @@ zenoh-based interconnect foundation. Spec and docs are still forthcoming; see [P
 | Doc                                         | Description                                                |
 | ------------------------------------------- | ---------------------------------------------------------- |
 | [README.md](stylos/README.md)               | Entry point and orientation for the Stylos subtree         |
-| [architecture.md](stylos/architecture.md)   | Peer topology, QUIC+TCP transport, crate/module layout     |
+| [architecture.md](stylos/architecture.md)   | Peer topology, UDP+TCP transport, crate/module layout      |
 | [addressing.md](stylos/addressing.md)       | `stylos/<realm>/<role>/<instance>` key-expr grammar        |
 | [discovery.md](stylos/discovery.md)         | Multicast scouting, gossip, non-multicast network caveats  |
 | [poc.md](stylos/poc.md)                     | Rust ↔ Go pub/sub/get/queryable POC spec and acceptance    |

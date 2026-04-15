@@ -139,7 +139,6 @@ fn assemble_stylos_config(settings: &StyloSettings, instance: &str) -> StylosCon
             },
             listen: Endpoints::default(),
             scouting: None,
-            transport: None,
         },
     }
 }
@@ -159,7 +158,6 @@ pub async fn start(
         } else {
             Some(settings.connect.clone())
         },
-        no_quic: settings.no_quic,
     };
 
     let session = Arc::new(stylos_session::open_session(&cfg, &overrides).await?);

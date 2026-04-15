@@ -19,13 +19,14 @@ picks a free port in `[31747, 31747 + 8)` by dual-binding TCP and UDP.
 Both listeners are advertised on the same port number:
 
 ```
-quic/0.0.0.0:31747
+udp/0.0.0.0:31747
 tcp/0.0.0.0:31747
 ```
 
-QUIC is tried first; TCP is the fallback when QUIC's UDP handshake fails
-or is blocked. With `--no-quic`, a peer drops the `quic/...` locator
-entirely and accepts TCP only.
+UDP is the datagram transport (zenoh's datagram link); TCP is the ordered
+fallback for networks that drop UDP. Both listeners bind unconditionally
+when the port is free — no TLS handshake, no cert paths, no runtime
+opt-out.
 
 ## Non-multicast networks (VPN, tailnet, WAN)
 
@@ -38,5 +39,5 @@ bridging via a router peer is a follow-up PRD.
 | Scenario                         | Behaviour                                                         |
 | -------------------------------- | ----------------------------------------------------------------- |
 | Multicast blocked on network     | Peers never meet; user must provide `--connect`.                  |
-| QUIC TLS cert missing/expired    | QUIC listener fails to bind; stylos continues with TCP only.      |
+| UDP blocked on network (VPN/FW)  | UDP peer discovery fails at L3; TCP listener still reachable.     |
 | Port 31747 already bound         | Walk forward (cap 8); log the chosen port; fail if all taken.     |

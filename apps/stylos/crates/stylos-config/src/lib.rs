@@ -51,8 +51,6 @@ pub struct ZenohSection {
     pub listen: Endpoints,
     #[serde(default)]
     pub scouting: Option<ScoutingSection>,
-    #[serde(default)]
-    pub transport: Option<TransportSection>,
 }
 
 impl Default for ZenohSection {
@@ -62,7 +60,6 @@ impl Default for ZenohSection {
             connect: Endpoints::default(),
             listen: Endpoints::default(),
             scouting: None,
-            transport: None,
         }
     }
 }
@@ -113,29 +110,6 @@ fn default_true() -> bool { true }
 fn default_mcast_addr() -> String { STYLOS_MULTICAST_ADDR.to_string() }
 fn default_iface() -> String { "auto".to_string() }
 fn default_peer_peer() -> String { "peer".to_string() }
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TransportSection {
-    #[serde(default)]
-    pub link: Option<LinkSection>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct LinkSection {
-    #[serde(default)]
-    pub tls: Option<TlsSection>,
-}
-
-/// Upstream zenoh 1.x TLS field names.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TlsSection {
-    #[serde(default)]
-    pub root_ca_certificate: Option<String>,
-    #[serde(default)]
-    pub listen_private_key: Option<String>,
-    #[serde(default)]
-    pub listen_certificate: Option<String>,
-}
 
 impl StylosConfig {
     pub fn load(path: &Path) -> Result<Self> {

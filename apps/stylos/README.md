@@ -36,25 +36,20 @@ Stylos reads JSON5 from (first match wins):
 3. `./stylos.json5`
 4. Built-in defaults (realm=dev, role=cli, instance=cli-`<ts>`)
 
-Start from `stylos.example.json5`. TLS is optional; leave the `transport`
-block out of the file to run without certs. Generate dev certs with:
-
-```bash
-./scripts/gen-dev-certs.sh
-```
+Start from `stylos.example.json5`. No TLS/cert story at v0.1.0 — the data
+plane is UDP + TCP on port 31747.
 
 ## Smoke tests (scripted)
 
-Fastest path — four scripts under `./scripts/`:
+Fastest path — three scripts under `./scripts/`:
 
 ```bash
 ./scripts/smoke-test.sh             # Rust↔Rust pub/sub/get/queryable
-./scripts/quic-fallback-test.sh     # QUIC+TLS → TCP fallback
 ./scripts/go-interop-test.sh        # Rust queryable ← Go get
 ./scripts/go-pub-rust-sub-test.sh   # Rust sub ← Go pub
 ```
 
-All four pin ports and `--connect` explicitly, so they sidestep the macOS
+All three pin ports and `--connect` explicitly, so they sidestep the macOS
 multicast-loopback caveat below. Together they cover every PRD-019 §4.8.4
 acceptance criterion.
 
@@ -77,12 +72,6 @@ Terminal B — pub + get:
 Expected: Terminal A's `sub` prints `stylos/dev/poc/rust hello-from-rust`;
 Terminal B's `get` prints `stylos/dev/poc/echo reply-from-rust`.
 
-## QUIC/TCP fallback test
-
-Run one peer with `--no-quic`; the other keeps both listeners. Set
-`RUST_LOG=zenoh=debug` to see the QUIC attempt followed by TCP success.
-Scripted equivalent: `./scripts/quic-fallback-test.sh`.
-
 ## Subcommands
 
 | Command                            | Behaviour                                        |
@@ -94,7 +83,7 @@ Scripted equivalent: `./scripts/quic-fallback-test.sh`.
 | `stylos identity`                  | Print resolved identity + root key, exit         |
 
 Global flags (valid on every subcommand): `--config <path>`,
-`--connect <endpoint>` (repeatable, REPLACES config), `--no-quic`.
+`--connect <endpoint>` (repeatable, REPLACES config).
 
 ## macOS multicast loopback caveat
 

@@ -78,7 +78,7 @@ EOF
 # ---- Start Rust subscriber ----
 S_OUT="$TMP/sub.log"
 log "starting Rust subscriber on $KEY, port $SUB_PORT"
-"$RUST_BIN" sub "$KEY" --no-quic --config "$CFG_S" > "$S_OUT" 2>&1 &
+"$RUST_BIN" sub "$KEY" --config "$CFG_S" > "$S_OUT" 2>&1 &
 S_PID=$!
 BG_PIDS+=("$S_PID")
 sleep 1

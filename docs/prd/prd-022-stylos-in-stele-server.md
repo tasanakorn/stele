@@ -128,6 +128,8 @@ Loading strategy (see §9 Q1): stele-server declares its own TOML-friendly `Styl
 
 ### 4.4 Env vars and CLI flags
 
+> **Superseded by [PRD-023](prd-023-stylos-default-udp.md) (v0.18.0).** Stylos now defaults to UDP + TCP on port 31747; the QUIC listener, TLS cert story, and `no_quic` override are removed.
+
 All `[stylos]` fields are overridable via CLI flags and env vars, mirroring the existing clap-driven pattern in `stele-server`:
 
 | CLI flag              | Env var                   | Type               | Maps to                 |
@@ -232,6 +234,8 @@ The session **must not** be restarted on `STELE_BIND` rebinds. Axum rebinds chan
 
 ### 4.9 Info queryable payload
 
+> **Superseded by [PRD-023](prd-023-stylos-default-udp.md) (v0.18.0).** Stylos now defaults to UDP + TCP on port 31747; the QUIC listener, TLS cert story, and `no_quic` override are removed.
+
 - Key: `stylos/<realm>/stele/<instance>/info`
 - Behavior: on every query, build a `StyloInfo` struct and respond with a single sample containing the JSON body.
 - Schema:
@@ -310,6 +314,8 @@ Updated in the tray's `about_to_wait` tick by reading the `Arc<zenoh::Session>` 
 No changes to `apps/stylos/`, `apps/steop/`, `apps/stele/crates/stele-common/`, or `apps/stele/crates/stele-cli/`.
 
 ## 6. Edge Cases
+
+> **Superseded by [PRD-023](prd-023-stylos-default-udp.md) (v0.18.0).** Stylos now defaults to UDP + TCP on port 31747; the QUIC listener, TLS cert story, and `no_quic` override are removed.
 
 | Scenario                                                                                     | Behavior                                                                                                                                                                                |
 | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
