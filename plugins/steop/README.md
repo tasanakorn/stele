@@ -38,7 +38,7 @@ Since v0.16.0 (PRD-020) session state, storage, phase, session lifecycle, and th
 | Execute            | `/steop:st-execute`          | Implement code changes according to plan                                    |
 | Validate           | `/steop:st-validate`         | Review changes for correctness and completeness                             |
 | Send               | `/steop:st-send`             | Send a task to another session by short project name                        |
-| XP                 | `/steop:st-xp`               | Compressed 3-phase pipeline (clarify -> execute -> validate), fast feedback |
+| Lite               | `/steop:st-lite`             | Compressed 3-phase pipeline (clarify -> execute -> validate), fast feedback |
 | Statusline Setup   | `/steop:statusline-setup`    | Configure Claude Code's statusLine to call `steop statusline`                  |
 
 ## Agents

@@ -5,6 +5,8 @@
 **Scope:** `plugins/steop/` — new skill only (no new agents, no binary/hook changes)
 **Author:** Tasanakorn (design) + Claude Code (PRD authoring)
 
+> **Superseded by [PRD-024](prd-024-rename-st-xp-to-st-lite.md) (v0.19.0).** The skill is renamed from `/steop:st-xp` to `/steop:st-lite`; mode tag flips from `--mode xp` to `--mode lite`. Pipeline behavior is unchanged.
+
 ---
 
 ## 1. Goals

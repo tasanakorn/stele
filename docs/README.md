@@ -39,12 +39,13 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-015-hook-inject-position](prd/prd-015-hook-inject-position.md)             | Implemented v0.12.6 | Move PreToolUse identity flags to directly after the `steop` token so redirections don't hide them          |
 | [prd-016-hook-scope-public-flags](prd/prd-016-hook-scope-public-flags.md)       | Implemented v0.13.1 | Restrict PreToolUse hook to Bash; add public --session-id / --project-dir flags + steop identity command.                 |
 | [prd-017-st-watch-monitor-identity-wiring](prd/prd-017-st-watch-monitor-identity-wiring.md) | Implemented v0.13.3 | Wire /steop:st-watch to resolve identity via `steop identity` and embed public flags in Monitor command (PRD-016 consumer). |
-| [prd-018-st-xp-skill](prd/prd-018-st-xp-skill.md)                               | Proposed            | XP-style fast-feedback workflow skill (Clarify/Execute/Validate, parallel executors, cap 3)       |
+| [prd-018-st-xp-skill](prd/prd-018-st-xp-skill.md)                               | Implemented v0.14.0 | XP-style fast-feedback workflow skill (renamed to /steop:st-lite in v0.19.0 — see PRD-024).        |
 | [prd-019-stylos-foundation](prd/prd-019-stylos-foundation.md)                   | Proposed            | zenoh-based interconnect foundation — apps/stylos/ skeleton, ports 31746/31747, Rust+Go POC       |
 | [prd-020-steop-local-backend](prd/prd-020-steop-local-backend.md)               | Implemented v0.16.0 | Move steop session/project/phase/storage/logs to local SQLite; keep mailbox+notify on stele       |
 | [prd-021-trim-hook-mailbox-posts](prd/prd-021-trim-hook-mailbox-posts.md)       | Implemented v0.16.1 | Stop HandleStop/HandleSessionEnd from posting HOOK:* mailbox rows; confine writes to task pipeline |
 | [prd-022-stylos-in-stele-server](prd/prd-022-stylos-in-stele-server.md)         | Implemented v0.17.0 | Embed stylos zenoh router inside stele-server with default-on feature, health endpoint, heartbeat  |
 | [prd-023-stylos-default-udp](prd/prd-023-stylos-default-udp.md)                  | Implemented v0.18.0 | Drop QUIC from stylos; default data plane to UDP+TCP on 31747; remove no-quic flag + TLS config     |
+| [prd-024-rename-st-xp-to-st-lite](prd/prd-024-rename-st-xp-to-st-lite.md)        | Proposed            | Rename /steop:st-xp skill to /steop:st-lite to avoid Agile XP methodology confusion.                |
 
 ## Stele server (`stele/`)
 
