@@ -19,13 +19,15 @@ Launch the **architect** agent (`steop:architect`, Opus, read-only tools).
 
 Provide the agent with all available context from prior research (if any) plus the user's task description.
 
+> Prefer the simpler of two equivalent designs. If the Research Summary flagged an area that YAGNI would skip, skip it unless the Task Brief's Success criteria require it. Don't design for hypothetical future requirements not stated in the brief.
+
 The planning agent should produce:
 - **Goal** — clear statement of what will be achieved
 - **Steps** — ordered list of implementation steps, each with:
   - File(s) to modify or create
   - What changes to make and why
   - Any risks or edge cases
-- **Architecture decisions** — trade-offs considered and choices made
-- **Testing strategy** — how to verify the implementation works
+- **Architecture decisions** — trade-offs considered and choices made. For each decision, state an **Alternative considered** (simpler option the decision rejected) in one line. Format: `<chosen> chosen over <alternative> because <reason>`.
+- **Testing strategy** — how to verify the implementation works. Reference the Task Brief's **Success criteria** — don't restate them; point to them. Add plan-specific verification steps using `step → verify:` format where helpful.
 
 After the agent completes, present the plan to the user and ask for approval or adjustments before proceeding to execution.

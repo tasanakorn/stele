@@ -40,3 +40,4 @@ After the agent(s) complete, present a structured summary of findings:
 - **Dependencies** — what connects to what
 - **Constraints** — things to watch out for
 - **Key context** — important code snippets or decisions
+- **Assumptions** — areas deprioritized or not investigated; files the agent chose not to read and why (time, apparent irrelevance). State, don't investigate.

@@ -47,6 +47,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-023-stylos-default-udp](prd/prd-023-stylos-default-udp.md)                  | Implemented v0.18.0 | Drop QUIC from stylos; default data plane to UDP+TCP on 31747; remove no-quic flag + TLS config     |
 | [prd-024-rename-st-xp-to-st-lite](prd/prd-024-rename-st-xp-to-st-lite.md)        | Proposed            | Rename /steop:st-xp skill to /steop:st-lite to avoid Agile XP methodology confusion.                |
 | [prd-025-brief-fields-karpathy](prd/prd-025-brief-fields-karpathy.md)            | Implemented v0.19.1 | Karpathy-aligned Brief fields (Assumptions, Success criteria) for /steop:st-prd and /steop:st-lite. |
+| [prd-026-karpathy-pipeline-skills](prd/prd-026-karpathy-pipeline-skills.md)      | Implemented v0.19.2 | Karpathy alignment for /steop:st-flow and 5 standalone phase skills; adds 3 new override blocks.    |
 
 ## Stele server (`stele/`)
 

@@ -29,10 +29,6 @@ If the plan contains independent steps (changes to separate files or modules wit
 
 ### Execution Goals
 
-The execution agent(s) should:
-- Follow the plan step by step
-- Make all necessary code changes
-- Keep changes focused and minimal — implement what was planned, nothing more
-- Report what was changed after completion
+The execution agent(s) should follow the plan step by step and return as soon as the planned steps are complete. Prefer YAGNI — skip defensive code, edge cases, and polish unless they block the happy path or are named in the plan. Leave TODOs where assumptions are load-bearing. Do NOT refactor neighboring code. Only remove imports, variables, or functions that your changes made unused. Every changed line should trace to the plan. Report what was changed after completion.
 
 After the agent(s) complete, summarize all changes made (files modified/created, key changes in each).

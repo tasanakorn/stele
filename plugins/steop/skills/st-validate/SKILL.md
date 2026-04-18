@@ -17,6 +17,7 @@ Launch the **reviewer** agent (`steop:reviewer`, Sonnet, read-only tools).
 
 The verification agent should:
 
+0. **Check Success criteria first.** Read the Task Brief's `Success criteria:` bullets (if available). A criterion is satisfied when you can *observe* it — run the command, read the file, open the page. A missing or unobservable criterion is a `Fail`, not a `Pass`.
 1. **Review changes** — Read all modified/created files and verify they match the intended plan
 2. **Check correctness** — Look for bugs, typos, logic errors, missing edge cases
 3. **Run tests** — Execute any available test suites or linting tools relevant to the changes
@@ -25,6 +26,7 @@ The verification agent should:
 
 After the agent completes, present a verification report:
 - **Status** — Pass / Fail / Issues Found
+- **Criterion results** — bullet-per-criterion, observed outcome
 - **Changes reviewed** — list of files checked
 - **Issues** — any problems found (with severity)
 - **Test results** — output from tests/linting if applicable

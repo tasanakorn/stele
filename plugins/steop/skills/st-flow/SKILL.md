@@ -56,7 +56,20 @@ steop state set-phase clarify --mode flow
 
 Launch the **consultant** agent. Pass the following override instruction:
 
-> **FLOW MODE:** Do NOT ask clarifying questions or wait for user confirmation unless the request is genuinely ambiguous (no identifiable action, contradictory, or multiple incompatible interpretations). If the intent is clear enough to act on, produce the Task Brief and return immediately. Prefer making reasonable assumptions over asking questions.
+> **FLOW MODE:** Do NOT ask clarifying questions or wait for user confirmation unless the request is genuinely ambiguous (no identifiable action, contradictory, or multiple incompatible interpretations). If the intent is clear enough to act on, produce the Task Brief per the shape below and return immediately. **State assumptions explicitly in the `Assumptions:` field of the brief; do NOT investigate to remove them.** If two or more concrete framings plausibly satisfy the request, list them under `Open questions:` rather than picking silently.
+
+Task Brief output shape:
+
+```
+Objective:         <one line>
+Assumptions:       <0–3 bullets — list explicitly; do NOT investigate to remove>
+Complexity:        simple | standard | complex
+Success criteria:  <1–3 bullets — verifiable; each is independently checkable>
+Open questions:    <0–N bullets — alternate framings the consultant surfaced>
+Groups:            [G1: files/area, G2: ..., G3: ...]   # only if independent
+```
+
+`Open questions:` in FLOW MODE is informational-only — it lists alternate framings the consultant chose not to investigate. It does NOT pause the pipeline; Rules 1–2 (zero-pause + single ambiguity gate) are unchanged. The Finalize step surfaces any non-empty `Open questions:` so the user sees what was assumed-away.
 
 The consultant will:
 - Do a lightweight codebase scan (3-5 tool calls)
@@ -82,6 +95,10 @@ For Standard / Complex tasks, launch the **researcher** agent with model overrid
 
 **Parallel execution**: If the task spans multiple independent areas, launch multiple researcher agents in parallel (one per area). Combine their findings before proceeding.
 
+Pass the following override instruction:
+
+> **FLOW MODE:** List at the end of your Research Summary the assumptions you made about *which files to read* and *which areas to skip* — don't investigate away every uncertainty; state them. If a relevant-looking file was deprioritized due to time, note it under `Assumptions` so the architect can reconsider.
+
 Emit status: `[Research] Investigated <N> areas, <summary>`
 
 Proceed immediately to Plan.
@@ -96,7 +113,7 @@ Launch the **architect** agent. Pass all available context (Task Brief + Researc
 
 Pass the following override instruction:
 
-> **FLOW MODE:** Produce the implementation blueprint and return it. Do NOT present it for approval or ask for adjustments. The executor will follow it directly.
+> **FLOW MODE:** Produce the implementation blueprint and return it. Do NOT pause for approval — the executor will follow it directly. For each major design choice, include an inline **Alternatives considered:** line (simpler option, one-line rationale for rejection). Prefer the simpler of two equivalent designs; if YAGNI points one way and the plan goes the other, state the reason.
 
 Emit status: `[Plan] <N> steps across <N> files`
 
@@ -115,6 +132,10 @@ Launch the **executor** agent with model override based on complexity:
 
 **Parallel execution**: If the plan contains independent steps, launch multiple executor agents in parallel — one per independent group.
 
+Pass the following override instruction:
+
+> **FLOW MODE:** Implement the plan. Prefer YAGNI — skip defensive code, edge cases, and polish unless they block the happy path or are named in the plan. Leave TODOs where assumptions are load-bearing. Do NOT refactor neighboring code. Only remove imports, variables, or functions that your changes made unused. Return as soon as the planned steps are complete and the main path works.
+
 Emit status: `[Execute] Modified <N> files`
 
 Proceed immediately to Validate.
@@ -126,6 +147,10 @@ steop state set-phase validate --mode flow
 ```
 
 Launch the **reviewer** agent. It will review all changes, run tests/linting if available, and produce a verification report.
+
+Pass the following override instruction:
+
+> **FLOW MODE:** Check each bullet in the `Success criteria:` section of the Task Brief. A criterion is satisfied when you can *observe* it — run the command, read the file, open the page. Also: does the implementation match the Plan's steps? Are there obvious regressions in touched files? Report `Pass` or `Fail`. On `Fail`, name the first unsatisfied criterion (or regression) — the Execute-Validate retry loop (Rule 4) needs a concrete target to fix.
 
 - If **Pass** or only low-severity issues: emit status `[Validate] Pass` and finalize.
 - If **Fail** or high/critical issues: emit status `[Validate] Issues found, retrying...` and loop back to Execute (up to 3 times per stop condition #4).

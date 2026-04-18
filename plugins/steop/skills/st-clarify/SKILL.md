@@ -33,6 +33,7 @@ With codebase context in hand, the agent should:
 - Spot ambiguities, missing details, or implicit assumptions
 - Define the scope — what's in and what's out
 - Ask the user clarifying questions if anything is unclear or under-specified (questions should be informed by what was found in the scan)
+- **Present alternatives when the request has two or more plausible framings.** If the user's concrete request admits multiple concrete interpretations, list them under **Open questions** and ask which — don't pick silently. Distinct from "unclear" (which is already covered by the existing "ask clarifying questions" guidance).
 - Produce a **Task Brief** once clarity is reached
 
 ### Task Brief Output
@@ -41,6 +42,7 @@ After clarification, present a structured brief:
 - **Objective** — one-sentence statement of what will be done
 - **Scope** — explicit boundaries (what's included, what's excluded)
 - **Complexity** — simple / standard / complex (this guides model selection in later phases)
+- **Success criteria** — 1–3 verifiable bullets; each independently checkable
 - **Assumptions** — anything assumed that wasn't explicitly stated
 - **Open questions** — any remaining questions for the user (if none, state "None")
 
