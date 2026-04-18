@@ -34,11 +34,14 @@ Do at most 2–3 quick tool calls:
 From the user's description (or by asking if none was given), produce a short brief:
 
 ```
-Title:      <working title>
-Scope:      <affected components — 1 line>
-Goals:      <1–3 bullets>
-Non-goals:  <1–3 bullets>
-Version:    <vX.Y.Z>
+Title:             <working title>
+Scope:             <affected components — 1 line>
+Assumptions:       <0–3 bullets — list explicitly; do NOT investigate to remove>
+Goals:             <1–3 bullets>
+Non-goals:         <1–3 bullets>
+Success criteria:  <1–3 bullets — what would make this PRD "done" after authoring
+                    AND after the implementing PRD ships>
+Version:           <vX.Y.Z>
 ```
 
 Present the brief and ask: "Anything to change or add before I dig in?"
@@ -56,6 +59,7 @@ When the user confirms (e.g. "looks good", "go", "y"), freeze the brief and proc
 - Never skip Clarify. Even with a detailed description, show the brief and ask.
 - Keep it lightweight — no deep file reads, no schema analysis, no multi-agent spawning.
 - If the user's description is vague, ask targeted questions (what component? what problem? breaking change?) rather than guessing.
+- **Present alternatives when the request has two or more plausible framings.** If a concrete request admits multiple concrete interpretations (e.g. "apply X to the skills" could mean rewrite one skill, edit several, or add a new enforcement skill), present all plausible framings in the Brief step and ask which. Do NOT pick silently. This is distinct from "vague" — the request is concrete, but multiple concrete interpretations satisfy it.
 - If a duplicate PRD covers the same area, mention it and ask: supersede, extend, or cancel?
 
 > **Note:** When invoked from st-flow with a PRD reference (e.g. `st-flow implement per docs/prd/prd-NNN-...`), the PRD itself is a pre-clarified artifact. The flow's Clarify phase should read the PRD, extract the brief, and proceed without interactive questions.
@@ -89,9 +93,12 @@ Launch the **architect** agent (`steop:architect`, Opus, all tools) with the fol
 > - **Number allocation:** Scan `docs/prd/` for the highest `NNN` in filenames matching `prd-NNN-*.md`, increment by 1, zero-pad to 3 digits.
 > - **Filename:** `prd-NNN-<slug>.md` where slug is derived from the title in kebab-case, max 5 words.
 > - **Author field:** Run `git config user.name` to get the name, then format as `<name> (design) + Claude Code (PRD authoring)`.
-> - **Section template:** Use this order: Goals, Non-goals, Background & Motivation (with "Current state" subsection), Design, Changes by Component (table), Edge Cases, Migration, Testing.
+> - **Section template (canonical order — top-level headings unchanged):** Goals, Non-goals, Background & Motivation (with "Current state" subsection), Design, Changes by Component (table), Edge Cases, Migration, Testing. **Omit sections with nothing real to put in them** — if the PRD has no migration, drop the `## 7. Migration` heading rather than writing "None." If the PRD has no non-trivial edge cases, drop `## 6. Edge Cases`. Never write placeholder prose for the sake of structural completeness.
+> - **Testing section format:** Each testable outcome written as `step → verify:` — a concrete action on the left, an observable signal on the right. The top-level heading stays `## N. Testing` for style continuity with prior PRDs.
+> - **Alternatives considered:** For each major design choice, include one short line — inline in the relevant `### 4.x` subsection — noting a simpler alternative considered and why it was rejected. Format: `**Alternative considered:** <one line>. Rejected: <one line>.` Do NOT add a standalone `## Alternatives` section; a single summary section is too coarse and breaks surgical-change flow.
+> - **Style match:** Read the most recent 2–3 PRDs in `docs/prd/` (sorted by filename) before you write. Match their prose voice (declarative, not hortative), heading depth (top-level `##`, subsection `###`, rarely `####`), admonition conventions (blockquote `> **Superseded by ...**` when applicable), and table column styles. The PRD you write should be visually indistinguishable from its neighbors.
 > - **Status:** `Proposed` unless the user specified otherwise during Clarify.
-> - **README update:** Add a row to the PRD table in `docs/README.md` with the new PRD link, status, and one-line description.
+> - **README update:** Add a row to the PRD table in `docs/README.md` with the new PRD link, status, and one-line description. Do NOT touch adjacent rows, even to fix known drift. One concern per PRD.
 >
 > After writing, display the file path and a one-line summary. Do NOT ask for approval — the user will review and edit manually.
 

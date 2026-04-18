@@ -50,15 +50,17 @@ steop state set-phase clarify --mode lite
 
 Launch the **consultant** agent. Pass the following override instruction:
 
-> **LITE MODE:** Produce a minimal brief in 1–3 tool calls max. Do NOT ask questions unless the request is genuinely ambiguous. Emit only: 1-line objective, approach confidence (`high` or `ambiguous`), complexity guess (`trivial`/`moderate`/`complex`), and optional `Groups:` list when the work splits into disjoint file sets. If complexity=`complex`, append a one-line suggestion to consider `/steop:st-flow` instead — but still proceed. Prefer assumptions over investigation.
+> **LITE MODE:** Produce a minimal brief in 1–3 tool calls max. Do NOT ask questions unless the request is genuinely ambiguous. Emit the full brief shape: 1-line objective, explicit `Assumptions:` list (zero or more bullets — if none, write `(none)`), approach confidence (`high` or `ambiguous`), complexity guess (`trivial`/`moderate`/`complex`), `Success criteria:` (1–3 verifiable bullets), and optional `Groups:` list when the work splits into disjoint file sets. If complexity=`complex`, append a one-line suggestion to consider `/steop:st-flow` instead — but still proceed. **State assumptions explicitly in the `Assumptions:` field; do NOT investigate to remove them.**
 
 Brief output shape:
 
 ```
-Objective:   <one line>
-Approach:    high | ambiguous
-Complexity:  trivial | moderate | complex
-Groups:      [G1: files/area, G2: ..., G3: ...]   # only if independent
+Objective:         <one line>
+Assumptions:       <0–3 bullets — list explicitly; do NOT investigate to remove>
+Approach:          high | ambiguous
+Complexity:        trivial | moderate | complex
+Success criteria:  <1–3 bullets — verifiable; each is independently checkable>
+Groups:            [G1: files/area, G2: ..., G3: ...]   # only if independent
 ```
 
 Emit status: `[lite] Clarify: <objective>`
@@ -93,7 +95,7 @@ steop state set-phase validate --mode lite
 
 Launch the **reviewer** agent (sonnet). Single serial pass — no fan-out. Pass the following override:
 
-> **LITE MODE:** Lightweight smoke check only. Does it build? Does the main path run? Are there obvious regressions in touched files? Do NOT audit exhaustively, do NOT run full test suites unless the project has a fast `make check` or equivalent. Report `pass` or `fail` with a one-line reason.
+> **LITE MODE:** Check each bullet in the `Success criteria:` section of the Clarify Brief. A criterion is satisfied when you can *observe* it — run the command, read the file, open the page. Also smoke-check the generics: does it build? does the main path run? are there obvious regressions in touched files? Do NOT audit exhaustively, do NOT run full test suites unless the project has a fast `make check` or equivalent. Report `pass` or `fail` with a one-line reason that references the criterion it passed or the first one it failed.
 
 - If `pass` (or only low-severity notes): emit status `[lite] Validate: pass` and finalize.
 - If `fail`: emit status `[lite] Validate: fail`, halt, and present the failure summary. **Do NOT retry.**
