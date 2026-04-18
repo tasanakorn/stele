@@ -5,7 +5,7 @@ description: Compressed 3-phase fast-feedback workflow chain (clarify → execut
 
 # Lite Workflow Chain
 
-Run a compressed, fast-feedback pipeline. Mirrors `/steop:st-flow`'s phase names (`Clarify → Execute → Validate`) so you carry one mental model across skills; the `--mode lite` tag signals compressed semantics: Research and Plan are skipped, retry loop is off, executors fan out eagerly (cap 3), and the default is assumptions-over-investigation (YAGNI).
+Run a compressed, fast-feedback pipeline. Mirrors `/steop:st-flow`'s phase names (`Clarify → Execute → Validate`) so you carry one mental model across skills; the `--mode lite` tag signals compressed semantics: Research and Plan are skipped, retry loop is off, executors fan out eagerly (cap 3), assumptions are stated explicitly rather than investigated away, and scope stays YAGNI.
 
 Use `st-lite` for: prototypes, spikes, mechanical refactors, quick experiments. Use `/steop:st-flow` instead for: production changes, breaking-change work, anything where correctness matters more than wall-clock time.
 
