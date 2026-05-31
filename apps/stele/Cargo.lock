@@ -5378,8 +5378,8 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "stylos"
-version = "0.2.0"
-source = "git+https://github.com/tasanakorn/stylos.git?tag=v0.2.0#f1b7c05d669715fb339cfadcbb19a5d69fca3d27"
+version = "0.2.1"
+source = "git+https://github.com/tasanakorn/stylos.git?tag=v0.2.1#901c523c35531365df38c2690a964d5c6384bc7b"
 dependencies = [
  "json5",
  "serde",
