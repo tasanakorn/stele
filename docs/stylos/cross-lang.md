@@ -2,6 +2,8 @@
 
 Stylos peers can be written in any language with a zenoh binding. PRD-019 §4.7 captures the initial scope.
 
+> **Paths below are now relative to the external [stylos repo](https://github.com/tasanakorn/stylos), not this monorepo.** The Go sidecar, `third_party/`, and build scripts moved there in the extraction — drop the `apps/stylos/` prefix (e.g. `apps/stylos/go/build.sh` → `go/build.sh` inside a stylos checkout).
+
 ## Binding status
 
 | Language   | Status at v0.1.0    | Binding                            | Notes                                                                                                                                     |

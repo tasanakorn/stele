@@ -79,7 +79,7 @@ Agentic workflow pipeline plugin plus its `steop` companion binary.
 
 ## Stylos foundation (`stylos/`)
 
-zenoh-based interconnect foundation. Spec and docs are still forthcoming; see [PRD-019](prd/prd-019-stylos-foundation.md) for the design intent and scope.
+zenoh-based interconnect foundation. The implementation (lib crate, CLI, Go sidecar, interop scripts) lives in its own repo — [github.com/tasanakorn/stylos](https://github.com/tasanakorn/stylos) — extracted from this monorepo as a shared standard; `stele-server` consumes the `stylos` lib as a pinned git dependency. The docs under `stylos/` are the protocol specs; see [PRD-019](prd/prd-019-stylos-foundation.md) for design intent and scope.
 
 | Doc                                         | Description                                                |
 | ------------------------------------------- | ---------------------------------------------------------- |
