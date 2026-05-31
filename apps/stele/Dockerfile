@@ -1,16 +1,15 @@
 # Build context: repo root (docker build -f apps/stele/Dockerfile .)
 FROM rust:slim AS builder
 
-RUN apt-get update && apt-get install -y pkg-config && rm -rf /var/lib/apt/lists/*
+# git + ca-certificates: the `stylos` shared crate is fetched over HTTPS from
+# github.com/tasanakorn/stylos at build time (see crates/stele-server/Cargo.toml).
+RUN apt-get update && apt-get install -y pkg-config git ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build/stele
 COPY apps/stele/Cargo.toml apps/stele/Cargo.lock* ./
 COPY apps/stele/.cargo/ ./.cargo/
 COPY apps/stele/crates/ ./crates/
 COPY apps/stele/assets/ ./assets/
-
-COPY apps/stylos/Cargo.toml apps/stylos/Cargo.lock* /build/stylos/
-COPY apps/stylos/crates/ /build/stylos/crates/
 
 RUN cargo build --release -p stele-server --features headless --no-default-features
 

@@ -8,8 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
-use stylos_config::{Endpoints, IdentitySection, StylosConfig, ZenohSection};
-use stylos_session::SessionOverrides;
+use stylos::{Endpoints, IdentitySection, SessionOverrides, StylosConfig, ZenohSection};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use zenoh::bytes::Encoding;
@@ -160,7 +159,7 @@ pub async fn start(
         },
     };
 
-    let session = Arc::new(stylos_session::open_session(&cfg, &overrides).await?);
+    let session = Arc::new(stylos::open_session(&cfg, &overrides).await?);
 
     let zid_full = session.info().zid().await.to_string();
     if instance == "__zid_pending__" {
@@ -234,7 +233,7 @@ pub async fn start(
                             "realm": q_realm,
                             "instance": q_instance,
                             "version": env!("CARGO_PKG_VERSION"),
-                            "stylos_version": "0.1.0",
+                            "stylos_version": stylos::VERSION,
                             "listen_endpoints": Vec::<String>::new(),
                             "started_at": q_started,
                         });

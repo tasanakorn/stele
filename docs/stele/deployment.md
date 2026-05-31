@@ -77,7 +77,7 @@ STELE_AUTH_KEY=<your-key>
 
 ## Docker
 
-**Build context changed in v0.17.0** — the Dockerfile now copies `apps/stylos/` alongside `apps/stele/` (see [PRD-022](../prd/prd-022-stylos-in-stele-server.md)), so the build must run from the repo root:
+**Build runs from the repo root** (the Dockerfile uses `apps/stele/...` COPY paths). The `stylos` shared crate is fetched over HTTPS from [github.com/tasanakorn/stylos](https://github.com/tasanakorn/stylos) at build time, so the builder image installs `git` + `ca-certificates` and needs network access (it no longer copies any local `apps/stylos/` tree — that was the pre-v0.20 layout, see [PRD-022](../prd/prd-022-stylos-in-stele-server.md)):
 
 ```bash
 # From repo root:
