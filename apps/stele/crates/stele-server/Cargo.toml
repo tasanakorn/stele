@@ -39,7 +39,7 @@ regex = "1"
 once_cell = "1"
 
 # Stylos / zenoh (feature-gated) — shared core standard, see github.com/tasanakorn/stylos
-stylos   = { git = "https://github.com/tasanakorn/stylos.git", tag = "v0.2.0", optional = true }
+stylos   = { git = "https://github.com/tasanakorn/stylos.git", tag = "v0.2.1", optional = true }
 zenoh    = { version = "=1.9.0", optional = true }
 hostname = { version = "0.4",    optional = true }
 
