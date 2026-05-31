@@ -2,6 +2,8 @@
 
 Exercises all four zenoh interaction primitives across stylos peers. Spec: PRD-019 §4.8.
 
+> **The scripts and binaries below now live in the external [stylos repo](https://github.com/tasanakorn/stylos), not this monorepo.** Run them from a stylos checkout — drop the `apps/stylos/` prefix (e.g. `cd apps/stylos` → the stylos repo root, `apps/stylos/scripts/` → `scripts/`).
+
 ## Status
 
 | Primitive         |  Rust ↔ Rust  |     Rust ↔ Go    | Notes                                                                    |

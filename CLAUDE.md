@@ -109,6 +109,15 @@ Single async process: axum serves HTTP, rmcp handles MCP protocol framing, SQLit
 
 For the full component map see [docs/architecture.md](docs/architecture.md). For server internals (entry points, startup flow, MCP/REST layers, rmcp conventions, tray, shutdown) see [docs/stele/server.md](docs/stele/server.md).
 
+## Stylos (external shared crate)
+
+Stylos — the zenoh-based interconnect layer — is **not in this monorepo**. It was extracted to its own repo, [github.com/tasanakorn/stylos](https://github.com/tasanakorn/stylos), to serve as a shared standard (there is no `apps/stylos/` anymore). That repo holds the `stylos` library crate, the `stylos-cli`, the Go sidecar, and the cross-language interop scripts.
+
+- **stele-server consumes it** as a pinned git dependency — `stylos = { git = "https://github.com/tasanakorn/stylos.git", tag = "v0.2.1", optional = true }` in `apps/stele/crates/stele-server/Cargo.toml`, gated behind the `stylos` feature (on by default via `desktop`/`headless`). All symbols are imported from the crate root (`use stylos::{...}`).
+- **To bump:** cut a new tag in the stylos repo, then move the `tag = "..."` in stele-server's Cargo.toml and regenerate the lockfile. The library API is wire-compatible across patch releases.
+- **Docker:** the crate is fetched over HTTPS at build time; the builder image installs `git` + `ca-certificates`. The Dockerfile no longer copies any local stylos tree.
+- **Protocol specs** still live in [docs/stylos/](docs/stylos/) — they are the canonical reference for the addressing grammar, discovery, and transport.
+
 ## Data Model
 
 Two axes: **scope** (one per memory, hierarchical, prefix-matched — `team-a` matches `team-a/frontend` etc.) and **tags** (many per memory, flat, union-by-default or intersection with `match_all_tags`). Full-text search via SQLite FTS5, kept in sync by triggers.
