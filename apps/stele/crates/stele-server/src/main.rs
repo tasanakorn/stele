@@ -65,7 +65,7 @@ async fn run_server(
     // survives STELE_BIND rebinds.
     #[cfg(feature = "stylos")]
     let stylos_handle = if stylos_settings.enabled {
-        match stylos_module::start(&stylos_settings, ct.clone()).await {
+        match stylos_module::start(&stylos_settings, ct.clone(), pool.clone()).await {
             Ok(h) => {
                 if let Some(shared) = &stylos_status_shared {
                     if let Ok(mut guard) = shared.write() {

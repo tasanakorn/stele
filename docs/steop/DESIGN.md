@@ -110,6 +110,8 @@ The only `steop_*` table that remains on stele-server is `steop_mailbox`, docume
 
 ### 5.1 `steop_mailbox` — inter-session messaging (stele-server)
 
+> **v0.20.0 / [PRD-027](../prd/prd-027-postal-mailbox.md): the mailbox the steop client talks to gained a parallel zenoh surface and per-node storage.** A decentralized **postal mailbox** now lives in stele-server: mail is addressed `host:project_dir` with an optional `attention` envelope, stored at the **destination** node, and delivered cross-machine over the stylos mesh via an origin outbox + retry worker. The `steop_mailbox` table was reshaped into `mailbox_inbox` (gaining `mail_uid` + `attention`), plus new `mailbox_outbox` (origin spool) and `mailbox_agent_alias` (attention registry) tables. This is **additive**: the steop Go client's mailbox usage is unchanged — it still calls the legacy `POST /api/v1/steop/mailbox.*` REST path, which now reads/writes `mailbox_inbox`. See PRD-027 for the full design.
+
 Rewritten in v0.8.0 (drop-and-recreate; v0.7 rows are not preserved — see `docs/prd/prd-001-mailbox-v2.md` §9.1). Messages may flow between any combination of principals.
 
 #### Schema

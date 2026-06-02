@@ -3,6 +3,8 @@ mod commands;
 mod config;
 mod mcp_proxy;
 mod output;
+#[cfg(feature = "mail")]
+mod stylos_client;
 
 use clap::{Parser, Subcommand};
 use client::SteleClient;
@@ -23,6 +25,13 @@ struct Cli {
 
     #[arg(long, env = "STELE_AUTH_KEY", help = "Override auth key")]
     auth_key: Option<String>,
+
+    #[arg(
+        long,
+        env = "STELE_ZENOH_ENDPOINT",
+        help = "Override zenoh endpoint of the local node (mail surface)"
+    )]
+    zenoh_endpoint: Option<String>,
 
     #[arg(long, help = "Output raw JSON instead of formatted text")]
     json: bool,
@@ -114,6 +123,13 @@ enum Commands {
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
+    },
+
+    #[cfg(feature = "mail")]
+    #[command(about = "Postal mailbox (send/list/read/archive/get/outbox/register)")]
+    Mail {
+        #[command(subcommand)]
+        command: commands::mail::MailCommands,
     },
 }
 
@@ -270,6 +286,7 @@ fn main() {
         profile: cli.profile,
         server_url: cli.server_url,
         auth_key: cli.auth_key,
+        zenoh_endpoint: cli.zenoh_endpoint,
     };
 
     // Config commands don't need a server connection
@@ -301,7 +318,28 @@ fn main() {
         return;
     }
 
-    let (url, key, host) = resolve_connection(&cli_args);
+    let (url, key, host, zenoh_endpoint) = resolve_connection(&cli_args);
+    #[cfg(not(feature = "mail"))]
+    let _ = zenoh_endpoint;
+
+    #[cfg(feature = "mail")]
+    if let Commands::Mail { command } = cli.command {
+        let realm = std::env::var("STELE_STYLOS_REALM").unwrap_or_else(|_| "dev".to_string());
+        let conn = commands::mail::MailConn {
+            host: host.clone(),
+            zenoh_endpoint,
+            realm,
+        };
+        let code = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt.block_on(commands::mail::run_mail(command, conn)),
+            Err(e) => {
+                eprintln!("failed to start runtime: {e}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
+
     let client = SteleClient::new(url, key).with_host(host);
     let json = cli.json;
 
@@ -494,5 +532,8 @@ fn main() {
         },
 
         Commands::Config { .. } | Commands::Mcp => unreachable!(),
+
+        #[cfg(feature = "mail")]
+        Commands::Mail { .. } => unreachable!(),
     }
 }

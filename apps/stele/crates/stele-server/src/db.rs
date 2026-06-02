@@ -138,21 +138,51 @@ pub fn init_db(path: &str) -> rusqlite::Result<DbPool> {
             VALUES (new.rowid, new.content);
         END;
 
-        CREATE TABLE IF NOT EXISTS steop_mailbox (
+        CREATE TABLE IF NOT EXISTS mailbox_inbox (
             message_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-            from_id      TEXT NOT NULL,
-            to_id        TEXT NOT NULL,
-            subject      TEXT NOT NULL DEFAULT '',
-            message_type TEXT NOT NULL DEFAULT 'NOTE',
-            meta         TEXT NOT NULL DEFAULT '{}',
-            payload      TEXT NOT NULL DEFAULT '{}',
-            created_at   TEXT NOT NULL,
-            status       TEXT NOT NULL DEFAULT 'NEW'
+            mail_uid     TEXT    NOT NULL UNIQUE,
+            to_project   TEXT    NOT NULL,
+            attention    TEXT,
+            from_addr    TEXT    NOT NULL,
+            subject      TEXT    NOT NULL DEFAULT '',
+            message_type TEXT    NOT NULL DEFAULT 'NOTE',
+            meta         TEXT    NOT NULL DEFAULT '{}',
+            payload      TEXT    NOT NULL DEFAULT '{}',
+            created_at   TEXT    NOT NULL,
+            status       TEXT    NOT NULL DEFAULT 'NEW'
         );
-        CREATE INDEX IF NOT EXISTS idx_steop_mailbox_to
-            ON steop_mailbox(to_id, status, created_at);
-        CREATE INDEX IF NOT EXISTS idx_steop_mailbox_from
-            ON steop_mailbox(from_id, created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_mailbox_inbox_uid
+            ON mailbox_inbox(mail_uid);
+        CREATE INDEX IF NOT EXISTS idx_mailbox_inbox_to
+            ON mailbox_inbox(to_project, status, created_at);
+
+        CREATE TABLE IF NOT EXISTS mailbox_outbox (
+            mail_uid          TEXT    PRIMARY KEY,
+            to_host           TEXT    NOT NULL,
+            to_project        TEXT    NOT NULL,
+            attention         TEXT,
+            from_addr         TEXT    NOT NULL,
+            subject           TEXT    NOT NULL DEFAULT '',
+            message_type      TEXT    NOT NULL DEFAULT 'NOTE',
+            meta              TEXT    NOT NULL DEFAULT '{}',
+            payload           TEXT    NOT NULL DEFAULT '{}',
+            status            TEXT    NOT NULL DEFAULT 'QUEUED',
+            attempts          INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at   TEXT    NOT NULL,
+            last_error        TEXT,
+            remote_message_id INTEGER,
+            created_at        TEXT    NOT NULL,
+            delivered_at      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_mailbox_outbox_due
+            ON mailbox_outbox(status, next_attempt_at);
+
+        CREATE TABLE IF NOT EXISTS mailbox_agent_alias (
+            alias        TEXT    NOT NULL,
+            project_dir  TEXT    NOT NULL,
+            last_seen    TEXT    NOT NULL,
+            PRIMARY KEY (project_dir, alias)
+        );
         ",
     )?;
 
@@ -1204,21 +1234,43 @@ pub fn open_entities(
     })
 }
 
-// ── Steop mailbox ────────────────────────────────────────────────────────────
+// ── Mailbox (postal, PRD-027) ────────────────────────────────────────────────
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct SteopMailboxRow {
+pub struct MailboxRow {
     pub message_id: i64,
+    pub mail_uid: String,
+    pub to_project: String,
+    pub attention: Option<String>,
     #[serde(rename = "from")]
-    pub from_id: String,
-    #[serde(rename = "to")]
-    pub to_id: String,
+    pub from_addr: String,
     pub subject: String,
     pub message_type: String,
     pub meta: serde_json::Value,
     pub payload: serde_json::Value,
     pub created_at: String,
     pub status: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OutboxRow {
+    pub mail_uid: String,
+    pub to_host: String,
+    pub to_project: String,
+    pub attention: Option<String>,
+    #[serde(rename = "from")]
+    pub from_addr: String,
+    pub subject: String,
+    pub message_type: String,
+    pub meta: serde_json::Value,
+    pub payload: serde_json::Value,
+    pub status: String,
+    pub attempts: i64,
+    pub next_attempt_at: String,
+    pub last_error: Option<String>,
+    pub remote_message_id: Option<i64>,
+    pub created_at: String,
+    pub delivered_at: Option<String>,
 }
 
 fn steop_now() -> String {
@@ -1249,101 +1301,123 @@ pub enum MailboxTransition {
     Conflict(String),
 }
 
-pub fn steop_mailbox_send(
+const INBOX_COLS: &str = "message_id, mail_uid, to_project, attention, from_addr, \
+     subject, message_type, meta, payload, created_at, status";
+
+/// Insert a delivered/local mail row, deduping on `mail_uid`.
+/// Returns `(message_id, "stored"|"duplicate")`.
+#[allow(clippy::too_many_arguments)]
+pub fn mailbox_inbox_upsert(
     conn: &Connection,
-    from_id: &str,
-    to_id: &str,
+    mail_uid: &str,
+    to_project: &str,
+    attention: Option<&str>,
+    from_addr: &str,
     subject: &str,
     message_type: &str,
     meta: &serde_json::Value,
     payload: &serde_json::Value,
-) -> rusqlite::Result<SteopMailboxRow> {
+    status: &str,
+) -> rusqlite::Result<(i64, String)> {
     let now = steop_now();
-    conn.execute(
-        "INSERT INTO steop_mailbox
-         (from_id, to_id, subject, message_type, meta, payload, created_at, status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'NEW')",
+    let inserted = conn.execute(
+        "INSERT INTO mailbox_inbox
+         (mail_uid, to_project, attention, from_addr, subject, message_type, meta, payload, created_at, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         ON CONFLICT(mail_uid) DO NOTHING",
         rusqlite::params![
-            from_id,
-            to_id,
+            mail_uid,
+            to_project,
+            attention,
+            from_addr,
             subject,
             message_type,
             meta.to_string(),
             payload.to_string(),
             now,
+            status,
         ],
     )?;
-    let rowid = conn.last_insert_rowid();
-    steop_mailbox_get(conn, rowid)
-        .map(|row| row.expect("row just inserted must exist"))
+    let message_id: i64 = conn.query_row(
+        "SELECT message_id FROM mailbox_inbox WHERE mail_uid = ?1",
+        rusqlite::params![mail_uid],
+        |r| r.get(0),
+    )?;
+    let outcome = if inserted == 1 { "stored" } else { "duplicate" };
+    Ok((message_id, outcome.to_string()))
 }
 
-pub fn steop_mailbox_get(
+pub fn mailbox_inbox_get(
     conn: &Connection,
     message_id: i64,
-) -> rusqlite::Result<Option<SteopMailboxRow>> {
+) -> rusqlite::Result<Option<MailboxRow>> {
     use rusqlite::OptionalExtension;
     OptionalExtension::optional(conn.query_row(
-        "SELECT message_id, from_id, to_id, subject, message_type, meta, payload, created_at, status
-         FROM steop_mailbox WHERE message_id = ?1",
+        &format!("SELECT {} FROM mailbox_inbox WHERE message_id = ?1", INBOX_COLS),
         rusqlite::params![message_id],
-        steop_row_to_mailbox,
+        mailbox_row_from,
     ))
 }
 
-pub fn steop_mailbox_list(
+/// List inbox rows for `to_project` visible to the caller's alias set.
+/// A row is visible when `attention IS NULL` (household), `attention = '*'`
+/// (broadcast), or `lower(attention)` is one of `aliases` (already lowercased
+/// by the caller). `statuses` is non-empty (handler defaults).
+pub fn mailbox_inbox_list(
     conn: &Connection,
-    to_id: &str,
+    to_project: &str,
+    aliases: &[String],
     statuses: &[String],
-    message_type: Option<&str>,
-    limit: i64,
-) -> rusqlite::Result<Vec<SteopMailboxRow>> {
-    // Caller guarantees statuses is non-empty (handler defaults to ["NEW"]).
-    let placeholders: Vec<String> = (0..statuses.len())
-        .map(|i| format!("?{}", i + 2))
-        .collect();
-    let status_clause = format!("status IN ({})", placeholders.join(","));
-
-    let mut sql = format!(
-        "SELECT message_id, from_id, to_id, subject, message_type, meta, payload, created_at, status
-         FROM steop_mailbox WHERE to_id = ?1 AND {}",
-        status_clause
-    );
-
-    let next_idx = statuses.len() + 2;
-    if message_type.is_some() {
-        sql.push_str(&format!(" AND message_type = ?{}", next_idx));
-    }
-    let limit_idx = if message_type.is_some() { next_idx + 1 } else { next_idx };
-    sql.push_str(&format!(" ORDER BY created_at ASC LIMIT ?{}", limit_idx));
-
-    let mut stmt = conn.prepare(&sql)?;
+) -> rusqlite::Result<Vec<MailboxRow>> {
     let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-    args.push(Box::new(to_id.to_string()));
+    args.push(Box::new(to_project.to_string()));
+
+    // attention clause
+    let mut attention_clause = String::from("(attention IS NULL OR attention = '*'");
+    if !aliases.is_empty() {
+        let mut placeholders: Vec<String> = Vec::new();
+        for a in aliases {
+            args.push(Box::new(a.to_lowercase()));
+            placeholders.push(format!("?{}", args.len()));
+        }
+        attention_clause.push_str(&format!(
+            " OR lower(attention) IN ({})",
+            placeholders.join(",")
+        ));
+    }
+    attention_clause.push(')');
+
+    // status clause
+    let mut status_placeholders: Vec<String> = Vec::new();
     for s in statuses {
         args.push(Box::new(s.clone()));
+        status_placeholders.push(format!("?{}", args.len()));
     }
-    if let Some(mt) = message_type {
-        args.push(Box::new(mt.to_string()));
-    }
-    args.push(Box::new(limit));
+    let status_clause = format!("status IN ({})", status_placeholders.join(","));
 
+    let sql = format!(
+        "SELECT {} FROM mailbox_inbox \
+         WHERE to_project = ?1 AND {} AND {} \
+         ORDER BY created_at ASC LIMIT 1000",
+        INBOX_COLS, attention_clause, status_clause
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
     let param_refs: Vec<&dyn rusqlite::ToSql> =
         args.iter().map(|b| b.as_ref() as &dyn rusqlite::ToSql).collect();
-
     let rows = stmt
-        .query_map(param_refs.as_slice(), steop_row_to_mailbox)?
+        .query_map(param_refs.as_slice(), mailbox_row_from)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
 
-pub fn steop_mailbox_read(
+pub fn mailbox_inbox_read(
     conn: &Connection,
     message_id: i64,
 ) -> rusqlite::Result<MailboxTransition> {
     use rusqlite::OptionalExtension;
     let current: Option<String> = OptionalExtension::optional(conn.query_row(
-        "SELECT status FROM steop_mailbox WHERE message_id = ?1",
+        "SELECT status FROM mailbox_inbox WHERE message_id = ?1",
         rusqlite::params![message_id],
         |r| r.get(0),
     ))?;
@@ -1355,52 +1429,19 @@ pub fn steop_mailbox_read(
         return Ok(MailboxTransition::Conflict(current));
     }
     conn.execute(
-        "UPDATE steop_mailbox SET status='READ' WHERE message_id = ?1",
+        "UPDATE mailbox_inbox SET status='READ' WHERE message_id = ?1",
         rusqlite::params![message_id],
     )?;
     Ok(MailboxTransition::Ok)
 }
 
-pub fn steop_mailbox_update_meta(
-    conn: &mut Connection,
-    message_id: i64,
-    meta_patch: serde_json::Value,
-) -> rusqlite::Result<Option<SteopMailboxRow>> {
-    use rusqlite::OptionalExtension;
-    let tx = conn.transaction()?;
-    let current_meta: Option<String> = OptionalExtension::optional(tx.query_row(
-        "SELECT meta FROM steop_mailbox WHERE message_id = ?1",
-        rusqlite::params![message_id],
-        |r| r.get(0),
-    ))?;
-    let current_meta_s = match current_meta {
-        None => return Ok(None),
-        Some(s) => s,
-    };
-    let mut merged = steop_parse_json(&current_meta_s);
-    steop_json_merge(&mut merged, meta_patch);
-    let merged_s = merged.to_string();
-    tx.execute(
-        "UPDATE steop_mailbox SET meta = ?1 WHERE message_id = ?2",
-        rusqlite::params![merged_s, message_id],
-    )?;
-    let row = tx.query_row(
-        "SELECT message_id, from_id, to_id, subject, message_type, meta, payload, created_at, status
-         FROM steop_mailbox WHERE message_id = ?1",
-        rusqlite::params![message_id],
-        steop_row_to_mailbox,
-    )?;
-    tx.commit()?;
-    Ok(Some(row))
-}
-
-pub fn steop_mailbox_archive(
+pub fn mailbox_inbox_archive(
     conn: &Connection,
     message_id: i64,
 ) -> rusqlite::Result<MailboxTransition> {
     use rusqlite::OptionalExtension;
     let current: Option<String> = OptionalExtension::optional(conn.query_row(
-        "SELECT status FROM steop_mailbox WHERE message_id = ?1",
+        "SELECT status FROM mailbox_inbox WHERE message_id = ?1",
         rusqlite::params![message_id],
         |r| r.get(0),
     ))?;
@@ -1412,24 +1453,225 @@ pub fn steop_mailbox_archive(
         return Ok(MailboxTransition::Conflict(current));
     }
     conn.execute(
-        "UPDATE steop_mailbox SET status='ARCHIVE' WHERE message_id = ?1",
+        "UPDATE mailbox_inbox SET status='ARCHIVE' WHERE message_id = ?1",
         rusqlite::params![message_id],
     )?;
     Ok(MailboxTransition::Ok)
 }
 
-fn steop_row_to_mailbox(row: &rusqlite::Row) -> rusqlite::Result<SteopMailboxRow> {
-    let meta_s: String = row.get(5)?;
-    let payload_s: String = row.get(6)?;
-    Ok(SteopMailboxRow {
+#[allow(dead_code)]
+pub fn mailbox_inbox_update_meta(
+    conn: &mut Connection,
+    message_id: i64,
+    meta_patch: serde_json::Value,
+) -> rusqlite::Result<Option<MailboxRow>> {
+    use rusqlite::OptionalExtension;
+    let tx = conn.transaction()?;
+    let current_meta: Option<String> = OptionalExtension::optional(tx.query_row(
+        "SELECT meta FROM mailbox_inbox WHERE message_id = ?1",
+        rusqlite::params![message_id],
+        |r| r.get(0),
+    ))?;
+    let current_meta_s = match current_meta {
+        None => return Ok(None),
+        Some(s) => s,
+    };
+    let mut merged = steop_parse_json(&current_meta_s);
+    steop_json_merge(&mut merged, meta_patch);
+    let merged_s = merged.to_string();
+    tx.execute(
+        "UPDATE mailbox_inbox SET meta = ?1 WHERE message_id = ?2",
+        rusqlite::params![merged_s, message_id],
+    )?;
+    let row = tx.query_row(
+        &format!("SELECT {} FROM mailbox_inbox WHERE message_id = ?1", INBOX_COLS),
+        rusqlite::params![message_id],
+        mailbox_row_from,
+    )?;
+    tx.commit()?;
+    Ok(Some(row))
+}
+
+fn mailbox_row_from(row: &rusqlite::Row) -> rusqlite::Result<MailboxRow> {
+    let meta_s: String = row.get(7)?;
+    let payload_s: String = row.get(8)?;
+    Ok(MailboxRow {
         message_id: row.get(0)?,
-        from_id: row.get(1)?,
-        to_id: row.get(2)?,
-        subject: row.get(3)?,
-        message_type: row.get(4)?,
+        mail_uid: row.get(1)?,
+        to_project: row.get(2)?,
+        attention: row.get(3)?,
+        from_addr: row.get(4)?,
+        subject: row.get(5)?,
+        message_type: row.get(6)?,
         meta: steop_parse_json(&meta_s),
         payload: steop_parse_json(&payload_s),
-        created_at: row.get(7)?,
-        status: row.get(8)?,
+        created_at: row.get(9)?,
+        status: row.get(10)?,
     })
+}
+
+// ── Outbox (origin spool) ─────────────────────────────────────────────────────
+
+const OUTBOX_COLS: &str = "mail_uid, to_host, to_project, attention, from_addr, \
+     subject, message_type, meta, payload, status, attempts, next_attempt_at, \
+     last_error, remote_message_id, created_at, delivered_at";
+
+#[allow(clippy::too_many_arguments)]
+pub fn mailbox_outbox_enqueue(
+    conn: &Connection,
+    mail_uid: &str,
+    to_host: &str,
+    to_project: &str,
+    attention: Option<&str>,
+    from_addr: &str,
+    subject: &str,
+    message_type: &str,
+    meta: &serde_json::Value,
+    payload: &serde_json::Value,
+) -> rusqlite::Result<()> {
+    let now = steop_now();
+    conn.execute(
+        "INSERT INTO mailbox_outbox
+         (mail_uid, to_host, to_project, attention, from_addr, subject, message_type,
+          meta, payload, status, attempts, next_attempt_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'QUEUED', 0, ?10, ?10)
+         ON CONFLICT(mail_uid) DO NOTHING",
+        rusqlite::params![
+            mail_uid,
+            to_host,
+            to_project,
+            attention,
+            from_addr,
+            subject,
+            message_type,
+            meta.to_string(),
+            payload.to_string(),
+            now,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Return `QUEUED` rows whose `next_attempt_at <= now`, oldest first.
+pub fn mailbox_outbox_due(conn: &Connection, now: &str) -> rusqlite::Result<Vec<OutboxRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM mailbox_outbox \
+         WHERE status = 'QUEUED' AND next_attempt_at <= ?1 \
+         ORDER BY next_attempt_at ASC",
+        OUTBOX_COLS
+    ))?;
+    let rows = stmt
+        .query_map(rusqlite::params![now], outbox_row_from)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn mailbox_outbox_list(
+    conn: &Connection,
+    statuses: &[String],
+) -> rusqlite::Result<Vec<OutboxRow>> {
+    let placeholders: Vec<String> = (0..statuses.len())
+        .map(|i| format!("?{}", i + 1))
+        .collect();
+    let sql = format!(
+        "SELECT {} FROM mailbox_outbox WHERE status IN ({}) ORDER BY created_at ASC LIMIT 1000",
+        OUTBOX_COLS,
+        placeholders.join(",")
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let args: Vec<&dyn rusqlite::ToSql> =
+        statuses.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let rows = stmt
+        .query_map(args.as_slice(), outbox_row_from)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Update outbox lifecycle fields after a delivery attempt.
+pub fn mailbox_outbox_mark(
+    conn: &Connection,
+    mail_uid: &str,
+    status: &str,
+    attempts: i64,
+    next_attempt_at: &str,
+    last_error: Option<&str>,
+    remote_message_id: Option<i64>,
+    delivered_at: Option<&str>,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE mailbox_outbox
+         SET status = ?2, attempts = ?3, next_attempt_at = ?4, last_error = ?5,
+             remote_message_id = ?6, delivered_at = ?7
+         WHERE mail_uid = ?1",
+        rusqlite::params![
+            mail_uid,
+            status,
+            attempts,
+            next_attempt_at,
+            last_error,
+            remote_message_id,
+            delivered_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn outbox_row_from(row: &rusqlite::Row) -> rusqlite::Result<OutboxRow> {
+    let meta_s: String = row.get(7)?;
+    let payload_s: String = row.get(8)?;
+    Ok(OutboxRow {
+        mail_uid: row.get(0)?,
+        to_host: row.get(1)?,
+        to_project: row.get(2)?,
+        attention: row.get(3)?,
+        from_addr: row.get(4)?,
+        subject: row.get(5)?,
+        message_type: row.get(6)?,
+        meta: steop_parse_json(&meta_s),
+        payload: steop_parse_json(&payload_s),
+        status: row.get(9)?,
+        attempts: row.get(10)?,
+        next_attempt_at: row.get(11)?,
+        last_error: row.get(12)?,
+        remote_message_id: row.get(13)?,
+        created_at: row.get(14)?,
+        delivered_at: row.get(15)?,
+    })
+}
+
+// ── Agent alias registry ──────────────────────────────────────────────────────
+
+/// Upsert caller aliases for `project_dir`. Aliases are lowercased; the reserved
+/// `*` alias is rejected (skipped). Returns the accepted (lowercased) aliases.
+pub fn mailbox_alias_upsert(
+    conn: &Connection,
+    project_dir: &str,
+    aliases: &[String],
+) -> rusqlite::Result<Vec<String>> {
+    let now = steop_now();
+    let mut accepted = Vec::new();
+    for a in aliases {
+        let lower = a.trim().to_lowercase();
+        if lower.is_empty() || lower == "*" {
+            continue;
+        }
+        conn.execute(
+            "INSERT INTO mailbox_agent_alias (project_dir, alias, last_seen)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(project_dir, alias) DO UPDATE SET last_seen = excluded.last_seen",
+            rusqlite::params![project_dir, lower, now],
+        )?;
+        accepted.push(lower);
+    }
+    Ok(accepted)
+}
+
+pub fn mailbox_alias_list(conn: &Connection, project_dir: &str) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT alias FROM mailbox_agent_alias WHERE project_dir = ?1 ORDER BY alias ASC",
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::params![project_dir], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
 }
