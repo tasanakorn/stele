@@ -8,6 +8,10 @@ description = "CLI client for Stele shared memory server"
 name = "stele"
 path = "src/main.rs"
 
+[features]
+default = ["mail"]
+mail = ["dep:stylos", "dep:zenoh", "dep:tokio"]
+
 [dependencies]
 stele-common = { path = "../stele-common" }
 clap = { version = "4", features = ["derive", "env"] }
@@ -17,3 +21,8 @@ ureq = { version = "2", features = ["json"] }
 toml = "0.8"
 dirs = "6"
 gethostname = "1"
+
+# Mail feature (transient zenoh peer) — see github.com/tasanakorn/stylos
+stylos = { git = "https://github.com/tasanakorn/stylos.git", tag = "v0.2.1", optional = true }
+zenoh  = { version = "=1.9.0", optional = true }
+tokio  = { version = "1", features = ["rt-multi-thread", "macros", "time"], optional = true }

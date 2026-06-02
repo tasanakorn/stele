@@ -48,6 +48,7 @@ Forward-looking design docs. Filename convention: `prd-NNN-<slug>.md`. Numbers a
 | [prd-024-rename-st-xp-to-st-lite](prd/prd-024-rename-st-xp-to-st-lite.md)        | Proposed            | Rename /steop:st-xp skill to /steop:st-lite to avoid Agile XP methodology confusion.                |
 | [prd-025-brief-fields-karpathy](prd/prd-025-brief-fields-karpathy.md)            | Implemented v0.19.1 | Karpathy-aligned Brief fields (Assumptions, Success criteria) for /steop:st-prd and /steop:st-lite. |
 | [prd-026-karpathy-pipeline-skills](prd/prd-026-karpathy-pipeline-skills.md)      | Implemented v0.19.2 | Karpathy alignment for /steop:st-flow and 5 standalone phase skills; adds 3 new override blocks.    |
+| [prd-027-postal-mailbox](prd/prd-027-postal-mailbox.md)                          | Implemented v0.20.0 | Decentralized per-node mailbox: store mail at the destination node, attention envelope, zenoh deliver + origin-outbox retry. |
 
 ## Stele server (`stele/`)
 

@@ -131,6 +131,8 @@ struct MailboxSendReq {
     #[serde(default)]
     from: Option<String>,
     #[serde(default)]
+    attention: Option<String>,
+    #[serde(default)]
     subject: Option<String>,
     #[serde(default)]
     message_type: Option<String>,
@@ -145,11 +147,15 @@ struct MailboxListReq {
     id: String,
     #[serde(default)]
     to: Option<String>,
+    #[serde(default)]
+    attention: Option<String>,
     #[serde(default, deserialize_with = "string_or_string_vec_opt")]
     status: Option<Vec<String>>,
     #[serde(default)]
+    #[allow(dead_code)]
     message_type: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     limit: Option<i64>,
 }
 
@@ -205,9 +211,10 @@ async fn mailbox_send(State(db): State<DbPool>, Json(req): Json<MailboxSendReq>)
         }
         None => compose_id(&caller),
     };
-    if let Err(e) = parse_id(&req.to) {
-        return err400(format!("to: {}", e));
-    }
+    let to = match parse_id(&req.to) {
+        Ok(p) => p,
+        Err(e) => return err400(format!("to: {}", e)),
+    };
 
     let subject = req.subject.unwrap_or_default();
     let message_type = req
@@ -216,18 +223,27 @@ async fn mailbox_send(State(db): State<DbPool>, Json(req): Json<MailboxSendReq>)
         .unwrap_or_else(|| "NOTE".to_string());
     let meta = req.meta.unwrap_or_else(|| Value::Object(Default::default()));
     let payload = req.payload.unwrap_or_else(|| Value::Object(Default::default()));
+    let mail_uid = ulid::Ulid::new().to_string();
+    let attention = req.attention.filter(|s| !s.trim().is_empty());
 
     let conn = db.lock().await;
-    match db::steop_mailbox_send(
+    match db::mailbox_inbox_upsert(
         &conn,
+        &mail_uid,
+        &to.project_dir,
+        attention.as_deref(),
         &from_id,
-        &req.to,
         &subject,
         &message_type,
         &meta,
         &payload,
+        "NEW",
     ) {
-        Ok(row) => Json(row).into_response(),
+        Ok((message_id, _)) => match db::mailbox_inbox_get(&conn, message_id) {
+            Ok(Some(row)) => Json(row).into_response(),
+            Ok(None) => err500("row just inserted not found"),
+            Err(e) => err500(e),
+        },
         Err(e) => err500(e),
     }
 }
@@ -237,14 +253,12 @@ async fn mailbox_list(State(db): State<DbPool>, Json(req): Json<MailboxListReq>)
         Ok(p) => p,
         Err(e) => return err400(format!("id: {}", e)),
     };
-    let to_id = match req.to {
-        Some(t) => {
-            if let Err(e) = parse_id(&t) {
-                return err400(format!("to: {}", e));
-            }
-            t
-        }
-        None => compose_id(&caller),
+    let to = match req.to {
+        Some(t) => match parse_id(&t) {
+            Ok(p) => p,
+            Err(e) => return err400(format!("to: {}", e)),
+        },
+        None => caller,
     };
     let statuses = req.status.unwrap_or_else(|| vec!["NEW".to_string()]);
     for s in &statuses {
@@ -253,16 +267,16 @@ async fn mailbox_list(State(db): State<DbPool>, Json(req): Json<MailboxListReq>)
             other => return err400(format!("status: invalid value '{}'", other)),
         }
     }
-    let limit = req.limit.unwrap_or(200).clamp(1, 1000);
+    // REST callers select by a single optional attention. When absent, only
+    // household/broadcast rows are visible (backward-compatible).
+    let aliases: Vec<String> = req
+        .attention
+        .filter(|s| !s.trim().is_empty())
+        .map(|a| vec![a])
+        .unwrap_or_default();
 
     let conn = db.lock().await;
-    match db::steop_mailbox_list(
-        &conn,
-        &to_id,
-        &statuses,
-        req.message_type.as_deref(),
-        limit,
-    ) {
+    match db::mailbox_inbox_list(&conn, &to.project_dir, &aliases, &statuses) {
         Ok(messages) => Json(json!({ "messages": messages })).into_response(),
         Err(e) => err500(e),
     }
@@ -273,7 +287,7 @@ async fn mailbox_get(State(db): State<DbPool>, Json(req): Json<MailboxRowReq>) -
         return err400(format!("id: {}", e));
     }
     let conn = db.lock().await;
-    match db::steop_mailbox_get(&conn, req.message_id) {
+    match db::mailbox_inbox_get(&conn, req.message_id) {
         Ok(Some(row)) => Json(row).into_response(),
         Ok(None) => not_found(),
         Err(e) => err500(e),
@@ -285,7 +299,7 @@ async fn mailbox_read(State(db): State<DbPool>, Json(req): Json<MailboxRowReq>) 
         return err400(format!("id: {}", e));
     }
     let conn = db.lock().await;
-    match db::steop_mailbox_read(&conn, req.message_id) {
+    match db::mailbox_inbox_read(&conn, req.message_id) {
         Ok(db::MailboxTransition::Ok) => {
             Json(json!({ "message_id": req.message_id, "status": "READ" })).into_response()
         }
@@ -306,7 +320,7 @@ async fn mailbox_update_meta(
         return err400(format!("id: {}", e));
     }
     let mut conn = db.lock().await;
-    match db::steop_mailbox_update_meta(&mut conn, req.message_id, req.meta_patch) {
+    match db::mailbox_inbox_update_meta(&mut conn, req.message_id, req.meta_patch) {
         Ok(Some(row)) => Json(row).into_response(),
         Ok(None) => not_found(),
         Err(e) => err500(e),
@@ -318,7 +332,7 @@ async fn mailbox_archive(State(db): State<DbPool>, Json(req): Json<MailboxRowReq
         return err400(format!("id: {}", e));
     }
     let conn = db.lock().await;
-    match db::steop_mailbox_archive(&conn, req.message_id) {
+    match db::mailbox_inbox_archive(&conn, req.message_id) {
         Ok(db::MailboxTransition::Ok) => Json(json!({
             "message_id": req.message_id,
             "status": "ARCHIVE"

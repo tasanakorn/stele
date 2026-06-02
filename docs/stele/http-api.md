@@ -389,7 +389,9 @@ Open specific entities by name with their direct neighbor relations.
 
 ## Steop Extensions
 
-The stele server hosts the cross-agent RPC surface used by the **steop** workflow pipeline at `/api/v1/steop/*`. These endpoints live in the same process but are served by a separate router (`apps/stele/crates/stele-server/src/steop_api.rs`) and back onto the `steop_mailbox` table. Design rationale and schema details are in [`../steop/DESIGN.md`](../steop/DESIGN.md).
+The stele server hosts the cross-agent RPC surface used by the **steop** workflow pipeline at `/api/v1/steop/*`. These endpoints live in the same process but are served by a separate router (`apps/stele/crates/stele-server/src/steop_api.rs`) and back onto the reshaped `mailbox_inbox` table (formerly `steop_mailbox`). Design rationale and schema details are in [`../steop/DESIGN.md`](../steop/DESIGN.md).
+
+> **As of v0.20.0 ([PRD-027](../prd/prd-027-postal-mailbox.md)) the primary mailbox surface is the zenoh `stele mail` CLI** — node-to-node postal delivery over the stylos mesh, addressed `host:project_dir` with an optional `attention` envelope. The REST routes below are the **legacy steop-client path**, retained unchanged for the steop Go binary (`apps/steop/internal/client/mailbox.go`). They now read/write the reshaped `mailbox_inbox` table.
 
 > The session, state, storage, and log surfaces moved to a steop-local SQLite at v0.16.0 per [PRD-020](../prd/prd-020-steop-local-backend.md). Only `mailbox` and `notify` remain on stele-server as the cross-agent surface.
 
@@ -423,12 +425,14 @@ The server validates segment grammar but not semantic correctness (hostname form
 
 | Method                      | Body                                                      | Response                   |
 | --------------------------- | --------------------------------------------------------- | -------------------------- |
-| `steop.mailbox.send`        | `{id, to, from?, subject?, message_type?, meta?, payload?}` | `MailboxRow`             |
-| `steop.mailbox.list`        | `{id, to?, status?=["NEW"], message_type?, limit?=200}`   | `{messages: MailboxRow[]}` |
+| `steop.mailbox.send`        | `{id, to, from?, attention?, subject?, message_type?, meta?, payload?}` | `MailboxRow`   |
+| `steop.mailbox.list`        | `{id, to?, attention?, status?=["NEW"], message_type?, limit?=200}` | `{messages: MailboxRow[]}` |
 | `steop.mailbox.get`         | `{id, message_id}`                                        | `MailboxRow`               |
 | `steop.mailbox.read`        | `{id, message_id}`                                        | `{message_id, status:"READ"}`     |
 | `steop.mailbox.archive`     | `{id, message_id}`                                        | `{message_id, status:"ARCHIVE"}`  |
 | `steop.mailbox.update_meta` | `{id, message_id, meta_patch}`                            | `MailboxRow`               |
+
+**`attention` (v0.20.0, optional, backward-compatible).** `mailbox.send` and `mailbox.list` accept an optional `attention` field (the postal recipient selector, [PRD-027](../prd/prd-027-postal-mailbox.md)). On `send`, absent → household mail (stored `null`). On `list`, it filters to the caller's alias plus household/broadcast rows. Old callers that omit it (the steop Go client) are unaffected.
 
 Sender may be any principal (project, session, or user). Recipient may be any principal. The server derives `from` from the caller's `id` when `from` is omitted — explicit `from` overrides. Ordered `created_at` ASC (FIFO). Status lifecycle is `NEW -> READ -> ARCHIVE`: `mailbox.read` transitions `NEW -> READ`, `mailbox.archive` transitions `NEW -> ARCHIVE` or `READ -> ARCHIVE`. Illegal transitions return 409. `mailbox.get` is side-effect-free. Default `list` filter is `status:["NEW"]`; pass an explicit array to widen. `mailbox.update_meta` shallow-merges the supplied `meta_patch` object into the target row's `meta` column (keys in the patch overwrite top-level keys in the existing meta, others preserved, nested objects replaced wholesale) and returns the updated row; does not touch `status`, so legal on any row regardless of lifecycle state. Returns 404 on unknown `message_id`. See `docs/prd/prd-001-mailbox-v2.md` for the normative spec and `docs/prd/prd-014-mailbox-watch-flag-parsing.md` for the `update_meta` design.
 
@@ -446,8 +450,10 @@ Fire-and-forget local OS notification. Desktop builds render via system notifica
 // MailboxRow
 {
   "message_id":   1234,
+  "mail_uid":     "string (server-minted ULID, v0.20.0 — global dedupe key)",
   "from":         "string (composite id: HOST:PROJECT_DIR[:SESSION_UUID|:USER])",
   "to":           "string (composite id)",
+  "attention":    "string | null (v0.20.0 — recipient selector; null = household)",
   "subject":      "string",
   "message_type": "string (HOOK:* | TASK:* | NOTE:* | CHAT:MESSAGE)",
   "meta":         {},

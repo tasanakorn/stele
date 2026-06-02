@@ -15,6 +15,12 @@ pub struct Profile {
     pub auth_key: Option<String>,
     #[serde(default)]
     pub host: Option<String>,
+    #[serde(default = "default_zenoh_endpoint")]
+    pub zenoh_endpoint: String,
+}
+
+pub fn default_zenoh_endpoint() -> String {
+    "tcp/127.0.0.1:31747".to_string()
 }
 
 impl Default for SteleConfig {
@@ -26,6 +32,7 @@ impl Default for SteleConfig {
                 server_url: "http://127.0.0.1:3100".to_string(),
                 auth_key: None,
                 host: None,
+                zenoh_endpoint: default_zenoh_endpoint(),
             },
         );
         Self {
@@ -139,9 +146,12 @@ pub struct CliArgs {
     pub profile: Option<String>,
     pub server_url: Option<String>,
     pub auth_key: Option<String>,
+    pub zenoh_endpoint: Option<String>,
 }
 
-pub fn resolve_connection(cli_args: &CliArgs) -> (String, Option<String>, Option<String>) {
+pub fn resolve_connection(
+    cli_args: &CliArgs,
+) -> (String, Option<String>, Option<String>, String) {
     // CLI flags > env vars > profile from config > defaults
     let config = load_config();
     let profile_name = cli_args
@@ -171,5 +181,15 @@ pub fn resolve_connection(cli_args: &CliArgs) -> (String, Option<String>, Option
 
     let host = profile.and_then(|p| p.host.clone());
 
-    (url, key, host)
+    let zenoh_endpoint = if let Some(ref e) = cli_args.zenoh_endpoint {
+        e.clone()
+    } else if let Ok(e) = std::env::var("STELE_ZENOH_ENDPOINT") {
+        e
+    } else {
+        profile
+            .map(|p| p.zenoh_endpoint.clone())
+            .unwrap_or_else(default_zenoh_endpoint)
+    };
+
+    (url, key, host, zenoh_endpoint)
 }

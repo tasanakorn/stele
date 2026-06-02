@@ -1,4 +1,6 @@
-use crate::config::{config_path, load_config, save_config, Profile, SteleConfig};
+use crate::config::{
+    config_path, default_zenoh_endpoint, load_config, save_config, Profile, SteleConfig,
+};
 
 pub fn handle_config_init() {
     let path = config_path();
@@ -39,12 +41,17 @@ pub fn handle_config_set(name: &str, url: &str, key: Option<String>, set_default
         .profiles
         .get(name)
         .and_then(|p| p.host.clone());
+    let existing_endpoint = config
+        .profiles
+        .get(name)
+        .map(|p| p.zenoh_endpoint.clone());
     config.profiles.insert(
         name.to_string(),
         Profile {
             server_url: url.to_string(),
             auth_key: key,
             host: existing_host,
+            zenoh_endpoint: existing_endpoint.unwrap_or_else(default_zenoh_endpoint),
         },
     );
     if set_default {
